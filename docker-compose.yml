@@ -1,0 +1,54 @@
+services:
+  postgres:
+    container_name: topicstreams-postgres
+    image: postgres:18-alpine
+    env_file:
+      - .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - topicstreams-network
+
+  api:
+    container_name: topicstreams-api
+    build:
+      context: .
+      target: api
+    env_file:
+      - .env
+    ports:
+      - 5000:${API_PORT}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - topicstreams-network
+
+  scraper:
+    container_name: topicstreams-scraper
+    build:
+      context: .
+      target: scraper
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - topicstreams-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  topicstreams-network:
+    driver: bridge
