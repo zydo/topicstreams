@@ -34,11 +34,11 @@ class Settings(BaseSettings):
         ),
     )
 
-    non_first_cycle_max_pages: int = Field(
+    max_pages: int = Field(
         default=1,
         ge=1,
         description=(
-            "Maximum number of pages to scrape in non-first cycles (default: 1). "
+            "Maximum number of pages to scrape in each cycles (default: 1). "
             "Increase if scrape_interval is long and high-volume topics exceed 10 new "
             "articles per cycle."
         ),
@@ -74,9 +74,7 @@ class Settings(BaseSettings):
             raise ValueError(f"{info.field_name} cannot be empty when provided")
         return str(v).strip() if v else v
 
-    @field_validator(
-        "scrape_interval", "api_port", "postgres_port", "non_first_cycle_max_pages"
-    )
+    @field_validator("scrape_interval", "api_port", "postgres_port", "max_pages")
     @classmethod
     def convert_int(cls, v):
         if isinstance(v, str):
