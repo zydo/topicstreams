@@ -257,10 +257,10 @@ All configuration is done via environment variables in the `.env` file. Copy `.e
 
 ### Scraper Settings
 
-| Variable                    | Default | Description                                                                                                                                                                                        |
-| --------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SCRAPE_INTERVAL`           | `60`    | Interval in seconds between scrape cycles (measured from start to start). Set to `0` or negative for continuous scraping with no delay. See [Scrape Interval Behavior](#scrape-interval-behavior). |
-| `NON_FIRST_CYCLE_MAX_PAGES` | `1`     | Number of result pages to scrape after first cycle. First cycle scrapes all available pages. Increase if you have high-volume topics or longer intervals.                                          |
+| Variable          | Default | Description                                                                                                                                                                                        |
+| ----------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SCRAPE_INTERVAL` | `60`    | Interval in seconds between scrape cycles (measured from start to start). Set to `0` or negative for continuous scraping with no delay. See [Scrape Interval Behavior](#scrape-interval-behavior). |
+| `MAX_PAGES`       | `1`     | Number of result pages to scrape. Increase if you have high-volume topics or longer intervals.                                                                                                     |
 
 ### Browser Fingerprinting (Anti-Detection)
 
@@ -442,11 +442,9 @@ Cycle 1: Scrape all topics (30s) → Wait 30s → Cycle 2 starts at exactly 60s
 Cycle 1: Scrape all topics (90s) → No wait → Cycle 2 starts immediately at 90s
 ```
 
-**First cycle vs subsequent cycles:**
+**Result pages:**
 
-When the service starts, the **first cycle scrapes all available result pages** for each topic (typically <10 pages due to the "recent 1 hour" filter) to build a baseline dataset. From the **second cycle onward**, only the first `NON_FIRST_CYCLE_MAX_PAGES` (default: 1) pages are scraped.
-
-This strategy assumes that between scrape intervals, the number of new articles per topic doesn't exceed one page (typically up to 10 entries). If you have high-volume topics or longer intervals (e.g., >5 minutes), increase `NON_FIRST_CYCLE_MAX_PAGES` to 2-3 to avoid missing articles.
+During each cycle, only the first `MAX_PAGES` (default: 1) pages of each topic are scraped. This strategy assumes that between scrape intervals, the number of new articles per topic doesn't exceed one page (typically up to 10 entries). If you have high-volume topics or longer intervals (e.g., >5 minutes), increase `MAX_PAGES` to 2-3 to avoid missing articles.
 
 **Key points:**
 
@@ -475,7 +473,7 @@ topicstreams-scraper  | 2025-12-03 22:50:26,914 - INFO - 5 topics took 7.2s, wai
 
 - If cycles consistently exceed the interval, consider:
   - Increasing `SCRAPE_INTERVAL`
-  - Reducing `NON_FIRST_CYCLE_MAX_PAGES` (scrape fewer pages per topic)
+  - Reducing `MAX_PAGES` (scrape fewer pages per topic)
   - Reducing the number of tracked topics
 - If you see frequent HTTP 429 or 403 errors in logs (check via [scraper logs API](#get-scraper-logs)), you're being rate-limited or blocked
   - For high-volume needs, see [Proxy Rotation](#proxy-rotation)

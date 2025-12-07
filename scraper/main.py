@@ -4,21 +4,19 @@ This module initializes the Playwright browser and runs the scraper loop
 to continuously collect news articles for tracked topics.
 
 Scraping Strategy:
-    - First cycle: Scrapes all available result pages for each topic to populate database
-    - Subsequent cycles: Scrapes configurable number of pages (NON_FIRST_CYCLE_MAX_PAGES,
-      default: 1) for efficiency
+    - Scrapes configurable number of pages (MAX_PAGES, default: 1) for efficiency
     - Since results are sorted by recency and filtered to the past hour, new articles
       always appear on the first few pages
 
 IMPORTANT Assumption:
     This strategy assumes the scrape interval is short enough that new entries between
-    cycles do not exceed number of results from the first NON_FIRST_CYCLE_MAX_PAGES 
-    pages (10 results per page). If more new articles are published for a topic between 
-    scrapes than fit on the configured pages, older articles will be missed.
+    cycles do not exceed number of results from the first MAX_PAGES pages (10 results
+    per page). If more new articles are published for a topic between scrapes than fit
+    on the configured pages, older articles will be missed.
 
     If you set a longer scrape interval (e.g., >5 minutes for high-volume topics),
-    set the NON_FIRST_CYCLE_MAX_PAGES environment variable to a larger number 
-    (e.g., 2-3) to avoid missing news articles.
+    set the MAX_PAGES environment variable to a larger number (e.g., 2-3) to avoid
+    missing news articles.
 """
 
 import logging
@@ -110,28 +108,23 @@ def main():
 
             stealth = Stealth()
 
-            is_first_cycle = True
             while True:
-                cycle_start = time.time()
+                cycle_start, cycle_success = time.time(), False
                 try:
                     topics = [topic.name for topic in db.get_topics()]
                     shuffle(topics)
                     logger.info(f"Scraping for {len(topics)} topics (randomized order)")
 
                     all_entries, all_logs = [], []
-                    for topic in topics:
-                        # Topics from database are already normalized
-                        # First cycle: scrape all pages; subsequent cycles: configurable limit
-                        max_pages = (
-                            None
-                            if is_first_cycle
-                            else settings.non_first_cycle_max_pages
-                        )
-                        # Create new page per topic to prevent memory accumulation in long-running scraper
+                    for topic in topics:  # Topics from database are already normalized
+                        # Create new page per topic to prevent memory accumulation in
+                        # long-running scraper
                         page = context.new_page()
                         stealth.apply_stealth_sync(page)
                         try:
-                            entries, scraper_logs = scrape_news(page, topic, max_pages)
+                            entries, scraper_logs = scrape_news(
+                                page, topic, settings.max_pages
+                            )
                             all_entries.extend(entries)
                             all_logs.extend(scraper_logs)
                         finally:
@@ -141,10 +134,9 @@ def main():
                     logger.info(f"Found {len(new_entries)} new news entries")
 
                     db.insert_news_entries(new_entries)
-
                     _add_to_seen_entries(new_entries)
-
                     db.insert_scraper_logs(all_logs)
+                    cycle_success = True
 
                 except KeyboardInterrupt:
                     logger.info("Scraper interrupted by user")
@@ -153,27 +145,21 @@ def main():
                 except Exception as e:
                     logger.error(f"Error in scraping loop: {e}")
                     logger.error(f"Full traceback:\n{traceback.format_exc()}")
-                finally:
-                    # After first cycle (success or failure), limit pages per configured setting
-                    if is_first_cycle:
-                        is_first_cycle = False
-                        logger.info(
-                            f"First cycle completed - subsequent cycles will scrape "
-                            f"{settings.non_first_cycle_max_pages} page(s) per topic"
-                        )
+
+                if cycle_success:
+                    logger.info(f"{len(topics)} topics took {elapsed:.1f}s")
+                else:
+                    logger.error(f"Scrape failed in {elapsed:.1f}s")
 
                 elapsed = time.time() - cycle_start
                 sleep_time = max(0, settings.scrape_interval - elapsed)
-
                 if sleep_time > 0:
-                    logger.info(
-                        f"{len(topics)} topics took {elapsed:.1f}s, waiting {sleep_time:.1f}s until next scrape..."
-                    )
+                    logger.info(f"Waiting {sleep_time:.1f}s until next scrape...")
                     time.sleep(sleep_time)
                 else:
                     logger.info(
-                        f"{len(topics)} topics took {elapsed:.1f}s (exceeds {settings.scrape_interval}s interval),"
-                        " starting next cycle immediately"
+                        f"Cycle elapsed time (exceeds {settings.scrape_interval}s "
+                        "interval), starting next cycle immediately"
                     )
 
         finally:
