@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TopicStreams - Real-time News Aggregator</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="header-title">
+                    <h1><i class="fas fa-newspaper"></i> TopicStreams</h1>
+                    <p class="subtitle">Real-time News Aggregator</p>
+                </div>
+                <div class="header-links">
+                    <a href="https://github.com/zydo/topicstreams" target="_blank" rel="noopener noreferrer" class="github-link" title="View on GitHub">
+                        <i class="fab fa-github"></i>
+                        <span class="github-text">GitHub</span>
+                    </a>
+                </div>
+            </div>
+        </header>
+
+        <!-- Status Panel -->
+        <section class="status-panel">
+            <h2><i class="fas fa-tachometer-alt"></i> System Status</h2>
+            <div class="status-grid">
+                <div class="status-item">
+                    <span class="status-label">Scraper Status</span>
+                    <span class="status-value" id="scraper-status">
+                        <i class="fas fa-spinner fa-spin"></i> Loading...
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Last Scrape</span>
+                    <span class="status-value" id="last-scrape">Loading...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Active Topics</span>
+                    <span class="status-value" id="active-topics">Loading...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Total News</span>
+                    <span class="status-value" id="total-news">Loading...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Topic Management -->
+        <section class="topic-management">
+            <h2><i class="fas fa-tags"></i> Topic Management</h2>
+            <div class="topic-controls">
+                <div class="add-topic">
+                    <input type="text" id="topic-input" placeholder="Enter a topic to track..." maxlength="100">
+                    <button id="add-topic-btn"><i class="fas fa-plus"></i> Add Topic</button>
+                </div>
+            </div>
+            <div class="topics-list" id="topics-list">
+                <h3>Active Topics</h3>
+                <div class="topic-cards" id="topic-cards">
+                    <div class="loading">Loading topics...</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Real-time News Feed -->
+        <section class="news-feed">
+            <h2><i class="fas fa-rss"></i> Real-time News Feed</h2>
+            <div class="feed-controls">
+                <select id="topic-filter">
+                    <option value="">All Topics</option>
+                </select>
+                <button id="clear-feed"><i class="fas fa-trash"></i> Clear</button>
+            </div>
+            <div class="news-container" id="news-container">
+                <div class="no-news">Waiting for news updates...</div>
+            </div>
+        </section>
+
+        <!-- Logs Panel -->
+        <section class="logs-panel">
+            <h2><i class="fas fa-file-alt"></i> Recent Scraper Logs</h2>
+            <div class="logs-container" id="logs-container">
+                <div class="loading">Loading logs...</div>
+            </div>
+        </section>
+    </div>
+
+    <!-- News Item Template -->
+    <template id="news-item-template">
+        <div class="news-item">
+            <div class="news-header">
+                <h4 class="news-title"></h4>
+                <span class="news-time"></span>
+            </div>
+            <div class="news-meta">
+                <span class="news-topic"></span>
+                <a class="news-link" href="" target="_blank">
+                    <i class="fas fa-external-link-alt"></i> Source
+                </a>
+            </div>
+            <p class="news-snippet"></p>
+        </div>
+    </template>
+
+    <!-- Topic Card Template -->
+    <template id="topic-card-template">
+        <div class="topic-card">
+            <div class="topic-info">
+                <h3 class="topic-name"></h3>
+            </div>
+            <div class="topic-actions">
+                <button class="subscribe-btn" title="Subscribe to real-time updates">
+                    <i class="fas fa-plus"></i>
+                </button>
+                <button class="delete-btn" title="Delete topic">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    </template>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
