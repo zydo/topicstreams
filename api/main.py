@@ -12,7 +12,10 @@ from typing import Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
 
 from common.database import close_pool
 from common.settings import settings
@@ -52,6 +55,32 @@ app = FastAPI(
     default_response_class=PrettyJSONResponse,
 )
 
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify actual origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount static files for the web UI
+static_dir = Path("/app/api/static") # In-container path
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+# Root endpoint to serve the web UI
+@app.get("/")
+async def read_root():
+    """Serve the main web UI page."""
+    index_file = static_dir / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
+    return JSONResponse(
+        status_code=404,
+        content={"error": "Web UI not found", "message": "Static files not available"}
+    )
 
 app.include_router(v1_router)
 

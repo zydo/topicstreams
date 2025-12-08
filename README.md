@@ -38,7 +38,7 @@ TopicStreams scrapes **Google Search → News Tab** with time filters, giving yo
 
 ## Try It Live
 
-**Experience TopicStreams in action**: `http://topicstreams.dongziyu.com:8080`
+**Experience TopicStreams in action**: [http://topicstreams.dongziyu.com:8080](http://topicstreams.dongziyu.com:8080)
 
 ### Quick Demo
 
@@ -145,6 +145,31 @@ TopicStreams consists of three main components:
 That's it! All dependencies (Python, PostgreSQL, Playwright browsers) are handled inside containers.
 
 > **Optional:** Install [websocat](https://github.com/vi/websocat) for WebSocket testing (used for demo in this article), or use any WebSocket client you prefer.
+
+## Web UI
+
+TopicStreams includes a modern, responsive Web UI that provides a complete dashboard for monitoring and managing your news aggregation system.
+
+### Features
+
+- **System Status Dashboard** - Real-time monitoring of scraper health and activity
+- **Topic Management** - Easy add/remove topics with visual feedback
+- **Real-time News Feed** - Live updates with WebSocket connections
+- **Scraper Logs Panel** - Historical activity monitoring
+
+### Access the Web UI
+
+After [Quick Start](#quick-start), simply open your browser and navigate to:
+
+```plaintext
+http://localhost:5000
+```
+
+<p align="center">
+<img src="docs/pic/ui_screenshot.png" alt="TopicStreams Web UI - Complete dashboard for real-time news aggregation" width="600"/>
+<br/>
+<em>TopicStreams Web UI - Complete dashboard for real-time news aggregation</em>
+</p>
 
 ## Quick Start
 
