@@ -464,9 +464,11 @@ docker compose logs -f scraper | grep 'topics took'
 **Example output:**
 
 ```plaintext
-topicstreams-scraper  | 2025-12-03 22:47:50,978 - INFO - 5 topics took 72.1s (exceeds 60s interval), starting next cycle immediately
+topicstreams-scraper  | 2025-12-03 22:47:50,978 - INFO - 50 topics took 72.1s (exceeds 60s interval), starting next cycle immediately
+```
+
+```plaintext
 topicstreams-scraper  | 2025-12-03 22:49:27,978 - INFO - 5 topics took 8.3s, waiting 51.7s until next scrape...
-topicstreams-scraper  | 2025-12-03 22:50:26,914 - INFO - 5 topics took 7.2s, waiting 52.8s until next scrape...
 ```
 
 **What to look for:**
