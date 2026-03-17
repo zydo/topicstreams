@@ -419,214 +419,25 @@ For detailed information about scraping behavior, monitoring, and scaling strate
 
 ## Authentication & Security
 
-> **Not implemented yet** - The current project is designed for **localhost/LAN access only** and has **no authentication or security features**.
+> **Not implemented yet** - For security recommendations and implementation strategies, see [Authentication & Security](docs/AUTHENTICATION_SECURITY.md).
 
-### Current State: Localhost/LAN Only
+**Quick links:**
 
-TopicStreams is intentionally minimal and assumes deployment in a **trusted environment**:
-
-- Perfect for: Local machine, home network, trusted team LAN
-- **NOT safe for**: Public internet exposure without additional security layers
-
-**No built-in security:**
-
-- No user authentication or authorization
-- No API rate limiting (anyone can flood the API)
-- No protection against DDOS or malicious attacks
-- No HTTPS/SSL encryption
-- No input sanitization beyond basic validation
-- No CORS configuration for browser security
-
-### Recommended Solutions
-
-#### 1. Authentication & Authorization
-
-**API Key Authentication (Simple):**
-
-```python
-# Future implementation example
-@app.middleware("http")
-async def verify_api_key(request: Request, call_next):
-    api_key = request.headers.get("X-API-Key")
-    if api_key not in valid_api_keys:
-        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
-    return await call_next(request)
-```
-
-**JWT Token Authentication (Advanced):**
-
-```python
-# User login returns JWT token
-# All subsequent requests include: Authorization: Bearer <token>
-# Supports user roles, expiration, refresh tokens
-```
-
-**OAuth2/OpenID Connect:**
-
-- Integrate with existing identity providers (Google, GitHub, Auth0)
-- Best for multi-user scenarios
-
-#### 2. API Rate Limiting
-
-Protect against abuse and DDOS:
-
-```python
-# Future implementation with slowapi
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-
-limiter = Limiter(key_func=get_remote_address)
-
-@app.get("/api/v1/topics")
-@limiter.limit("100/minute")  # Max 100 requests per minute per IP
-async def get_topics():
-    ...
-```
-
-#### 3. Cloudflare (Recommended for Public Deployment)
-
-Put Cloudflare in front of your service:
-
-```plaintext
-Internet → Cloudflare → Your Server
-```
-
-**Free tier includes:**
-
-- DDoS protection (automatic)
-- SSL/TLS encryption (automatic)
-- CDN caching (for API responses if configured)
-- Web Application Firewall (WAF) rules
-- Rate limiting (configurable rules)
-- Bot protection
-- Analytics and logging
-
-**Paid tiers add:**
-
-- Advanced WAF rules
-- Image optimization
-- Argo smart routing (faster)
-- Higher rate limits
-
-#### 4. Additional Security Measures
-
-**CORS Configuration:**
-
-```python
-from fastapi.middleware.cors import CORSMiddleware
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://yourdomain.com"],  # Specific domains only
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["*"],
-)
-```
-
-**Monitoring & Alerting:**
-
-- Log all authentication failures
-- Monitor API usage patterns
-- Alert on unusual activity (sudden traffic spikes, repeated 401s)
+- [**Current state**](docs/AUTHENTICATION_SECURITY.md#current-state-localhostlan-only) - Localhost/LAN only, no built-in security
+- [**Authentication**](docs/AUTHENTICATION_SECURITY.md#1-authentication--authorization) - API keys, JWT, OAuth2 options
+- [**Rate limiting**](docs/AUTHENTICATION_SECURITY.md#2-api-rate-limiting) - Protect against abuse and DDOS
+- [**Cloudflare**](docs/AUTHENTICATION_SECURITY.md#3-cloudflare-recommended-for-public-deployment) - Recommended for public deployment
 
 ## WebSocket Scalability
 
-> **Not implemented yet** - The current WebSocket implementation uses simple broadcasting that doesn't scale beyond a limited number of subscribers.
+> **Not implemented yet** - For scalability recommendations and implementation strategies, see [WebSocket Scalability](docs/WEBSOCKET_SCALABILITY.md).
 
-### Current State: Simple Broadcasting
+**Quick links:**
 
-TopicStreams uses a straightforward approach for WebSocket message distribution:
-
-```python
-# Current implementation (simplified)
-async def broadcast_news_update(news_entry: NewsEntry):
-    for websocket in connected_websockets[topic]:
-        try:
-            await websocket.send_json(news_entry.dict())
-        except ConnectionClosedOK:
-            connected_websockets[topic].remove(websocket)
-```
-
-**How it works:**
-
-- Each WebSocket connection is stored in memory
-- When new news arrives, the server iterates through ALL connected clients for that topic
-- Messages are sent one-by-one to each subscriber
-- Failed connections are cleaned up during broadcasting
-
-### Scalability Limitations
-
-**This approach has significant limitations:**
-
-1. **O(n) Broadcast Cost** - Sending to 1000 subscribers requires 1000 separate send operations
-2. **Memory Usage** - All WebSocket connections stored in server memory
-3. **Single Point of Failure** - If one server restarts, all connections are lost
-4. **No Load Distribution** - All broadcasting load handled by single server instance
-5. **Slow Message Delivery** - Large subscriber bases experience delivery delays
-
-### Recommended Solutions
-
-#### 1. Redis Pub/Sub
-
-```python
-# Future implementation with Redis
-import redis
-import json
-
-async def publish_news_update(news_entry: NewsEntry):
-    redis_client = redis.Redis()
-    await redis_client.publish(
-        f"news_updates:{news_entry.topic}",
-        json.dumps(news_entry.dict())
-    )
-
-# WebSocket servers subscribe to Redis channels
-async def redis_subscriber():
-    pubsub = redis_client.pubsub()
-    await pubsub.subscribe("news_updates:*")
-
-    async for message in pubsub.listen():
-        if message['type'] == 'message':
-            await broadcast_to_local_clients(message['data'])
-```
-
-**Benefits:**
-
-- **O(1) Publish Cost** - Single publish operation regardless of subscriber count
-- **Horizontal Scaling** - Multiple WebSocket servers can subscribe to same Redis channels
-- **Fault Tolerance** - Redis handles message queuing and delivery
-- **Low Latency** - Optimized binary protocol for message distribution
-
-**Implementation:**
-
-- Add Redis to docker-compose.yml
-- Modify WebSocket servers to publish/subscribe via Redis
-- Each server only manages its local connections
-- Redis handles cross-server message distribution
-
-#### 2. Apache Kafka
-
-For very large-scale deployments (10K+ subscribers):
-
-```python
-# Future implementation with Kafka
-from kafka import KafkaProducer
-
-async def publish_news_update(news_entry: NewsEntry):
-    producer = KafkaProducer(
-        bootstrap_servers=['kafka:9092'],
-        value_serializer=lambda v: json.dumps(v).encode()
-    )
-    producer.send(f"news-updates-{news_entry.topic}", news_entry.dict())
-```
-
-**Benefits:**
-
-- **Message Persistence** - Messages stored on disk, can replay missed updates
-- **Partitioning** - Natural load distribution across multiple consumers
-- **Exactly-Once Semantics** - Guaranteed message delivery without duplication
-- **Backpressure Handling** - Natural flow control for slow consumers
+- [**Current state**](docs/WEBSOCKET_SCALABILITY.md#current-state-simple-broadcasting) - Simple in-memory broadcasting
+- [**Limitations**](docs/WEBSOCKET_SCALABILITY.md#scalability-limitations) - O(n) broadcast cost, single point of failure
+- [**Redis Pub/Sub**](docs/WEBSOCKET_SCALABILITY.md#1-redis-pubsub) - Horizontal scaling with O(1) publish cost
+- [**Apache Kafka**](docs/WEBSOCKET_SCALABILITY.md#2-apache-kafka) - For very large-scale deployments (10K+ subscribers)
 
 ## API Reference
 
