@@ -47,3 +47,7 @@ Thumbs.db
 
 # Linters
 .markdownlint.json
+
+# Configuration (local copies from templates)
+config/*.yml
+!config/*.yml.example

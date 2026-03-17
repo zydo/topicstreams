@@ -5,7 +5,33 @@ TopicStreams uses two types of configuration files:
 - `.env` file for database and API settings (via environment variables)
 - YAML files in `config/` directory for scraper and anti-detection settings
 
-Copy `.env.example` to `.env` to get started with default values.
+## First-Time Setup
+
+Before running the application, you must create your configuration files from templates:
+
+```bash
+# Copy environment variables template
+cp .env.example .env
+
+# Create YAML configuration files from templates
+cp config/scraper.yml.example config/scraper.yml
+cp config/anti_detection.yml.example config/anti_detection.yml
+
+# Optional: Edit the configurations with your settings
+vim config/scraper.yml
+vim config/anti_detection.yml
+
+# Now start the application
+docker compose up
+```
+
+The application will **not** start without these configuration files. If you try to start without them, you'll see an error with instructions on how to create them.
+
+**How YAML configuration works:**
+- Template files (`.yml.example`) are tracked in git and contain sensible defaults
+- Your local `.yml` files are gitignored and contain your custom settings
+- You can modify your `.yml` files anytime, and changes will be preserved
+- To reset to defaults, delete your local `.yml` files and re-copy from the templates
 
 ## Environment Variables (.env)
 
@@ -204,15 +230,34 @@ When `user_agent_rotation.enabled` is `false`, the scraper uses the static `user
 
 ## Reloading Configuration
 
-After editing YAML configuration files, restart the scraper to apply changes:
+**Editing configuration:**
+
+- YAML configs: Edit the generated `.yml` files in `config/` directory (not the `.yml.example` templates)
+- Environment variables: Edit the `.env` file in the project root
+
+**After editing YAML configuration files, restart the scraper to apply changes:**
 
 ```bash
 docker compose restart scraper
 ```
 
-For database or API settings changes (`.env`), restart the entire stack:
+**For database or API settings changes (`.env`), restart the entire stack:**
 
 ```bash
+docker compose restart
+```
+
+**To reset configuration to defaults:**
+
+```bash
+# Delete your local config files
+rm config/scraper.yml config/anti_detection.yml
+
+# Re-copy from templates
+cp config/scraper.yml.example config/scraper.yml
+cp config/anti_detection.yml.example config/anti_detection.yml
+
+# Restart the application
 docker compose restart
 ```
 

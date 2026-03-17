@@ -1,6 +1,6 @@
 # Anti-Bot Detection
 
-> **Configuration:** All anti-detection strategies are configurable via `config/anti_detection.yml`. See [YAML Configuration Files](../README.md#yaml-configuration-files) for details on customizing each strategy.
+> **Configuration:** All anti-detection strategies are configurable via `config/anti_detection.yml` (created from `config/anti_detection.yml.example` template on first-time setup). See [Configuration](docs/CONFIGURATION.md) for details on customizing each strategy.
 
 TopicStreams uses sophisticated techniques to make the scraper appear as a real human user, minimizing the risk of being blocked by Google.
 

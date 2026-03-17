@@ -276,7 +276,7 @@ TopicStreams uses sophisticated techniques to make the scraper appear as a real 
 For detailed information about anti-detection strategies (Playwright stealth, browser fingerprinting, random delays, etc.), see [Anti-Bot Detection Documentation](docs/ANTI_BOT_DETECTION.md).
 
 **Quick Reference:**
-- All anti-detection strategies are configurable via `config/anti_detection.yml`
+- All anti-detection strategies are configurable via `config/anti_detection.yml` (created from template on first-time setup)
 - See [Configuration](docs/CONFIGURATION.md#anti-detection-settings-configanti_detectionyml) for YAML configuration details
 
 ## Scraping Behavior

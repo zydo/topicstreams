@@ -30,17 +30,19 @@ class ScraperConfig:
         self._load_config()
 
     def _load_config(self) -> None:
-        """Load configuration from YAML file."""
+        """Load configuration from YAML file.
+
+        Requires the config file to exist.
+        """
+        if not self.config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {self.config_path}")
+
         try:
             with open(self.config_path, "r") as f:
                 self._config = yaml.safe_load(f) or {}
             logger.info(f"Loaded scraper config from {self.config_path}")
-        except FileNotFoundError:
-            logger.warning(f"Config file not found: {self.config_path}, using defaults")
-            self._config = self._default_config()
         except yaml.YAMLError as e:
-            logger.error(f"Error parsing config file: {e}, using defaults")
-            self._config = self._default_config()
+            raise ValueError(f"Error parsing config file {self.config_path}: {e}")
 
     def _default_config(self) -> dict:
         """Return default configuration."""
@@ -96,17 +98,19 @@ class AntiDetectionConfig:
         self._load_config()
 
     def _load_config(self) -> None:
-        """Load configuration from YAML file."""
+        """Load configuration from YAML file.
+
+        Requires the config file to exist.
+        """
+        if not self.config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {self.config_path}")
+
         try:
             with open(self.config_path, "r") as f:
                 self._config = yaml.safe_load(f) or {}
             logger.info(f"Loaded anti-detection config from {self.config_path}")
-        except FileNotFoundError:
-            logger.warning(f"Config file not found: {self.config_path}, using defaults")
-            self._config = self._default_config()
         except yaml.YAMLError as e:
-            logger.error(f"Error parsing config file: {e}, using defaults")
-            self._config = self._default_config()
+            raise ValueError(f"Error parsing config file {self.config_path}: {e}")
 
     def _default_config(self) -> Dict[str, Any]:
         """Return default configuration."""
