@@ -108,6 +108,52 @@ for topic in topics:
 
 - **Random Delays** (`random_delays.enabled`): Random delay between topics to mimic human behavior
 - **Randomized Order** (`randomized_order.enabled`): Shuffle topic order each cycle to avoid deterministic patterns
+- **User-Agent Rotation** (`user_agent_rotation.enabled`): Rotate through realistic user agents to avoid static fingerprinting
+
+### 5. User-Agent Rotation
+
+To avoid static browser fingerprints that can be flagged by Google, the scraper supports rotating through multiple realistic user agents:
+
+```python
+# Loaded from config/anti_detection.yml
+if anti_detection_config.user_agent_rotation_enabled:
+    strategy = anti_detection_config.user_agent_rotation_strategy  # "per_cycle" or "per_topic"
+
+    if strategy == "per_cycle":
+        # Rotate once per scrape cycle (all topics use same UA)
+        ua = user_agents[cycle_count % len(user_agents)]
+    elif strategy == "per_topic":
+        # Rotate for each topic (each topic gets different UA)
+        ua = user_agents[topic_index % len(user_agents)]
+```
+
+**Configuration:**
+
+```yaml
+browser_fingerprint:
+  user_agent_rotation:
+    enabled: true
+    strategy: "per_topic"  # "per_cycle" or "per_topic"
+    user_agents:
+      - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ..."
+      - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ..."
+      - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 ..."
+      # ... more user agents
+```
+
+**Why this matters:**
+
+- Cloud VM IPs often have static user agents that get flagged
+- Rotating UAs makes each request appear from different browsers/OS
+- Includes Chrome, Firefox, Safari variants across Windows, macOS, and Linux
+- Helps avoid pattern detection by Google's anti-bot systems
+
+**Strategy comparison:**
+
+| Strategy | Description | Performance | Stealth |
+|----------|-------------|-------------|---------|
+| `per_cycle` | One UA per scrape cycle | Faster (fewer context creations) | Good |
+| `per_topic` | Different UA per topic | Slower (more context creations) | Better |
 
 ## What Google Sees
 
@@ -126,7 +172,7 @@ navigator.platform         // "MacIntel"
 **This is NOT perfect invisibility:**
 
 - Google can still detect patterns (same IP scraping many topics)
-- Browser fingerprints are static (not randomized per request)
+- User-Agent rotation helps, but IP-based detection is still possible
 - High request rates will still trigger blocks
 
 For high-volume or 24/7 scraping, consider [proxy rotation](../README.md#proxy-rotation) to distribute load across multiple IPs.

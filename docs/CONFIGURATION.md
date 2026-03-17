@@ -1,6 +1,7 @@
 # Configuration
 
 TopicStreams uses two types of configuration files:
+
 - `.env` file for database and API settings (via environment variables)
 - YAML files in `config/` directory for scraper and anti-detection settings
 
@@ -135,6 +136,45 @@ timezone_id: Asia/Singapore
 geolocation_latitude: 1.3521
 geolocation_longitude: 103.8198
 ```
+
+### User-Agent Rotation
+
+User-agent rotation allows the scraper to cycle through multiple realistic browser user agents to avoid static fingerprinting:
+
+```yaml
+browser_fingerprint:
+  user_agent_rotation:
+    enabled: true
+    strategy: "per_topic"  # "per_cycle" or "per_topic"
+    user_agents:
+      # Chrome on Windows
+      - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+      # Chrome on macOS
+      - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+      # Chrome on Linux
+      - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+      # Firefox variants
+      - "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0"
+      # Safari variants
+      - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15"
+```
+
+**User-Agent Rotation Settings:**
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `enabled` | `false` | Enable or disable user-agent rotation |
+| `strategy` | `"per_topic"` | `"per_cycle"` (rotate once per scrape cycle) or `"per_topic"` (rotate per topic) |
+| `user_agents` | `[]` | List of user-agent strings to rotate through |
+
+**Strategy Comparison:**
+
+| Strategy | Description | Performance | Recommended For |
+|----------|-------------|-------------|-----------------|
+| `per_cycle` | One UA per scrape cycle | Faster (fewer context creations) | Lower topic counts |
+| `per_topic` | Different UA per topic | Slower (more context creations) | Higher topic counts, better stealth |
+
+When `user_agent_rotation.enabled` is `false`, the scraper uses the static `user_agent` value.
 
 ## Reloading Configuration
 

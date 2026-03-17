@@ -127,6 +127,33 @@ class AntiDetectionConfig:
                 "browser_fingerprint": {
                     "enabled": True,
                     "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                    "user_agent_rotation": {
+                        "enabled": False,
+                        "strategy": "per_topic",
+                        "user_agents": [
+                            # Chrome on Windows
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+                            # Chrome on macOS
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+                            # Chrome on Linux
+                            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+                            # Firefox on Windows
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+                            # Firefox on macOS
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0",
+                            # Firefox on Linux
+                            "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0",
+                            "Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0",
+                            # Safari on macOS
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
+                        ],
+                    },
                     "viewport_width": 1920,
                     "viewport_height": 1080,
                     "locale": "en-US",
@@ -242,12 +269,37 @@ class AntiDetectionConfig:
 
     @property
     def user_agent(self) -> str:
-        """Get browser user agent."""
+        """Get browser user agent (static fallback)."""
         return self._get(
             "anti_detection",
             "browser_fingerprint",
             "user_agent",
             default="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        )
+
+    @property
+    def user_agent_rotation_enabled(self) -> bool:
+        """Check if user agent rotation is enabled."""
+        return self._get(
+            "anti_detection", "browser_fingerprint", "user_agent_rotation", "enabled", default=False
+        )
+
+    @property
+    def user_agent_rotation_strategy(self) -> str:
+        """Get user agent rotation strategy."""
+        return self._get(
+            "anti_detection", "browser_fingerprint", "user_agent_rotation", "strategy", default="per_topic"
+        )
+
+    @property
+    def user_agent_list(self) -> List[str]:
+        """Get list of user agents for rotation."""
+        return self._get(
+            "anti_detection",
+            "browser_fingerprint",
+            "user_agent_rotation",
+            "user_agents",
+            default=[],
         )
 
     @property
