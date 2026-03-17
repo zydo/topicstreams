@@ -20,6 +20,7 @@ IMPORTANT Assumption:
 """
 
 import logging
+import random
 import time
 import traceback
 from random import shuffle
@@ -116,7 +117,12 @@ def main():
                     logger.info(f"Scraping for {len(topics)} topics (randomized order)")
 
                     all_entries, all_logs = [], []
-                    for topic in topics:  # Topics from database are already normalized
+                    for i, topic in enumerate(topics):  # Topics from database are already normalized
+                        # Add random delay between topics (2-5 seconds) to appear more human
+                        if i > 0:
+                            delay = random.uniform(2, 5)
+                            time.sleep(delay)
+
                         # Create new page per topic to prevent memory accumulation in
                         # long-running scraper
                         page = context.new_page()
@@ -146,12 +152,11 @@ def main():
                     logger.error(f"Error in scraping loop: {e}")
                     logger.error(f"Full traceback:\n{traceback.format_exc()}")
 
+                elapsed = time.time() - cycle_start
                 if cycle_success:
                     logger.info(f"{len(topics)} topics took {elapsed:.1f}s")
                 else:
                     logger.error(f"Scrape failed in {elapsed:.1f}s")
-
-                elapsed = time.time() - cycle_start
                 sleep_time = max(0, settings.scrape_interval - elapsed)
                 if sleep_time > 0:
                     logger.info(f"Waiting {sleep_time:.1f}s until next scrape...")

@@ -177,6 +177,21 @@ def _scrape_one_page(
 
         content: str = page.content()
 
+        # Save HTML for inspection when no items found
+        if "captcha" in content.lower() or "unusual traffic" in content.lower():
+            logger.error("Google detected unusual traffic - CAPTCHA or blocking detected")
+            logger.error(f"Response preview (first 500 chars): {content[:500]}")
+            return (
+                [],
+                ScraperLog.create_new(
+                    topic=topic,
+                    success=False,
+                    scraped_at=datetime.now(),
+                    http_status_code=response_status,
+                    error_message="Google CAPTCHA/blocking detected - backing off",
+                ),
+            )
+
         soup: BeautifulSoup = BeautifulSoup(content, "lxml")
 
         news_items: ResultSet = _find_news_items(soup)
