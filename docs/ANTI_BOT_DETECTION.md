@@ -59,7 +59,36 @@ context = browser.new_context(
 
 - **User Agent**: Latest Chrome version (131) on macOS
 - **Timezone & Geolocation**: Recommended to match your server's IP location (see [Configuration](../README.md#yaml-configuration-files))
-- **HTTP Headers**: Realistic Accept-Language and content type preferences
+- **HTTP Headers**: Realistic browser headers including Sec-Fetch-* and Client Hints (see below)
+
+### HTTP Headers Optimization
+
+Modern browsers send additional headers that indicate navigation intent and browser capabilities. These are configured via `http_headers.headers` in `config/anti_detection.yml`:
+
+**Sec-Fetch Headers** (indicates navigation context):
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `Sec-Fetch-Dest` | `document` | Destination of navigation (document, image, etc.) |
+| `Sec-Fetch-Mode` | `navigate` | Navigation mode (navigate, cors, no-cors) |
+| `Sec-Fetch-Site` | `none` | Relationship between request origin and destination |
+| `Sec-Fetch-User` | `?1` | Indicates user-initiated navigation |
+
+**Upgrade Hints:**
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `Upgrade-Insecure-Requests` | `1` | Prefers HTTPS over HTTP |
+
+**Client Hints** (Sec-CH-UA, modern browser capability reporting):
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `Sec-Ch-Ua` | `"Chromium";v="131", "Not_A Brand";v="24"` | Browser brand and version |
+| `Sec-Ch-Ua-Mobile` | `?0` | Mobile device indicator (?0 = no, ?1 = yes) |
+| `Sec-Ch-Ua-Platform` | `"macOS"` | Operating system platform |
+
+These headers make requests appear more like genuine browser traffic rather than automated scraping.
 
 ### 3. Playwright-Stealth Patches
 

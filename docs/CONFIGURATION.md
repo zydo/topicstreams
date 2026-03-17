@@ -101,9 +101,35 @@ anti_detection:
   http_headers:
     enabled: true
     headers:
+      # Standard browser headers
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
       Accept-Language: "en-US,en;q=0.9"
+
+      # Sec-Fetch headers (modern browser navigation indicators)
+      Sec-Fetch-Dest: "document"
+      Sec-Fetch-Mode: "navigate"
+      Sec-Fetch-Site: "none"
+      Sec-Fetch-User: "?1"
+
+      # Upgrade hints
+      Upgrade-Insecure-Requests: "1"
+
+      # Client Hints (Sec-CH-UA - browser capability reporting)
+      Sec-Ch-Ua: '"Chromium";v="131", "Not_A Brand";v="24"'
+      Sec-Ch-Ua-Mobile: "?0"
+      Sec-Ch-Ua-Platform: '"macOS"'
 ```
+
+**HTTP Headers Configuration:**
+
+| Header Category | Headers | Purpose |
+|----------------|---------|---------|
+| **Standard** | `Accept`, `Accept-Language` | Content negotiation |
+| **Sec-Fetch*** | `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site`, `Sec-Fetch-User` | Navigation context (modern browsers) |
+| **Upgrade Hints** | `Upgrade-Insecure-Requests` | HTTPS preference |
+| **Client Hints** | `Sec-Ch-Ua`, `Sec-Ch-Ua-Mobile`, `Sec-Ch-Ua-Platform` | Browser capability reporting |
+
+All headers are configurable via `config/anti_detection.yml` under the `http_headers.headers` section.
 
 ### Key Browser Fingerprinting Settings
 

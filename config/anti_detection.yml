@@ -86,5 +86,20 @@ anti_detection:
   http_headers:
     enabled: true
     headers:
+      # Standard browser headers
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
       Accept-Language: "en-US,en;q=0.9"
+
+      # Sec-Fetch headers (modern browsers)
+      Sec-Fetch-Dest: "document"
+      Sec-Fetch-Mode: "navigate"
+      Sec-Fetch-Site: "none"
+      Sec-Fetch-User: "?1"
+
+      # Upgrade hints
+      Upgrade-Insecure-Requests: "1"
+
+      # Client Hints (Sec-CH-UA)
+      Sec-Ch-Ua: '"Chromium";v="131", "Not_A Brand";v="24"'
+      Sec-Ch-Ua-Mobile: "?0"
+      Sec-Ch-Ua-Platform: '"macOS"'
