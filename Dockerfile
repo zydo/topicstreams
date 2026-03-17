@@ -50,6 +50,7 @@ RUN apt-get update && apt-get install -y \
 
 COPY scraper/ /app/scraper/
 COPY requirements/scraper.txt /app/requirements/scraper.txt
+COPY config/ /app/config/
 
 RUN pip install --no-cache-dir -r /app/requirements/scraper.txt && playwright install chromium
 

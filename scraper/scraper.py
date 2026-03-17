@@ -26,6 +26,7 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag, ResultSet
 from playwright.sync_api import Page, Response
 
+from common.config import anti_detection_config
 from common.model import NewsEntry, ScraperLog
 
 logger = logging.getLogger(__name__)
@@ -145,15 +146,31 @@ def _scrape_one_page(
 
         response_status: int = response.status
 
-        if _is_http_error(response_status):
+        # Check for HTTP errors if enabled
+        if anti_detection_config.http_error_handling_enabled:
+            if response_status in anti_detection_config.monitored_http_codes:
+                logger.error(
+                    f"HTTP ERROR {response_status} for topic '{topic}' - Request failed"
+                )
+                logger.error(f"URL: {page.url}")
+                if response_status == 429:
+                    logger.error("Rate limiting detected - Too many requests")
+                elif response_status in (403, 503):
+                    logger.error("Access blocked - May need to adjust scraping strategy")
+                return (
+                    [],
+                    ScraperLog.create_new(
+                        topic=topic,
+                        success=False,
+                        scraped_at=datetime.now(),
+                        http_status_code=response_status,
+                    ),
+                )
+        elif _is_http_error(response_status):
+            # Fallback to basic error checking if HTTP error handling is disabled
             logger.error(
                 f"HTTP ERROR {response_status} for topic '{topic}' - Request failed"
             )
-            logger.error(f"URL: {page.url}")
-            if response_status == 429:
-                logger.error("Rate limiting detected - Too many requests")
-            elif response_status in (403, 503):
-                logger.error("Access blocked - May need to adjust scraping strategy")
             return (
                 [],
                 ScraperLog.create_new(
@@ -177,20 +194,23 @@ def _scrape_one_page(
 
         content: str = page.content()
 
-        # Save HTML for inspection when no items found
-        if "captcha" in content.lower() or "unusual traffic" in content.lower():
-            logger.error("Google detected unusual traffic - CAPTCHA or blocking detected")
-            logger.error(f"Response preview (first 500 chars): {content[:500]}")
-            return (
-                [],
-                ScraperLog.create_new(
-                    topic=topic,
-                    success=False,
-                    scraped_at=datetime.now(),
-                    http_status_code=response_status,
-                    error_message="Google CAPTCHA/blocking detected - backing off",
-                ),
-            )
+        # Check for CAPTCHA or blocking if enabled
+        if anti_detection_config.captcha_detection_enabled:
+            content_lower = content.lower()
+            for keyword in anti_detection_config.captcha_keywords:
+                if keyword.lower() in content_lower:
+                    logger.error(f"Google detected unusual traffic - '{keyword}' found")
+                    logger.error(f"Response preview (first 500 chars): {content[:500]}")
+                    return (
+                        [],
+                        ScraperLog.create_new(
+                            topic=topic,
+                            success=False,
+                            scraped_at=datetime.now(),
+                            http_status_code=response_status,
+                            error_message=f"Google CAPTCHA/blocking detected ('{keyword}')",
+                        ),
+                    )
 
         soup: BeautifulSoup = BeautifulSoup(content, "lxml")
 

@@ -30,8 +30,8 @@ from playwright.sync_api import Browser, BrowserContext, sync_playwright
 from playwright_stealth import Stealth
 
 from common import database as db
+from common.config import anti_detection_config, scraper_config
 from common.model import NewsEntry
-from common.settings import settings
 from .scraper import scrape_news
 
 logging.basicConfig(
@@ -82,59 +82,80 @@ def main():
     with sync_playwright() as p:
         browser: Browser = p.chromium.launch(
             headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-blink-features=AutomationControlled",
-            ],
+            args=anti_detection_config.browser_args,
         )
 
         try:
             context: BrowserContext = browser.new_context(
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080},
-                locale="en-US",
-                timezone_id=settings.browser_timezone,
-                permissions=["geolocation"],
+                user_agent=anti_detection_config.user_agent,
+                viewport={
+                    "width": anti_detection_config.viewport_width,
+                    "height": anti_detection_config.viewport_height,
+                },
+                locale=anti_detection_config.locale,
+                timezone_id=anti_detection_config.timezone_id,
+                permissions=anti_detection_config.permissions,
                 geolocation={
-                    "latitude": settings.browser_geolocation_latitude,
-                    "longitude": settings.browser_geolocation_longitude,
+                    "latitude": anti_detection_config.geolocation_latitude,
+                    "longitude": anti_detection_config.geolocation_longitude,
                 },
-                color_scheme="light",
-                extra_http_headers={
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                },
+                color_scheme=anti_detection_config.color_scheme,
+                extra_http_headers=anti_detection_config.http_headers,
             )
 
-            stealth = Stealth()
+            # Only use playwright-stealth if enabled
+            stealth = (
+                Stealth() if anti_detection_config.playwright_stealth_enabled else None
+            )
 
             while True:
                 cycle_start, cycle_success = time.time(), False
                 try:
                     topics = [topic.name for topic in db.get_topics()]
-                    shuffle(topics)
-                    logger.info(f"Scraping for {len(topics)} topics (randomized order)")
+
+                    # Randomize topic order if enabled
+                    if anti_detection_config.randomized_order_enabled:
+                        shuffle(topics)
+                        logger.info(
+                            f"Scraping for {len(topics)} topics (randomized order)"
+                        )
+                    else:
+                        logger.info(f"Scraping for {len(topics)} topics")
 
                     all_entries, all_logs = [], []
-                    for i, topic in enumerate(topics):  # Topics from database are already normalized
-                        # Add random delay between topics (2-5 seconds) to appear more human
-                        if i > 0:
-                            delay = random.uniform(2, 5)
+                    for i, topic in enumerate(
+                        topics
+                    ):  # Topics from database are already normalized
+                        # Add random delay between topics if enabled
+                        if i > 0 and anti_detection_config.random_delays_enabled:
+                            delay = random.uniform(
+                                anti_detection_config.random_delay_min,
+                                anti_detection_config.random_delay_max,
+                            )
                             time.sleep(delay)
 
                         # Create new page per topic to prevent memory accumulation in
-                        # long-running scraper
-                        page = context.new_page()
-                        stealth.apply_stealth_sync(page)
+                        # long-running scraper (if enabled)
+                        if anti_detection_config.page_isolation_enabled:
+                            page = context.new_page()
+                        else:
+                            page = (
+                                context.new_page()
+                            )  # Fallback, always create new page
+
+                        # Apply stealth if enabled
+                        if stealth is not None:
+                            stealth.apply_stealth_sync(page)
+
                         try:
                             entries, scraper_logs = scrape_news(
-                                page, topic, settings.max_pages
+                                page, topic, scraper_config.max_pages
                             )
                             all_entries.extend(entries)
                             all_logs.extend(scraper_logs)
                         finally:
-                            page.close()
+                            if anti_detection_config.page_isolation_enabled:
+                                page.close()
 
                     new_entries = _dedup_entries(all_entries)
                     logger.info(f"Found {len(new_entries)} new news entries")
@@ -157,13 +178,13 @@ def main():
                     logger.info(f"{len(topics)} topics took {elapsed:.1f}s")
                 else:
                     logger.error(f"Scrape failed in {elapsed:.1f}s")
-                sleep_time = max(0, settings.scrape_interval - elapsed)
+                sleep_time = max(0, scraper_config.scrape_interval - elapsed)
                 if sleep_time > 0:
                     logger.info(f"Waiting {sleep_time:.1f}s until next scrape...")
                     time.sleep(sleep_time)
                 else:
                     logger.info(
-                        f"Cycle elapsed time (exceeds {settings.scrape_interval}s "
+                        f"Cycle elapsed time (exceeds {scraper_config.scrape_interval}s "
                         "interval), starting next cycle immediately"
                     )
 

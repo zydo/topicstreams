@@ -1,0 +1,7 @@
+# TopicStreams Scraper Configuration
+# Basic scraper settings
+
+scraper:
+  scrape_interval: 60  # Seconds between scrape cycles
+  max_pages: 1  # Maximum pages to scrape per topic
+  description: "Basic scraper configuration"

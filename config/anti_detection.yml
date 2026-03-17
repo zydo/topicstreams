@@ -1,0 +1,61 @@
+# TopicStreams Anti-Detection Configuration
+
+anti_detection:
+  playwright_stealth:
+    enabled: true
+    description: "Applies playwright-stealth to each page to mask automation"
+
+  browser_args:
+    enabled: true
+    args:
+      - "--no-sandbox"
+      - "--disable-setuid-sandbox"
+      - "--disable-blink-features=AutomationControlled"
+
+  page_isolation:
+    enabled: true
+    description: "Create new page per topic to prevent memory accumulation"
+
+  random_delays:
+    enabled: true
+    min_seconds: 2
+    max_seconds: 5
+    description: "Random delay between topics"
+
+  randomized_order:
+    enabled: true
+    description: "Shuffle topics each scrape cycle"
+
+  browser_fingerprint:
+    enabled: true
+    user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    viewport_width: 1920
+    viewport_height: 1080
+    locale: "en-US"
+    timezone_id: "America/Los_Angeles"
+    geolocation_latitude: 37.3273
+    geolocation_longitude: -121.954
+    color_scheme: "light"
+    permissions:
+      - "geolocation"
+
+  captcha_detection:
+    enabled: true
+    keywords:
+      - "captcha"
+      - "unusual traffic"
+    description: "Detects CAPTCHA or blocking in response HTML"
+
+  http_error_handling:
+    enabled: true
+    monitored_codes:
+      - 429 # Rate limiting
+      - 403 # Forbidden/blocked
+      - 503 # Service unavailable
+    description: "Detects and logs HTTP errors"
+
+  http_headers:
+    enabled: true
+    headers:
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+      Accept-Language: "en-US,en;q=0.9"

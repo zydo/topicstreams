@@ -260,9 +260,15 @@ docker compose down
 
 ## Configuration
 
-All configuration is done via environment variables in the `.env` file. Copy `.env.example` to get started.
+TopicStreams uses two types of configuration files:
+- `.env` file for database and API settings (via environment variables)
+- YAML files in `config/` directory for scraper and anti-detection settings
 
-### Database Settings
+Copy `.env.example` to `.env` to get started with default values.
+
+### Environment Variables (.env)
+
+#### Database Settings
 
 | Variable            | Default    | Description                                                                                    |
 | ------------------- | ---------- | ---------------------------------------------------------------------------------------------- |
@@ -274,7 +280,7 @@ All configuration is done via environment variables in the `.env` file. Copy `.e
 
 > **Note:** The PostgreSQL service is only accessible within the Docker network (not exposed to the host). Simple passwords are acceptable since the database is not publicly accessible. For direct database access, see [Database Access](#database-access).
 
-### API Settings
+#### API Settings
 
 | Variable    | Default | Description                                                      |
 | ----------- | ------- | ---------------------------------------------------------------- |
@@ -283,41 +289,116 @@ All configuration is done via environment variables in the `.env` file. Copy `.e
 
 > **Note:** The `HOST_PORT` is mapped to `API_PORT` (e.g., `HOST_PORT=80` and `API_PORT=5000` means the app listens on container port 5000 but is accessible via host port 80). For production deployments, set `HOST_PORT=80` to use the standard HTTP port.
 
-### Scraper Settings
+### YAML Configuration Files
 
-| Variable          | Default | Description                                                                                                                                                                                        |
+Scraper and anti-detection settings are configured via YAML files in the `config/` directory. These files are mounted into the containers at runtime and can be edited without rebuilding.
+
+#### Scraper Settings (`config/scraper.yml`)
+
+```yaml
+scraper:
+  scrape_interval: 60  # Seconds between scrape cycles
+  max_pages: 1         # Maximum pages to scrape per topic
+```
+
+| Setting           | Default | Description                                                                                                                                                                                        |
 | ----------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SCRAPE_INTERVAL` | `60`    | Interval in seconds between scrape cycles (measured from start to start). Set to `0` or negative for continuous scraping with no delay. See [Scrape Interval Behavior](#scrape-interval-behavior). |
-| `MAX_PAGES`       | `1`     | Number of result pages to scrape. Increase if you have high-volume topics or longer intervals.                                                                                                     |
+| `scrape_interval` | `60`    | Interval in seconds between scrape cycles (measured from start to start). Set to `0` or negative for continuous scraping with no delay. See [Scrape Interval Behavior](#scrape-interval-behavior). |
+| `max_pages`       | `1`     | Number of result pages to scrape. Increase if you have high-volume topics or longer intervals.                                                                                                     |
 
-### Browser Fingerprinting (Anti-Detection)
+#### Anti-Detection Settings (`config/anti_detection.yml`)
 
-| Variable                        | Default               | Description                                                                                                                                                                       |
-| ------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BROWSER_TIMEZONE`              | `America/Los_Angeles` | Browser timezone identifier. Recommended to match your machine's IP location to be "realistic". [List of timezones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) |
-| `BROWSER_GEOLOCATION_LATITUDE`  | `37.3273`             | Latitude coordinate (default: San Jose, CA)                                                                                                                                       |
-| `BROWSER_GEOLOCATION_LONGITUDE` | `-121.954`            | Longitude coordinate (default: San Jose, CA)                                                                                                                                      |
+```yaml
+anti_detection:
+  playwright_stealth:
+    enabled: true  # Apply playwright-stealth patches to hide automation
 
-**Example configurations:**
+  browser_args:
+    enabled: true
+    args:
+      - "--no-sandbox"
+      - "--disable-setuid-sandbox"
+      - "--disable-blink-features=AutomationControlled"
 
-```bash
+  random_delays:
+    enabled: true
+    min_seconds: 2   # Minimum delay between topics
+    max_seconds: 5   # Maximum delay between topics
+
+  randomized_order:
+    enabled: true    # Shuffle topic order each cycle
+
+  browser_fingerprint:
+    enabled: true
+    user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ..."
+    viewport_width: 1920
+    viewport_height: 1080
+    locale: "en-US"
+    timezone_id: "America/Los_Angeles"     # Recommended to match server IP
+    geolocation_latitude: 37.3273          # Recommended to match server IP
+    geolocation_longitude: -121.954         # Recommended to match server IP
+    color_scheme: "light"
+    permissions:
+      - "geolocation"
+
+  captcha_detection:
+    enabled: true
+    keywords:
+      - "captcha"
+      - "unusual traffic"
+
+  http_error_handling:
+    enabled: true
+    monitored_codes:
+      - 429  # Rate limiting
+      - 403  # Forbidden/blocked
+      - 503  # Service unavailable
+
+  http_headers:
+    enabled: true
+    headers:
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+      Accept-Language: "en-US,en;q=0.9"
+```
+
+**Key Browser Fingerprinting Settings:**
+
+| Setting                 | Default               | Description                                                                                                                                                                       |
+| ---------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `timezone_id`          | `America/Los_Angeles` | Browser timezone identifier. Recommended to match your server's IP location. [List of timezones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) |
+| `geolocation_latitude`  | `37.3273`             | Latitude coordinate (default: San Jose, CA)                                                                                                                                       |
+| `geolocation_longitude` | `-121.954`            | Longitude coordinate (default: San Jose, CA)                                                                                                                                      |
+
+**Example Location Configurations:**
+
+```yaml
 # New York
-BROWSER_TIMEZONE=America/New_York
-BROWSER_GEOLOCATION_LATITUDE=40.7128
-BROWSER_GEOLOCATION_LONGITUDE=-74.0060
+timezone_id: America/New_York
+geolocation_latitude: 40.7128
+geolocation_longitude: -74.0060
 
 # London
-BROWSER_TIMEZONE=Europe/London
-BROWSER_GEOLOCATION_LATITUDE=51.5074
-BROWSER_GEOLOCATION_LONGITUDE=-0.1278
+timezone_id: Europe/London
+geolocation_latitude: 51.5074
+geolocation_longitude: -0.1278
 
 # Tokyo
-BROWSER_TIMEZONE=Asia/Tokyo
-BROWSER_GEOLOCATION_LATITUDE=35.6762
-BROWSER_GEOLOCATION_LONGITUDE=139.6503
+timezone_id: Asia/Tokyo
+geolocation_latitude: 35.6762
+geolocation_longitude: 139.6503
+```
+
+### Reloading Configuration
+
+After editing YAML configuration files, restart the scraper to apply changes:
+
+```bash
+docker compose restart scraper
 ```
 
 ## Anti-Bot Detection
+
+> **Configuration:** All anti-detection strategies are configurable via `config/anti_detection.yml`. See [YAML Configuration Files](#yaml-configuration-files) for details on customizing each strategy.
 
 TopicStreams uses sophisticated techniques to make the scraper appear as a real human user, minimizing the risk of being blocked by Google.
 
@@ -325,55 +406,68 @@ TopicStreams uses sophisticated techniques to make the scraper appear as a real 
 
 The scraper uses **Playwright** (headless Chromium browser) combined with **playwright-stealth** patches to hide automation signals and mimic genuine user behavior.
 
+All strategies below are loaded from `config/anti_detection.yml` and can be enabled/disabled individually.
+
 #### 1. Browser Launch Arguments
 
 ```python
+# Loaded from config/anti_detection.yml
+browser_args = anti_detection_config.browser_args  # Configurable
 browser.launch(
     headless=True,
-    args=[
-        "--no-sandbox",                                   # Docker compatibility
-        "--disable-setuid-sandbox",                       # Docker compatibility
-        "--disable-blink-features=AutomationControlled"   # Hide automation flag
-    ]
+    args=browser_args
 )
+```
+
+Default arguments (configurable in YAML):
+```python
+[
+    "--no-sandbox",                                   # Docker compatibility
+    "--disable-setuid-sandbox",                       # Docker compatibility
+    "--disable-blink-features=AutomationControlled"   # Hide automation flag
+]
 ```
 
 - `--disable-blink-features=AutomationControlled` prevents `navigator.webdriver` from being exposed
 
 #### 2. Realistic Browser Context
 
-The browser context is configured to match a real macOS Chrome user:
+The browser context is configured to match a real macOS Chrome user (all values configurable in YAML):
 
 ```python
+# All values loaded from config/anti_detection.yml
 context = browser.new_context(
-    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ... Chrome/131.0.0.0",
-    viewport={"width": 1920, "height": 1080},
-    locale="en-US",
-    timezone_id="America/Los_Angeles",                          # Configurable
-    geolocation={"latitude": 37.3273, "longitude": -121.954},   # Configurable
-    color_scheme="light",
-    extra_http_headers={
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,..."
-    }
+    user_agent=anti_detection_config.user_agent,
+    viewport={
+        "width": anti_detection_config.viewport_width,
+        "height": anti_detection_config.viewport_height,
+    },
+    locale=anti_detection_config.locale,
+    timezone_id=anti_detection_config.timezone_id,        # Configurable
+    geolocation={
+        "latitude": anti_detection_config.geolocation_latitude,
+        "longitude": anti_detection_config.geolocation_longitude
+    },
+    color_scheme=anti_detection_config.color_scheme,
+    extra_http_headers=anti_detection_config.http_headers,
 )
 ```
 
 **Key points:**
 
 - **User Agent**: Latest Chrome version (131) on macOS
-- **Timezone & Geolocation**: Recommended to match your server's IP location (see [Configuration](#browser-fingerprinting-anti-detection))
+- **Timezone & Geolocation**: Recommended to match your server's IP location (see [Configuration](#yaml-configuration-files))
 - **HTTP Headers**: Realistic Accept-Language and content type preferences
 
 #### 3. Playwright-Stealth Patches
 
-After creating each page, we apply stealth patches:
+After creating each page, we apply stealth patches (configurable via `playwright_stealth.enabled` in YAML):
 
 ```python
-from playwright_stealth import Stealth
-
-stealth = Stealth()
-stealth.apply_stealth_sync(page)
+# Loaded from config/anti_detection.yml
+if anti_detection_config.playwright_stealth_enabled:
+    stealth = Stealth()
+    stealth.apply_stealth_sync(page)
 ```
 
 This patches ~20 automation detection vectors:
@@ -386,19 +480,32 @@ This patches ~20 automation detection vectors:
 | Canvas fingerprints   | Generic   | Realistic      |
 | WebGL fingerprints    | Generic   | Realistic      |
 
-#### 4. Memory Management
+#### 4. Memory Management & Additional Strategies
 
-To prevent memory leaks in long-running scrapers:
+To prevent memory leaks in long-running scrapers (configurable via `page_isolation.enabled` in YAML):
 
 ```python
+# Loaded from config/anti_detection.yml
 for topic in topics:
-    page = context.new_page()          # Fresh page per topic
-    stealth.apply_stealth_sync(page)
+    if anti_detection_config.page_isolation_enabled:
+        page = context.new_page()      # Fresh page per topic
+    else:
+        page = context.new_page()      # Fallback
+
+    if anti_detection_config.playwright_stealth_enabled:
+        stealth.apply_stealth_sync(page)
+
     try:
         scrape_news(page, topic)       # page.goto(...) one or multiple URLs
     finally:
-        page.close()                   # Always cleanup
+        if anti_detection_config.page_isolation_enabled:
+            page.close()                # Always cleanup
 ```
+
+**Additional configurable strategies:**
+
+- **Random Delays** (`random_delays.enabled`): Random delay between topics to mimic human behavior
+- **Randomized Order** (`randomized_order.enabled`): Shuffle topic order each cycle to avoid deterministic patterns
 
 ### What Google Sees
 
@@ -425,10 +532,10 @@ For high-volume or 24/7 scraping, consider [proxy rotation](#proxy-rotation) to 
 **Best practices:**
 
 - Match timezone/geolocation to your server's IP location
-- Keep `SCRAPE_INTERVAL` reasonable (default 60s is safe)
+- Keep `scrape_interval` reasonable (default 60s is safe) - see `config/scraper.yml`
 - Monitor scraper logs for HTTP 429 (rate limit) or 403 (blocked)
 
-See the [Configuration](#browser-fingerprinting-anti-detection) section to customize timezone and geolocation settings.
+See the [Configuration](#yaml-configuration-files) section to customize settings.
 
 ## Scraping Behavior
 
@@ -456,7 +563,7 @@ for topic in topics:
 
 ### Scrape Interval Behavior
 
-The `SCRAPE_INTERVAL` setting (default: 60 seconds) controls how often to scrape **all topics**:
+The `scrape_interval` setting in `config/scraper.yml` (default: 60 seconds) controls how often to scrape **all topics**:
 
 **Normal case (scraping finishes within interval):**
 
@@ -472,7 +579,7 @@ Cycle 1: Scrape all topics (90s) → No wait → Cycle 2 starts immediately at 9
 
 **Result pages:**
 
-During each cycle, only the first `MAX_PAGES` (default: 1) pages of each topic are scraped. This strategy assumes that between scrape intervals, the number of new articles per topic doesn't exceed one page (typically up to 10 entries). If you have high-volume topics or longer intervals (e.g., >5 minutes), increase `MAX_PAGES` to 2-3 to avoid missing articles.
+During each cycle, only the first `max_pages` (default: 1) pages of each topic are scraped. This strategy assumes that between scrape intervals, the number of new articles per topic doesn't exceed one page (typically up to 10 entries). If you have high-volume topics or longer intervals (e.g., >5 minutes), increase `max_pages` to 2-3 to avoid missing articles.
 
 **Key points:**
 
@@ -502,8 +609,8 @@ topicstreams-scraper  | 2025-12-03 22:49:27,978 - INFO - 5 topics took 8.3s, wai
 **What to look for:**
 
 - If cycles consistently exceed the interval, consider:
-  - Increasing `SCRAPE_INTERVAL`
-  - Reducing `MAX_PAGES` (scrape fewer pages per topic)
+  - Increasing `scrape_interval` in `config/scraper.yml`
+  - Reducing `max_pages` (scrape fewer pages per topic)
   - Reducing the number of tracked topics
 - If you see frequent HTTP 429 or 403 errors in logs (check via [scraper logs API](#get-scraper-logs)), you're being rate-limited or blocked
   - For high-volume needs, see [Proxy Rotation](#proxy-rotation)
@@ -514,9 +621,9 @@ topicstreams-scraper  | 2025-12-03 22:49:27,978 - INFO - 5 topics took 8.3s, wai
 
 ### The Problem: Scaling Beyond Sequential Scraping
 
-The current implementation uses **sequential scraping** with reasonable intervals (default 60s) to avoid detection. However, for aggressive scraping needs:
+The current implementation uses **sequential scraping** with reasonable intervals (default 60s from `config/scraper.yml`) to avoid detection. However, for aggressive scraping needs:
 
-- **High QPS requirements** - Scraping many topics frequently (e.g., `SCRAPE_INTERVAL=0` for continuous scraping)
+- **High QPS requirements** - Scraping many topics frequently (e.g., `scrape_interval: 0` for continuous scraping)
 - **24/7 operation** - Long-running scrapers from the same IP
 - **Concurrent scraping** - Switching from sequential to parallel topic scraping for speed
 
@@ -602,7 +709,7 @@ See also:
 
 - [Anti-Bot Detection](#anti-bot-detection) - Current stealth measures
 - [Scraping Behavior](#scraping-behavior) - Current sequential approach
-- [Configuration](#browser-fingerprinting-anti-detection) - Browser fingerprint settings
+- [Configuration](#yaml-configuration-files) - YAML configuration settings
 
 ## Authentication & Security
 
