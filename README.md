@@ -38,21 +38,21 @@ TopicStreams scrapes **Google Search → News Tab** with time filters, giving yo
 
 ## Try It Live
 
-**Experience TopicStreams in action**: [http://topicstreams.dongziyu.com:8080](http://topicstreams.dongziyu.com:8080)
+**Experience TopicStreams in action**: [http://topicstreams.dongziyu.com](http://topicstreams.dongziyu.com)
 
 ### Quick Demo
 
 ```bash
 # Add topics (ensure they exist)
-curl -X POST http://topicstreams.dongziyu.com:8080/api/v1/topics \
+curl -X POST http://topicstreams.dongziyu.com/api/v1/topics \
   -H "Content-Type: application/json" \
   -d '{"name": "Bitcoin"}'
 
 # List all active topics (contain "bitcoin")
-curl http://topicstreams.dongziyu.com:8080/api/v1/topics | jq
+curl http://topicstreams.dongziyu.com/api/v1/topics | jq
 
 # Get latest news for "Bitcoin"
-curl http://topicstreams.dongziyu.com:8080/api/v1/news/bitcoin?limit=5 | jq
+curl http://topicstreams.dongziyu.com/api/v1/news/bitcoin?limit=5 | jq
 ```
 
 ### WebSocket Streaming
@@ -61,7 +61,7 @@ For real-time news updates, connect via WebSocket:
 
 ```bash
 # Real-time WebSocket news stream for "China" (automatically add topic if not present)
-websocat ws://topicstreams.dongziyu.com:8080/api/v1/ws/news/china | jq
+websocat ws://topicstreams.dongziyu.com/api/v1/ws/news/china | jq
 ```
 
 The WebSocket delivers live news updates as they're scraped, showing the same content you'd see by continuously refreshing Google's news search page.
@@ -165,6 +165,8 @@ After [Quick Start](#quick-start), simply open your browser and navigate to:
 http://localhost:5000
 ```
 
+> **Note:** By default, the Web UI is accessible on port 5000. If you changed `HOST_PORT` in your `.env` file (e.g., set to `80` for production), use that port instead (e.g., `http://localhost:80`).
+
 <p align="center">
 <img src="docs/pic/ui_screenshot.png" alt="TopicStreams Web UI - Complete dashboard for real-time news aggregation" width="600"/>
 <br/>
@@ -200,12 +202,12 @@ This will start three containers:
 
 - **postgres** - Database
 - **scraper** - Background scraping service
-- **api** - FastAPI server [http://localhost:5000](http://localhost:5000)
+- **api** - FastAPI server [http://localhost:5000](http://localhost:5000) (or port set by `HOST_PORT` in `.env`)
 
 ### 4. Add Topics to Track
 
 ```bash
-# Add a topic
+# Add a topic (replace 5000 with your HOST_PORT if changed)
 curl -X POST http://localhost:5000/api/v1/topics \
   -H "Content-Type: application/json" \
   -d '{"name": "artificial intelligence"}'
@@ -274,11 +276,12 @@ All configuration is done via environment variables in the `.env` file. Copy `.e
 
 ### API Settings
 
-| Variable   | Default | Description             |
-| ---------- | ------- | ----------------------- |
-| `API_PORT` | `5000`  | Port for FastAPI server |
+| Variable    | Default | Description                                                      |
+| ----------- | ------- | ---------------------------------------------------------------- |
+| `API_PORT`  | `5000`  | Port inside the container where FastAPI listens                  |
+| `HOST_PORT` | `5000`  | Port exposed on the host (set to `80` for production deployment) |
 
-> **Note:** The API port is mapped to the same port on the host (Docker internal `5000` → host `localhost:5000`). If port `5000` is already in use on your host, modify the port mapping in `docker-compose.yml` (e.g., change `"5000:5000"` to `"8000:5000"` to access via `localhost:8000`).
+> **Note:** The `HOST_PORT` is mapped to `API_PORT` (e.g., `HOST_PORT=80` and `API_PORT=5000` means the app listens on container port 5000 but is accessible via host port 80). For production deployments, set `HOST_PORT=80` to use the standard HTTP port.
 
 ### Scraper Settings
 
@@ -815,6 +818,8 @@ async def publish_news_update(news_entry: NewsEntry):
 ## API Reference
 
 Base URL: `http://localhost:5000/api/v1`
+
+> **Note:** Replace `5000` with your `HOST_PORT` value if you changed it in `.env` (e.g., `http://localhost:80/api/v1` for production).
 
 ### Topics
 
