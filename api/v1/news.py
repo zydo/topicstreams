@@ -25,7 +25,7 @@ class NewsListResponse(BaseModel):
 async def get_news(
     topic_name: str = Path(..., min_length=1, max_length=100),
     limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=10000),
 ) -> NewsListResponse:
     normalized_name = normalize_topic(topic_name)
     entries = db.get_news_entries(normalized_name, limit, offset)
