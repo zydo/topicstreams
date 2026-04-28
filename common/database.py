@@ -117,6 +117,14 @@ def get_topics(include_inactive: bool = False) -> List[Topic]:
 
 
 @retry_on_transient_error()
+def topic_exists(name: str) -> bool:
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM topics WHERE name = %s AND is_active = TRUE LIMIT 1", (name,))
+        return cursor.fetchone() is not None
+
+
+@retry_on_transient_error()
 def add_topic(name: str) -> None:
     """Add a new topic or reactivate an existing (but deactivated) one."""
     dml = (

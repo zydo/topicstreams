@@ -5,6 +5,7 @@ from typing import List
 from fastapi import APIRouter, Query, Path
 from pydantic import BaseModel, Field
 
+from api.exceptions import TopicStreamsException
 from common import database as db
 from common.model import NewsEntry
 from common.utils import normalize_topic
@@ -28,6 +29,10 @@ async def get_news(
     offset: int = Query(0, ge=0, le=10000),
 ) -> NewsListResponse:
     normalized_name = normalize_topic(topic_name)
+
+    if not db.topic_exists(normalized_name):
+        raise TopicStreamsException(f"Topic '{normalized_name}' not found", "TOPIC_NOT_FOUND")
+
     entries = db.get_news_entries(normalized_name, limit, offset)
     total = db.get_news_count(normalized_name)
 
