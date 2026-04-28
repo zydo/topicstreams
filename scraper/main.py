@@ -118,6 +118,24 @@ def _add_to_seen_entries(entries: List[NewsEntry]) -> None:
     for entry in entries:
         _seen_entries.add((entry.topic, entry.title, entry.source))
 
+def _create_context(browser: Browser, user_agent: str) -> BrowserContext:
+    return browser.new_context(
+        user_agent=user_agent,
+        viewport={
+            "width": anti_detection_config.viewport_width,
+            "height": anti_detection_config.viewport_height,
+        },
+        locale=anti_detection_config.locale,
+        timezone_id=anti_detection_config.timezone_id,
+        permissions=anti_detection_config.permissions,
+        geolocation={
+            "latitude": anti_detection_config.geolocation_latitude,
+            "longitude": anti_detection_config.geolocation_longitude,
+        },
+        color_scheme=anti_detection_config.color_scheme,
+        extra_http_headers=anti_detection_config.http_headers,
+    )
+
 
 def main():
     """Main scraper entry point with user agent rotation support."""
@@ -141,22 +159,7 @@ def main():
             # Create default context (used for per_cycle rotation or no rotation)
             default_context: Optional[BrowserContext] = None
             if not need_context_per_topic:
-                default_context = browser.new_context(
-                    user_agent=anti_detection_config.user_agent,
-                    viewport={
-                        "width": anti_detection_config.viewport_width,
-                        "height": anti_detection_config.viewport_height,
-                    },
-                    locale=anti_detection_config.locale,
-                    timezone_id=anti_detection_config.timezone_id,
-                    permissions=anti_detection_config.permissions,
-                    geolocation={
-                        "latitude": anti_detection_config.geolocation_latitude,
-                        "longitude": anti_detection_config.geolocation_longitude,
-                    },
-                    color_scheme=anti_detection_config.color_scheme,
-                    extra_http_headers=anti_detection_config.http_headers,
-                )
+                default_context = _create_context(browser, anti_detection_config.user_agent)
 
             # Only use playwright-stealth if enabled
             stealth = (
@@ -177,22 +180,7 @@ def main():
                     # Update default context with rotated UA for per_cycle strategy
                     if default_context:
                         default_context.close()
-                        default_context = browser.new_context(
-                            user_agent=ua,
-                            viewport={
-                                "width": anti_detection_config.viewport_width,
-                                "height": anti_detection_config.viewport_height,
-                            },
-                            locale=anti_detection_config.locale,
-                            timezone_id=anti_detection_config.timezone_id,
-                            permissions=anti_detection_config.permissions,
-                            geolocation={
-                                "latitude": anti_detection_config.geolocation_latitude,
-                                "longitude": anti_detection_config.geolocation_longitude,
-                            },
-                            color_scheme=anti_detection_config.color_scheme,
-                            extra_http_headers=anti_detection_config.http_headers,
-                        )
+                        default_context = _create_context(browser, ua)
 
             try:
                 while True:
@@ -225,22 +213,7 @@ def main():
                             # or use the default context
                             if need_context_per_topic:
                                 ua = ua_rotation.get_user_agent()
-                                current_context = browser.new_context(
-                                    user_agent=ua,
-                                    viewport={
-                                        "width": anti_detection_config.viewport_width,
-                                        "height": anti_detection_config.viewport_height,
-                                    },
-                                    locale=anti_detection_config.locale,
-                                    timezone_id=anti_detection_config.timezone_id,
-                                    permissions=anti_detection_config.permissions,
-                                    geolocation={
-                                        "latitude": anti_detection_config.geolocation_latitude,
-                                        "longitude": anti_detection_config.geolocation_longitude,
-                                    },
-                                    color_scheme=anti_detection_config.color_scheme,
-                                    extra_http_headers=anti_detection_config.http_headers,
-                                )
+                                current_context = _create_context(browser, ua)
                                 logger.debug(
                                     f"Topic '{topic}' using user agent: {ua[:80]}..."
                                 )
@@ -313,22 +286,7 @@ def main():
                         ua = ua_rotation.get_user_agent()
                         logger.info(f"Next cycle user agent: {ua[:80]}...")
                         default_context.close()
-                        default_context = browser.new_context(
-                            user_agent=ua,
-                            viewport={
-                                "width": anti_detection_config.viewport_width,
-                                "height": anti_detection_config.viewport_height,
-                            },
-                            locale=anti_detection_config.locale,
-                            timezone_id=anti_detection_config.timezone_id,
-                            permissions=anti_detection_config.permissions,
-                            geolocation={
-                                "latitude": anti_detection_config.geolocation_latitude,
-                                "longitude": anti_detection_config.geolocation_longitude,
-                            },
-                            color_scheme=anti_detection_config.color_scheme,
-                            extra_http_headers=anti_detection_config.http_headers,
-                        )
+                        default_context = _create_context(browser, ua)
 
                     sleep_time = max(0, scraper_config.scrape_interval - elapsed)
                     if sleep_time > 0:
