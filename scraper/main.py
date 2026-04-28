@@ -194,154 +194,154 @@ def main():
                             extra_http_headers=anti_detection_config.http_headers,
                         )
 
-            while True:
-                cycle_start, cycle_success = time.time(), False
-                current_context: Optional[BrowserContext] = None
+            try:
+                while True:
+                    cycle_start, cycle_success = time.time(), False
+                    current_context: Optional[BrowserContext] = None
 
-                try:
-                    topics = [topic.name for topic in db.get_topics()]
+                    try:
+                        topics = [topic.name for topic in db.get_topics()]
 
-                    # Randomize topic order if enabled
-                    if anti_detection_config.randomized_order_enabled:
-                        shuffle(topics)
-                        logger.info(
-                            f"Scraping for {len(topics)} topics (randomized order)"
-                        )
-                    else:
-                        logger.info(f"Scraping for {len(topics)} topics")
-
-                    all_entries, all_logs = [], []
-                    for i, topic in enumerate(topics):
-                        # Add random delay between topics if enabled
-                        if i > 0 and anti_detection_config.random_delays_enabled:
-                            delay = random.uniform(
-                                anti_detection_config.random_delay_min,
-                                anti_detection_config.random_delay_max,
-                            )
-                            time.sleep(delay)
-
-                        # Get user agent for this topic (if per_topic rotation)
-                        # or use the default context
-                        if need_context_per_topic:
-                            ua = ua_rotation.get_user_agent()
-                            current_context = browser.new_context(
-                                user_agent=ua,
-                                viewport={
-                                    "width": anti_detection_config.viewport_width,
-                                    "height": anti_detection_config.viewport_height,
-                                },
-                                locale=anti_detection_config.locale,
-                                timezone_id=anti_detection_config.timezone_id,
-                                permissions=anti_detection_config.permissions,
-                                geolocation={
-                                    "latitude": anti_detection_config.geolocation_latitude,
-                                    "longitude": anti_detection_config.geolocation_longitude,
-                                },
-                                color_scheme=anti_detection_config.color_scheme,
-                                extra_http_headers=anti_detection_config.http_headers,
-                            )
-                            logger.debug(
-                                f"Topic '{topic}' using user agent: {ua[:80]}..."
+                        # Randomize topic order if enabled
+                        if anti_detection_config.randomized_order_enabled:
+                            shuffle(topics)
+                            logger.info(
+                                f"Scraping for {len(topics)} topics (randomized order)"
                             )
                         else:
-                            current_context = default_context
+                            logger.info(f"Scraping for {len(topics)} topics")
 
-                        # Create new page per topic to prevent memory accumulation
-                        assert current_context is not None
-                        page: Page = current_context.new_page()
+                        all_entries, all_logs = [], []
+                        for i, topic in enumerate(topics):
+                            # Add random delay between topics if enabled
+                            if i > 0 and anti_detection_config.random_delays_enabled:
+                                delay = random.uniform(
+                                    anti_detection_config.random_delay_min,
+                                    anti_detection_config.random_delay_max,
+                                )
+                                time.sleep(delay)
 
-                        # Apply stealth if enabled
-                        if stealth is not None:
-                            stealth.apply_stealth_sync(page)
+                            # Get user agent for this topic (if per_topic rotation)
+                            # or use the default context
+                            if need_context_per_topic:
+                                ua = ua_rotation.get_user_agent()
+                                current_context = browser.new_context(
+                                    user_agent=ua,
+                                    viewport={
+                                        "width": anti_detection_config.viewport_width,
+                                        "height": anti_detection_config.viewport_height,
+                                    },
+                                    locale=anti_detection_config.locale,
+                                    timezone_id=anti_detection_config.timezone_id,
+                                    permissions=anti_detection_config.permissions,
+                                    geolocation={
+                                        "latitude": anti_detection_config.geolocation_latitude,
+                                        "longitude": anti_detection_config.geolocation_longitude,
+                                    },
+                                    color_scheme=anti_detection_config.color_scheme,
+                                    extra_http_headers=anti_detection_config.http_headers,
+                                )
+                                logger.debug(
+                                    f"Topic '{topic}' using user agent: {ua[:80]}..."
+                                )
+                            else:
+                                current_context = default_context
 
-                        # Inject anti-detection JS before any navigation
-                        page.add_init_script("""
-                            Object.defineProperty(navigator, 'webdriver', {
-                                get: () => false,
-                            });
-                            Object.defineProperty(navigator, 'languages', {
-                                get: () => ['en-US', 'en'],
-                            });
-                        """)
+                            # Create new page per topic to prevent memory accumulation
+                            assert current_context is not None
+                            page: Page = current_context.new_page()
 
-                        try:
-                            entries, scraper_logs = scrape_news(
-                                page, topic, scraper_config.max_pages
-                            )
-                            all_entries.extend(entries)
-                            all_logs.extend(scraper_logs)
-                        finally:
-                            page.close()
-                            # Close context if it was created for this topic (per_topic rotation)
-                            if need_context_per_topic and current_context:
-                                current_context.close()
-                                current_context = None
+                            # Apply stealth if enabled
+                            if stealth is not None:
+                                stealth.apply_stealth_sync(page)
 
-                    new_entries = _dedup_entries(all_entries)
-                    logger.info(f"Found {len(new_entries)} new news entries")
+                            # Inject anti-detection JS before any navigation
+                            page.add_init_script("""
+                                Object.defineProperty(navigator, 'webdriver', {
+                                    get: () => false,
+                                });
+                                Object.defineProperty(navigator, 'languages', {
+                                    get: () => ['en-US', 'en'],
+                                });
+                            """)
 
-                    db.insert_news_entries(new_entries)
-                    _add_to_seen_entries(new_entries)
-                    db.insert_scraper_logs(all_logs)
-                    cycle_success = True
+                            try:
+                                entries, scraper_logs = scrape_news(
+                                    page, topic, scraper_config.max_pages
+                                )
+                                all_entries.extend(entries)
+                                all_logs.extend(scraper_logs)
+                            finally:
+                                page.close()
+                                # Close context if it was created for this topic (per_topic rotation)
+                                if need_context_per_topic and current_context:
+                                    current_context.close()
+                                    current_context = None
 
-                except KeyboardInterrupt:
-                    logger.info("Scraper interrupted by user")
-                    break
+                        new_entries = _dedup_entries(all_entries)
+                        logger.info(f"Found {len(new_entries)} new news entries")
 
-                except Exception as e:
-                    logger.error(f"Error in scraping loop: {e}")
-                    logger.error(f"Full traceback:\n{traceback.format_exc()}")
+                        db.insert_news_entries(new_entries)
+                        _add_to_seen_entries(new_entries)
+                        db.insert_scraper_logs(all_logs)
+                        cycle_success = True
 
-                finally:
-                    # Clean up per-topic context if still open
-                    if need_context_per_topic and current_context:
-                        current_context.close()
+                    except Exception as e:
+                        logger.error(f"Error in scraping loop: {e}")
+                        logger.error(f"Full traceback:\n{traceback.format_exc()}")
 
-                elapsed = time.time() - cycle_start
-                if cycle_success:
-                    logger.info(f"{len(topics)} topics took {elapsed:.1f}s")
-                else:
-                    logger.error(f"Scrape failed in {elapsed:.1f}s")
+                    finally:
+                        # Clean up per-topic context if still open
+                        if need_context_per_topic and current_context:
+                            current_context.close()
 
-                # Advance to next cycle (updates user agent for per_cycle strategy)
-                ua_rotation.advance_cycle()
+                    elapsed = time.time() - cycle_start
+                    if cycle_success:
+                        logger.info(f"{len(topics)} topics took {elapsed:.1f}s")
+                    else:
+                        logger.error(f"Scrape failed in {elapsed:.1f}s")
 
-                # Update context for next cycle if using per_cycle rotation
-                if (
-                    anti_detection_config.user_agent_rotation_enabled
-                    and anti_detection_config.user_agent_rotation_strategy == "per_cycle"
-                    and default_context
-                ):
-                    ua = ua_rotation.get_user_agent()
-                    logger.info(f"Next cycle user agent: {ua[:80]}...")
-                    default_context.close()
-                    default_context = browser.new_context(
-                        user_agent=ua,
-                        viewport={
-                            "width": anti_detection_config.viewport_width,
-                            "height": anti_detection_config.viewport_height,
-                        },
-                        locale=anti_detection_config.locale,
-                        timezone_id=anti_detection_config.timezone_id,
-                        permissions=anti_detection_config.permissions,
-                        geolocation={
-                            "latitude": anti_detection_config.geolocation_latitude,
-                            "longitude": anti_detection_config.geolocation_longitude,
-                        },
-                        color_scheme=anti_detection_config.color_scheme,
-                        extra_http_headers=anti_detection_config.http_headers,
-                    )
+                    # Advance to next cycle (updates user agent for per_cycle strategy)
+                    ua_rotation.advance_cycle()
 
-                sleep_time = max(0, scraper_config.scrape_interval - elapsed)
-                if sleep_time > 0:
-                    logger.info(f"Waiting {sleep_time:.1f}s until next scrape...")
-                    time.sleep(sleep_time)
-                else:
-                    logger.info(
-                        f"Cycle elapsed time (exceeds {scraper_config.scrape_interval}s "
-                        "interval), starting next cycle immediately"
-                    )
+                    # Update context for next cycle if using per_cycle rotation
+                    if (
+                        anti_detection_config.user_agent_rotation_enabled
+                        and anti_detection_config.user_agent_rotation_strategy == "per_cycle"
+                        and default_context
+                    ):
+                        ua = ua_rotation.get_user_agent()
+                        logger.info(f"Next cycle user agent: {ua[:80]}...")
+                        default_context.close()
+                        default_context = browser.new_context(
+                            user_agent=ua,
+                            viewport={
+                                "width": anti_detection_config.viewport_width,
+                                "height": anti_detection_config.viewport_height,
+                            },
+                            locale=anti_detection_config.locale,
+                            timezone_id=anti_detection_config.timezone_id,
+                            permissions=anti_detection_config.permissions,
+                            geolocation={
+                                "latitude": anti_detection_config.geolocation_latitude,
+                                "longitude": anti_detection_config.geolocation_longitude,
+                            },
+                            color_scheme=anti_detection_config.color_scheme,
+                            extra_http_headers=anti_detection_config.http_headers,
+                        )
+
+                    sleep_time = max(0, scraper_config.scrape_interval - elapsed)
+                    if sleep_time > 0:
+                        logger.info(f"Waiting {sleep_time:.1f}s until next scrape...")
+                        time.sleep(sleep_time)
+                    else:
+                        logger.info(
+                            f"Cycle elapsed time (exceeds {scraper_config.scrape_interval}s "
+                            "interval), starting next cycle immediately"
+                        )
+
+            except KeyboardInterrupt:
+                logger.info("Scraper interrupted by user")
 
         finally:
             if default_context:
