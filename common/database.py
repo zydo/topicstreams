@@ -87,11 +87,13 @@ class _Connection:
         return self
 
     def __exit__(self, exc_type, *_):
-        if exc_type:
-            self._conn.rollback()
-        else:
-            self._conn.commit()
-        _get_pool().putconn(self._conn)
+        try:
+            if exc_type:
+                self._conn.rollback()
+            else:
+                self._conn.commit()
+        finally:
+            _get_pool().putconn(self._conn)
 
     def cursor(self):
         return self._conn.cursor(cursor_factory=RealDictCursor)
