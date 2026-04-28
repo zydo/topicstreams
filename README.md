@@ -323,7 +323,6 @@ For complete API documentation including all endpoints, request/response formats
 - [**Logs**](docs/API_REFERENCE.md#logs) - View scraper logs
 - [**WebSocket**](docs/API_REFERENCE.md#websocket) - Real-time news updates via WebSocket
 
-
 ## Database Access
 
 For database access, common SQL queries, backup, and restore instructions, see [Database Access](docs/DATABASE_ACCESS.md).
