@@ -4,11 +4,9 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from common import database as db
 from common.utils import normalize_topic
-from .manager import get_websocket_manager
+from .manager import manager
 
 router = APIRouter(prefix="/ws/news")
-
-manager = get_websocket_manager()
 
 
 @router.websocket("/{topic_name}")

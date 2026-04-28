@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from collections import defaultdict
 from typing import Dict, List, Optional, Set
 
@@ -14,24 +15,14 @@ from common import database as db
 from common.model import NewsEntry
 from common.settings import settings
 
+logger = logging.getLogger(__name__)
+
 
 class WebSocketManager:
-    _instance: Optional[WebSocketManager] = None
-
-    def __new__(cls) -> WebSocketManager:
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
-
     def __init__(self):
-        if self._initialized:
-            return
-
         self._conn: Optional[PgConnection] = None
         self._listener_task: Optional[asyncio.Task[None]] = None
         self._topic_subscribers: defaultdict[str, Set[WebSocket]] = defaultdict(set)
-        self._initialized = True
 
     def _get_conn(self) -> PgConnection:
         if self._conn:
@@ -49,6 +40,15 @@ class WebSocketManager:
         self._conn.cursor().execute("LISTEN news_updates;")
         return self._conn
 
+    def _reconnect(self) -> PgConnection:
+        if self._conn:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
+        return self._get_conn()
+
     async def _handle_notification(self, payload: str) -> None:
         try:
             topic, entry_id = payload.rsplit(":", 1)
@@ -63,15 +63,15 @@ class WebSocketManager:
 
     async def _postgres_listener(self, conn: PgConnection) -> None:
         while True:
-            conn.poll()
-            while conn.notifies:
-                notify = conn.notifies.pop(0)
-                await self._handle_notification(notify.payload)
-            # CRITICAL: This await yields control back to the event loop, preventing CPU
-            # busy-wait. Without this, the infinite while loop would block FastAPI 
-            # startup and other async tasks. 100ms provides good balance between 
-            # responsiveness and CPU efficiency
-            await asyncio.sleep(0.1)
+            try:
+                conn.poll()
+                while conn.notifies:
+                    notify = conn.notifies.pop(0)
+                    await self._handle_notification(notify.payload)
+            except Exception:
+                logger.warning("Postgres listener connection lost, reconnecting...")
+                conn = self._reconnect()
+            await asyncio.sleep(1)
 
     def start_listener(self) -> None:
         if self._listener_task is not None:
@@ -87,7 +87,7 @@ class WebSocketManager:
         self._listener_task.cancel()
         try:
             await self._listener_task
-        except asyncio.CancelledError:  # noqa: S7497
+        except asyncio.CancelledError:
             pass
 
         self._listener_task = None
@@ -132,16 +132,5 @@ class WebSocketManager:
         self._topic_subscribers[topic].discard(websocket)
 
 
-_websocket_manager = WebSocketManager()
-
-
-def get_websocket_manager() -> WebSocketManager:
-    return _websocket_manager
-
-
-def start_listener() -> None:
-    _websocket_manager.start_listener()
-
-
-async def stop_listener() -> None:
-    await _websocket_manager.stop_listener()
+# Single module-level instance — avoids fragile __new__ singleton
+manager = WebSocketManager()
