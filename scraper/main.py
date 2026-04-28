@@ -247,6 +247,7 @@ def main():
                             current_context = default_context
 
                         # Create new page per topic to prevent memory accumulation
+                        assert current_context is not None
                         page: Page = current_context.new_page()
 
                         # Apply stealth if enabled

@@ -6,7 +6,7 @@ and anti-detection settings.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 
 import yaml
 
@@ -366,7 +366,7 @@ class AntiDetectionConfig:
         )
 
     @property
-    def color_scheme(self) -> str:
+    def color_scheme(self) -> Literal["dark", "light", "no-preference", "null"]:
         """Get browser color scheme."""
         return self._get(
             "anti_detection", "browser_fingerprint", "color_scheme", default="light"
