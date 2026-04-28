@@ -17,6 +17,7 @@ Main Features:
 """
 
 import logging
+import random
 import re
 import traceback
 from datetime import datetime
@@ -126,7 +127,7 @@ def _scrape_one_page(
 
     try:
         response: Optional[Response] = page.goto(
-            url, wait_until="domcontentloaded", timeout=5000
+            url, wait_until="domcontentloaded", timeout=30000
         )
 
         if response is None:
@@ -181,8 +182,15 @@ def _scrape_one_page(
                 ),
             )
 
-        # Add a small delay to let dynamic content load
-        page.wait_for_timeout(1000)
+        # Add a delay to let dynamic content load and avoid bot detection
+        page.wait_for_timeout(3000)
+
+        # Simulate human-like behavior to avoid detection
+        try:
+            page.evaluate("window.scrollBy(0, Math.random() * 200)")
+            page.wait_for_timeout(500 + random.randint(0, 500))
+        except Exception:
+            pass
 
         # Try to wait for common selectors, but don't fail if not found
         try:

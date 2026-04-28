@@ -125,8 +125,10 @@ def main():
 
     with sync_playwright() as p:
         browser: Browser = p.chromium.launch(
-            headless=True,
+            headless=True,  # Always use headless mode in Docker containers
             args=anti_detection_config.browser_args,
+            # Explicitly disable Playwright's automation flags that Google detects
+            ignore_default_args=["--enable-automation"],
         )
 
         # Determine if we need context-per-topic (for per_topic UA rotation)
@@ -250,6 +252,16 @@ def main():
                         # Apply stealth if enabled
                         if stealth is not None:
                             stealth.apply_stealth_sync(page)
+
+                        # Inject anti-detection JS before any navigation
+                        page.add_init_script("""
+                            Object.defineProperty(navigator, 'webdriver', {
+                                get: () => false,
+                            });
+                            Object.defineProperty(navigator, 'languages', {
+                                get: () => ['en-US', 'en'],
+                            });
+                        """)
 
                         try:
                             entries, scraper_logs = scrape_news(
