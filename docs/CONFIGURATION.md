@@ -68,10 +68,10 @@ scraper:
   max_pages: 1         # Maximum pages to scrape per topic
 ```
 
-| Setting           | Default | Description                                                                                                                                                                                        |
-| ----------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Setting           | Default | Description                                                                                                                                                                                                            |
+| ----------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `scrape_interval` | `60`    | Interval in seconds between scrape cycles (measured from start to start). Set to `0` or negative for continuous scraping with no delay. See [Scrape Interval Behavior](SCRAPING_BEHAVIOR.md#scrape-interval-behavior). |
-| `max_pages`       | `1`     | Number of result pages to scrape. Increase if you have high-volume topics or longer intervals.                                                                                                     |
+| `max_pages`       | `1`     | Number of result pages to scrape. Increase if you have high-volume topics or longer intervals.                                                                                                                         |
 
 ### Anti-Detection Settings (`config/anti_detection.yml`)
 
@@ -85,7 +85,11 @@ anti_detection:
     args:
       - "--no-sandbox"
       - "--disable-setuid-sandbox"
-      - "--disable-blink-features=AutomationControlled"
+      - "--disable-dev-shm-usage"
+      - "--window-size=1920,1080"
+      - "--disable-background-timer-throttling"
+      - "--disable-backgrounding-occluded-windows"
+      - "--disable-renderer-backgrounding"
 
   random_delays:
     enabled: true
@@ -140,30 +144,27 @@ anti_detection:
       # Upgrade hints
       Upgrade-Insecure-Requests: "1"
 
-      # Client Hints (Sec-CH-UA - browser capability reporting)
-      Sec-Ch-Ua: '"Chromium";v="131", "Not_A Brand";v="24"'
-      Sec-Ch-Ua-Mobile: "?0"
-      Sec-Ch-Ua-Platform: '"macOS"'
+      # Sec-Ch-Ua and Sec-Ch-Ua-Platform come from fingerprint profiles,
+      # not here — to keep headers consistent with the rotated user agent.
 ```
 
 **HTTP Headers Configuration:**
 
-| Header Category | Headers | Purpose |
-|----------------|---------|---------|
-| **Standard** | `Accept`, `Accept-Language` | Content negotiation |
-| **Sec-Fetch*** | `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site`, `Sec-Fetch-User` | Navigation context (modern browsers) |
-| **Upgrade Hints** | `Upgrade-Insecure-Requests` | HTTPS preference |
-| **Client Hints** | `Sec-Ch-Ua`, `Sec-Ch-Ua-Mobile`, `Sec-Ch-Ua-Platform` | Browser capability reporting |
+| Header Category   | Headers                                                                | Purpose                              |
+| ----------------- | ---------------------------------------------------------------------- | ------------------------------------ |
+| **Standard**      | `Accept`, `Accept-Language`                                            | Content negotiation                  |
+| **Sec-Fetch***    | `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site`, `Sec-Fetch-User` | Navigation context (modern browsers) |
+| **Upgrade Hints** | `Upgrade-Insecure-Requests`                                            | HTTPS preference                     |
 
-All headers are configurable via `config/anti_detection.yml` under the `http_headers.headers` section.
+Sec-Ch-Ua headers are automatically merged from the active fingerprint profile (see [Fingerprint Profile Rotation](#fingerprint-profile-rotation) above), not configured here directly. This ensures headers always match the rotated user agent.
 
 ### Key Browser Fingerprinting Settings
 
-| Setting                 | Default               | Description                                                                                                                                                                       |
-| ---------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `timezone_id`          | `America/Los_Angeles` | Browser timezone identifier. Recommended to match your server's IP location. [List of timezones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) |
-| `geolocation_latitude`  | `37.3273`             | Latitude coordinate (default: San Jose, CA)                                                                                                                                       |
-| `geolocation_longitude` | `-121.954`            | Longitude coordinate (default: San Jose, CA)                                                                                                                                      |
+| Setting                 | Default               | Description                                                                                                                                                    |
+| ----------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `timezone_id`           | `America/Los_Angeles` | Browser timezone identifier. Recommended to match your server's IP location. [List of timezones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) |
+| `geolocation_latitude`  | `37.3273`             | Latitude coordinate (default: San Jose, CA)                                                                                                                    |
+| `geolocation_longitude` | `-121.954`            | Longitude coordinate (default: San Jose, CA)                                                                                                                   |
 
 ### Example Location Configurations
 
@@ -189,44 +190,65 @@ geolocation_latitude: 1.3521
 geolocation_longitude: 103.8198
 ```
 
-### User-Agent Rotation
+### Fingerprint Profile Rotation
 
-User-agent rotation allows the scraper to cycle through multiple realistic browser user agents to avoid static fingerprinting:
+Fingerprint profile rotation allows the scraper to cycle through multiple realistic browser profiles. Each profile bundles a user agent with matching `Sec-CH-UA` and `Sec-CH-UA-Platform` headers to ensure consistency (only Chrome profiles are used — Firefox/Safari UAs on a Chromium browser are detectable):
 
 ```yaml
 browser_fingerprint:
   user_agent_rotation:
     enabled: true
     strategy: "per_topic"  # "per_cycle" or "per_topic"
-    user_agents:
-      # Chrome on Windows
-      - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-      # Chrome on macOS
-      - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-      # Chrome on Linux
-      - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-      # Firefox variants
-      - "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0"
-      # Safari variants
-      - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15"
+    profiles:
+      # Chrome 131 on Windows
+      - user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        sec_ch_ua: '"Chromium";v="131", "Not_A Brand";v="24"'
+        sec_ch_ua_platform: '"Windows"'
+      # Chrome 131 on macOS
+      - user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        sec_ch_ua: '"Chromium";v="131", "Not_A Brand";v="24"'
+        sec_ch_ua_platform: '"macOS"'
+      # Chrome 131 on Linux
+      - user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        sec_ch_ua: '"Chromium";v="131", "Not_A Brand";v="24"'
+        sec_ch_ua_platform: '"Linux"'
+      # Chrome 130 variants (Windows, macOS, Linux) ...
 ```
 
-**User-Agent Rotation Settings:**
+**Fingerprint Profile Rotation Settings:**
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `enabled` | `false` | Enable or disable user-agent rotation |
+| Setting    | Default       | Description                                                                      |
+| ---------- | ------------- | -------------------------------------------------------------------------------- |
+| `enabled`  | `false`       | Enable or disable fingerprint profile rotation                                   |
 | `strategy` | `"per_topic"` | `"per_cycle"` (rotate once per scrape cycle) or `"per_topic"` (rotate per topic) |
-| `user_agents` | `[]` | List of user-agent strings to rotate through |
+| `profiles` | `[]`          | List of profiles, each with `user_agent`, `sec_ch_ua`, `sec_ch_ua_platform`      |
 
 **Strategy Comparison:**
 
-| Strategy | Description | Performance | Recommended For |
-|----------|-------------|-------------|-----------------|
-| `per_cycle` | One UA per scrape cycle | Faster (fewer context creations) | Lower topic counts |
-| `per_topic` | Different UA per topic | Slower (more context creations) | Higher topic counts, better stealth |
+| Strategy    | Description                  | Performance                      | Recommended For                     |
+| ----------- | ---------------------------- | -------------------------------- | ----------------------------------- |
+| `per_cycle` | One profile per scrape cycle | Faster (fewer context creations) | Lower topic counts                  |
+| `per_topic` | Different profile per topic  | Slower (new context per topic)   | Higher topic counts, better stealth |
 
 When `user_agent_rotation.enabled` is `false`, the scraper uses the static `user_agent` value.
+
+### Proxy Configuration
+
+Optional proxy support for residential proxy rotation:
+
+```yaml
+anti_detection:
+  proxy:
+    enabled: false
+    proxies: []
+    # - "http://user:pass@proxy1.example.com:8080"
+    # - "socks5://user:pass@proxy2.example.com:1080"
+```
+
+| Setting   | Default | Description                          |
+| --------- | ------- | ------------------------------------ |
+| `enabled` | `false` | Enable or disable proxy rotation     |
+| `proxies` | `[]`    | List of proxy URLs to rotate through |
 
 ## Reloading Configuration
 

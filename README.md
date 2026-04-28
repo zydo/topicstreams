@@ -184,10 +184,12 @@ cd topicstreams
 
 ### 2. Configure Environment
 
-Copy `.env.example` to `.env` and customize if needed:
+Copy `.env.example` to `.env` and YAML config templates:
 
 ```bash
 cp .env.example .env
+cp config/scraper.yml.example config/scraper.yml
+cp config/anti_detection.yml.example config/anti_detection.yml
 ```
 
 Default settings work out-of-the-box.
