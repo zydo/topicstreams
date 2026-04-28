@@ -178,13 +178,23 @@ def _scrape_one_page(
                 ),
             )
 
-        # Add a delay to let dynamic content load and avoid bot detection
-        page.wait_for_timeout(3000)
+        # Add a delay to let dynamic content load
+        page.wait_for_timeout(1500 + random.randint(0, 1500))
 
-        # Simulate human-like behavior to avoid detection
+        # Simulate human-like reading behavior
         try:
-            page.evaluate("window.scrollBy(0, Math.random() * 200)")
-            page.wait_for_timeout(500 + random.randint(0, 500))
+            scroll_steps = random.randint(2, 4)
+            for _ in range(scroll_steps):
+                page.evaluate(f"window.scrollBy(0, {random.randint(80, 250)})")
+                page.wait_for_timeout(random.randint(300, 800))
+            page.mouse.move(
+                random.randint(200, 1700),
+                random.randint(200, 800),
+                steps=random.randint(5, 15),
+            )
+            if random.random() > 0.5:
+                page.evaluate(f"window.scrollBy(0, -{random.randint(30, 100)})")
+                page.wait_for_timeout(random.randint(200, 500))
         except Exception:
             pass
 
