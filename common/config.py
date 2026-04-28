@@ -44,15 +44,6 @@ class ScraperConfig:
         except yaml.YAMLError as e:
             raise ValueError(f"Error parsing config file {self.config_path}: {e}")
 
-    def _default_config(self) -> dict:
-        """Return default configuration."""
-        return {
-            "scraper": {
-                "scrape_interval": 60,
-                "max_pages": 1,
-            }
-        }
-
     def _get(self, *keys: str, default: Any = None) -> Any:
         """Get nested config value by keys.
 
@@ -111,87 +102,6 @@ class AntiDetectionConfig:
             logger.info(f"Loaded anti-detection config from {self.config_path}")
         except yaml.YAMLError as e:
             raise ValueError(f"Error parsing config file {self.config_path}: {e}")
-
-    def _default_config(self) -> Dict[str, Any]:
-        """Return default configuration."""
-        return {
-            "anti_detection": {
-                "playwright_stealth": {"enabled": True},
-                "browser_args": {
-                    "enabled": True,
-                    "args": [
-                        "--no-sandbox",
-                        "--disable-setuid-sandbox",
-                        "--disable-blink-features=AutomationControlled",
-                    ],
-                },
-                "page_isolation": {"enabled": True},
-                "random_delays": {"enabled": True, "min_seconds": 2, "max_seconds": 5},
-                "randomized_order": {"enabled": True},
-                "browser_fingerprint": {
-                    "enabled": True,
-                    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                    "user_agent_rotation": {
-                        "enabled": False,
-                        "strategy": "per_topic",
-                        "user_agents": [
-                            # Chrome on Windows
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-                            # Chrome on macOS
-                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-                            # Chrome on Linux
-                            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-                            # Firefox on Windows
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
-                            # Firefox on macOS
-                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
-                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0",
-                            # Firefox on Linux
-                            "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0",
-                            "Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0",
-                            # Safari on macOS
-                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
-                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
-                        ],
-                    },
-                    "viewport_width": 1920,
-                    "viewport_height": 1080,
-                    "locale": "en-US",
-                    "timezone_id": "America/Los_Angeles",
-                    "geolocation_latitude": 37.3273,
-                    "geolocation_longitude": -121.954,
-                    "color_scheme": "light",
-                    "permissions": ["geolocation"],
-                },
-                "captcha_detection": {
-                    "enabled": True,
-                    "keywords": ["captcha", "unusual traffic"],
-                },
-                "http_error_handling": {
-                    "enabled": True,
-                    "monitored_codes": [429, 403, 503],
-                },
-                "http_headers": {
-                    "enabled": True,
-                    "headers": {
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                        "Accept-Language": "en-US,en;q=0.9",
-                        "Sec-Fetch-Dest": "document",
-                        "Sec-Fetch-Mode": "navigate",
-                        "Sec-Fetch-Site": "none",
-                        "Sec-Fetch-User": "?1",
-                        "Upgrade-Insecure-Requests": "1",
-                        "Sec-Ch-Ua": '"Chromium";v="131", "Not_A Brand";v="24"',
-                        "Sec-Ch-Ua-Mobile": "?0",
-                        "Sec-Ch-Ua-Platform": '"macOS"',
-                    },
-                },
-            },
-        }
 
     def _get(self, *keys: str, default: Any = None) -> Any:
         """Get nested config value by keys.
