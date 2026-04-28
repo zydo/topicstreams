@@ -16,44 +16,28 @@ logger = logging.getLogger(__name__)
 CONFIG_DIR = Path(__file__).parent.parent / "config"
 
 
-class ScraperConfig:
-    """Scraper configuration loader and accessor."""
+class _BaseConfig:
+    """Base class for YAML config loaders."""
 
-    def __init__(self, config_path: Path = CONFIG_DIR / "scraper.yml"):
-        """Load scraper configuration from YAML file.
+    _log_name: str
 
-        Args:
-            config_path: Path to the scraper.yml file
-        """
+    def __init__(self, config_path: Path):
         self.config_path = config_path
-        self._config: dict = {}
+        self._config: Dict[str, Any] = {}
         self._load_config()
 
     def _load_config(self) -> None:
-        """Load configuration from YAML file.
-
-        Requires the config file to exist.
-        """
         if not self.config_path.exists():
             raise FileNotFoundError(f"Config file not found: {self.config_path}")
 
         try:
             with open(self.config_path, "r") as f:
                 self._config = yaml.safe_load(f) or {}
-            logger.info(f"Loaded scraper config from {self.config_path}")
+            logger.info(f"Loaded {self._log_name} config from {self.config_path}")
         except yaml.YAMLError as e:
             raise ValueError(f"Error parsing config file {self.config_path}: {e}")
 
     def _get(self, *keys: str, default: Any = None) -> Any:
-        """Get nested config value by keys.
-
-        Args:
-            *keys: Nested keys to traverse
-            default: Default value if key not found
-
-        Returns:
-            Config value or default
-        """
         value = self._config
         for key in keys:
             if isinstance(value, dict):
@@ -63,6 +47,15 @@ class ScraperConfig:
             else:
                 return default
         return value if value is not None else default
+
+
+class ScraperConfig(_BaseConfig):
+    """Scraper configuration loader and accessor."""
+
+    _log_name = "scraper"
+
+    def __init__(self, config_path: Path = CONFIG_DIR / "scraper.yml"):
+        super().__init__(config_path)
 
     @property
     def scrape_interval(self) -> int:
@@ -75,53 +68,13 @@ class ScraperConfig:
         return self._get("scraper", "max_pages", default=1)
 
 
-class AntiDetectionConfig:
+class AntiDetectionConfig(_BaseConfig):
     """Anti-detection configuration loader and accessor."""
 
+    _log_name = "anti-detection"
+
     def __init__(self, config_path: Path = CONFIG_DIR / "anti_detection.yml"):
-        """Load anti-detection configuration from YAML file.
-
-        Args:
-            config_path: Path to the anti_detection.yml file
-        """
-        self.config_path = config_path
-        self._config: Dict[str, Any] = {}
-        self._load_config()
-
-    def _load_config(self) -> None:
-        """Load configuration from YAML file.
-
-        Requires the config file to exist.
-        """
-        if not self.config_path.exists():
-            raise FileNotFoundError(f"Config file not found: {self.config_path}")
-
-        try:
-            with open(self.config_path, "r") as f:
-                self._config = yaml.safe_load(f) or {}
-            logger.info(f"Loaded anti-detection config from {self.config_path}")
-        except yaml.YAMLError as e:
-            raise ValueError(f"Error parsing config file {self.config_path}: {e}")
-
-    def _get(self, *keys: str, default: Any = None) -> Any:
-        """Get nested config value by keys.
-
-        Args:
-            *keys: Nested keys to traverse
-            default: Default value if key not found
-
-        Returns:
-            Config value or default
-        """
-        value = self._config
-        for key in keys:
-            if isinstance(value, dict):
-                value = value.get(key)
-                if value is None:
-                    return default
-            else:
-                return default
-        return value if value is not None else default
+        super().__init__(config_path)
 
     # ============================================
     # Strategy Enabled Checkers
