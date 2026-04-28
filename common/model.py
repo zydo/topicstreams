@@ -93,7 +93,7 @@ class ScraperLog(BaseModel):
         cls,
         topic: str,
         success: bool,
-        scraped_at: datetime,
+        scraped_at: Optional[datetime] = None,
         http_status_code: Optional[int] = None,
         error_message: Optional[str] = None,
     ) -> "ScraperLog":
@@ -101,7 +101,7 @@ class ScraperLog(BaseModel):
         return cls(
             id=None,
             topic=topic,
-            scraped_at=scraped_at,
+            scraped_at=scraped_at or datetime.now(),
             success=success,
             http_status_code=http_status_code,
             error_message=error_message,

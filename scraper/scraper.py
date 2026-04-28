@@ -20,7 +20,6 @@ import logging
 import random
 import re
 import traceback
-from datetime import datetime
 from typing import List, Optional, Tuple
 
 from bs4 import BeautifulSoup
@@ -140,7 +139,6 @@ def _scrape_one_page(
                 ScraperLog.create_new(
                     topic=topic,
                     success=False,
-                    scraped_at=datetime.now(),
                     error_message="No response received - Navigation failed",
                 ),
             )
@@ -163,7 +161,6 @@ def _scrape_one_page(
                     ScraperLog.create_new(
                         topic=topic,
                         success=False,
-                        scraped_at=datetime.now(),
                         http_status_code=response_status,
                     ),
                 )
@@ -177,7 +174,6 @@ def _scrape_one_page(
                 ScraperLog.create_new(
                     topic=topic,
                     success=False,
-                    scraped_at=datetime.now(),
                     http_status_code=response_status,
                 ),
             )
@@ -214,7 +210,6 @@ def _scrape_one_page(
                         ScraperLog.create_new(
                             topic=topic,
                             success=False,
-                            scraped_at=datetime.now(),
                             http_status_code=response_status,
                             error_message=f"Google CAPTCHA/blocking detected ('{keyword}')",
                         ),
@@ -241,7 +236,6 @@ def _scrape_one_page(
             ScraperLog.create_new(
                 topic=topic,
                 success=True,
-                scraped_at=datetime.now(),
                 http_status_code=response_status,
             ),
         )
@@ -255,7 +249,6 @@ def _scrape_one_page(
             ScraperLog.create_new(
                 topic=topic,
                 success=False,
-                scraped_at=datetime.now(),
                 error_message=f"{type(e).__name__}: {str(e)}",
             ),
         )
