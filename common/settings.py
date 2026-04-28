@@ -38,12 +38,5 @@ class Settings(BaseSettings):
             raise ValueError(f"{info.field_name} cannot be empty when provided")
         return str(v).strip() if v else v
 
-    @field_validator("api_port", "postgres_port")
-    @classmethod
-    def convert_int(cls, v):
-        if isinstance(v, str):
-            v = int(v)
-        return v
-
 
 settings = Settings()
