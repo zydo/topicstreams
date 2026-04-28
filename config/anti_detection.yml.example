@@ -3,25 +3,18 @@
 anti_detection:
   playwright_stealth:
     enabled: true
-    description: "Applies playwright-stealth to each page to mask automation"
+    description: "Applies playwright-stealth to each context to mask automation"
 
   browser_args:
     enabled: true
     args:
       - "--no-sandbox"
       - "--disable-setuid-sandbox"
-      - "--disable-blink-features=AutomationControlled"
       - "--disable-dev-shm-usage"
-      - "--disable-accelerated-2d-canvas"
-      - "--disable-gpu"
       - "--window-size=1920,1080"
       - "--disable-background-timer-throttling"
       - "--disable-backgrounding-occluded-windows"
       - "--disable-renderer-backgrounding"
-      - "--disable-features=IsolateOrigins,site-per-process"
-      - "--disable-features=VizDisplayCompositor"
-      - "--exclude-switches=enable-automation"
-      - "--disable-infobars"
 
   page_isolation:
     enabled: true
@@ -42,32 +35,37 @@ anti_detection:
     # Static user agent (fallback when rotation is disabled)
     user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
-    # User agent rotation (optional, overrides static user_agent when enabled)
+    # Fingerprint profiles for rotation (overrides static user_agent when enabled)
+    # Each profile bundles UA with matching Sec-CH-UA and platform headers.
+    # Only Chrome profiles — Firefox/Safari UAs on a Chromium browser are detectable.
     user_agent_rotation:
       enabled: true
       strategy: "per_topic"  # "per_cycle" (rotate once per scrape cycle) or "per_topic" (rotate per topic)
-      user_agents:
-        # Chrome on Windows
-        - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-        # Chrome on macOS
-        - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-        # Chrome on Linux
-        - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-        # Firefox on Windows
-        - "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0"
-        - "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0"
-        # Firefox on macOS
-        - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0"
-        - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"
-        # Firefox on Linux
-        - "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0"
-        - "Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0"
-        # Safari on macOS
-        - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15"
-        - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15"
+      profiles:
+        # Chrome 131 on Windows
+        - user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+          sec_ch_ua: '"Chromium";v="131", "Not_A Brand";v="24"'
+          sec_ch_ua_platform: '"Windows"'
+        # Chrome 131 on macOS
+        - user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+          sec_ch_ua: '"Chromium";v="131", "Not_A Brand";v="24"'
+          sec_ch_ua_platform: '"macOS"'
+        # Chrome 131 on Linux
+        - user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+          sec_ch_ua: '"Chromium";v="131", "Not_A Brand";v="24"'
+          sec_ch_ua_platform: '"Linux"'
+        # Chrome 130 on Windows
+        - user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+          sec_ch_ua: '"Chromium";v="130", "Not_A Brand";v="24"'
+          sec_ch_ua_platform: '"Windows"'
+        # Chrome 130 on macOS
+        - user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+          sec_ch_ua: '"Chromium";v="130", "Not_A Brand";v="24"'
+          sec_ch_ua_platform: '"macOS"'
+        # Chrome 130 on Linux
+        - user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+          sec_ch_ua: '"Chromium";v="130", "Not_A Brand";v="24"'
+          sec_ch_ua_platform: '"Linux"'
 
     viewport_width: 1920
     viewport_height: 1080
@@ -110,7 +108,12 @@ anti_detection:
       # Upgrade hints
       Upgrade-Insecure-Requests: "1"
 
-      # Client Hints (Sec-CH-UA)
-      Sec-Ch-Ua: '"Chromium";v="131", "Not_A Brand";v="24"'
-      Sec-Ch-Ua-Mobile: "?0"
-      Sec-Ch-Ua-Platform: '"macOS"'
+      # Sec-Ch-Ua and Sec-Ch-Ua-Platform come from fingerprint profiles,
+      # not here — to keep headers consistent with the rotated user agent.
+
+  # Proxy rotation (optional, for use with residential proxies)
+  proxy:
+    enabled: false
+    proxies: []
+    # - "http://user:pass@proxy1.example.com:8080"
+    # - "socks5://user:pass@proxy2.example.com:1080"

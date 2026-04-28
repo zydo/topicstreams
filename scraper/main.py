@@ -31,7 +31,7 @@ from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 from playwright_stealth import Stealth
 
 from common import database as db
-from common.config import anti_detection_config, scraper_config
+from common.config import FingerprintProfile, anti_detection_config, scraper_config
 from common.model import NewsEntry
 from .scraper import scrape_news
 
@@ -53,47 +53,42 @@ logger = logging.getLogger(__name__)
 _seen_entries: Set[Tuple[str, str, str | None]] = set()
 _MAX_SEEN_ENTRIES = 25000
 
+# Default profile matching the static user_agent in config
+_DEFAULT_PROFILE = FingerprintProfile(
+    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    sec_ch_ua='"Chromium";v="131", "Not_A Brand";v="24"',
+    sec_ch_ua_platform='"macOS"',
+)
 
-class UserAgentRotation:
-    """Manages user agent rotation for anti-detection."""
+
+class ProfileRotation:
+    """Manages fingerprint profile rotation for anti-detection."""
 
     def __init__(self):
         self._current_index = 0
         self._cycle_count = 0
 
-    def get_user_agent(self) -> str:
-        """Get a user agent based on the configured rotation strategy."""
-        if not anti_detection_config.user_agent_rotation_enabled:
-            # Return static user agent if rotation is disabled
-            return anti_detection_config.user_agent
-
-        user_agents = anti_detection_config.user_agent_list
-        if not user_agents:
-            # Fallback to static user agent if list is empty
-            return anti_detection_config.user_agent
+    def get_profile(self) -> FingerprintProfile:
+        profiles = anti_detection_config.fingerprint_profiles
+        if not anti_detection_config.user_agent_rotation_enabled or not profiles:
+            return _DEFAULT_PROFILE
 
         strategy = anti_detection_config.user_agent_rotation_strategy
 
         if strategy == "per_cycle":
-            # Rotate once per scrape cycle
-            ua = user_agents[self._cycle_count % len(user_agents)]
-            return ua
+            profile = profiles[self._cycle_count % len(profiles)]
+            return profile
         elif strategy == "per_topic":
-            # Rotate for each topic
-            ua = user_agents[self._current_index % len(user_agents)]
+            profile = profiles[self._current_index % len(profiles)]
             self._current_index += 1
-            return ua
+            return profile
         else:
-            # Unknown strategy, default to static user agent
-            logger.warning(
-                f"Unknown user agent rotation strategy: {strategy}, using static user agent"
-            )
-            return anti_detection_config.user_agent
+            logger.warning(f"Unknown rotation strategy: {strategy}")
+            return _DEFAULT_PROFILE
 
     def advance_cycle(self) -> None:
-        """Advance to next cycle (for per_cycle rotation strategy)."""
         self._cycle_count += 1
-        self._current_index = 0  # Reset topic index for new cycle
+        self._current_index = 0
 
 
 def _dedup_entries(entries: List[NewsEntry]) -> List[NewsEntry]:
@@ -121,9 +116,18 @@ def _add_to_seen_entries(entries: List[NewsEntry]) -> None:
     for entry in entries:
         _seen_entries.add((entry.topic, entry.title, entry.source))
 
-def _create_context(browser: Browser, user_agent: str) -> BrowserContext:
+
+def _build_headers(profile: FingerprintProfile) -> dict:
+    base_headers = dict(anti_detection_config.http_headers)
+    base_headers["Sec-Ch-Ua"] = profile.sec_ch_ua
+    base_headers["Sec-Ch-Ua-Mobile"] = "?0"
+    base_headers["Sec-Ch-Ua-Platform"] = profile.sec_ch_ua_platform
+    return base_headers
+
+
+def _create_context(browser: Browser, profile: FingerprintProfile) -> BrowserContext:
     return browser.new_context(
-        user_agent=user_agent,
+        user_agent=profile.user_agent,
         viewport={
             "width": anti_detection_config.viewport_width,
             "height": anti_detection_config.viewport_height,
@@ -136,13 +140,30 @@ def _create_context(browser: Browser, user_agent: str) -> BrowserContext:
             "longitude": anti_detection_config.geolocation_longitude,
         },
         color_scheme=anti_detection_config.color_scheme,
-        extra_http_headers=anti_detection_config.http_headers,
+        extra_http_headers=_build_headers(profile),
     )
 
 
+def _add_consent_cookies(context: BrowserContext) -> None:
+    context.add_cookies([
+        {
+            "name": "CONSENT",
+            "value": "PENDING+987",
+            "domain": ".google.com",
+            "path": "/",
+        },
+        {
+            "name": "SOCS",
+            "value": "CAESHAgBEhJnd3NfMjAyMzA5MTMtMF9SQzIaAmVuIAEaBgiAo_LmBg",
+            "domain": ".google.com",
+            "path": "/",
+        },
+    ])
+
+
 def main():
-    """Main scraper entry point with user agent rotation support."""
-    ua_rotation = UserAgentRotation()
+    """Main scraper entry point with fingerprint profile rotation support."""
+    profile_rotation = ProfileRotation()
 
     with sync_playwright() as p:
         browser: Browser = p.chromium.launch(
@@ -152,38 +173,32 @@ def main():
             ignore_default_args=["--enable-automation"],
         )
 
-        # Determine if we need context-per-topic (for per_topic UA rotation)
         need_context_per_topic = (
             anti_detection_config.user_agent_rotation_enabled
             and anti_detection_config.user_agent_rotation_strategy == "per_topic"
+        )
+
+        stealth = (
+            Stealth() if anti_detection_config.playwright_stealth_enabled else None
         )
 
         try:
             # Create default context (used for per_cycle rotation or no rotation)
             default_context: Optional[BrowserContext] = None
             if not need_context_per_topic:
-                default_context = _create_context(browser, anti_detection_config.user_agent)
+                default_profile = profile_rotation.get_profile()
+                default_context = _create_context(browser, default_profile)
+                if stealth:
+                    stealth.apply_stealth_sync(default_context)
 
-            # Only use playwright-stealth if enabled
-            stealth = (
-                Stealth() if anti_detection_config.playwright_stealth_enabled else None
-            )
-
-            # Log user agent rotation status
+            # Log rotation status
             if anti_detection_config.user_agent_rotation_enabled:
                 strategy = anti_detection_config.user_agent_rotation_strategy
-                ua_count = len(anti_detection_config.user_agent_list)
+                profiles = anti_detection_config.fingerprint_profiles
                 logger.info(
-                    f"User agent rotation enabled: strategy={strategy}, "
-                    f"{ua_count} user agents in rotation pool"
+                    f"Profile rotation enabled: strategy={strategy}, "
+                    f"{len(profiles)} profiles in pool"
                 )
-                if strategy == "per_cycle":
-                    ua = ua_rotation.get_user_agent()
-                    logger.info(f"Current cycle user agent: {ua[:80]}...")
-                    # Update default context with rotated UA for per_cycle strategy
-                    if default_context:
-                        default_context.close()
-                        default_context = _create_context(browser, ua)
 
             try:
                 while True:
@@ -193,7 +208,6 @@ def main():
                     try:
                         topics = [topic.name for topic in db.get_topics()]
 
-                        # Randomize topic order if enabled
                         if anti_detection_config.randomized_order_enabled:
                             shuffle(topics)
                             logger.info(
@@ -204,7 +218,6 @@ def main():
 
                         all_entries, all_logs = [], []
                         for i, topic in enumerate(topics):
-                            # Add random delay between topics if enabled
                             if i > 0 and anti_detection_config.random_delays_enabled:
                                 delay = random.uniform(
                                     anti_detection_config.random_delay_min,
@@ -212,34 +225,20 @@ def main():
                                 )
                                 time.sleep(delay)
 
-                            # Get user agent for this topic (if per_topic rotation)
-                            # or use the default context
                             if need_context_per_topic:
-                                ua = ua_rotation.get_user_agent()
-                                current_context = _create_context(browser, ua)
+                                profile = profile_rotation.get_profile()
+                                current_context = _create_context(browser, profile)
+                                if stealth:
+                                    stealth.apply_stealth_sync(current_context)
+                                _add_consent_cookies(current_context)
                                 logger.debug(
-                                    f"Topic '{topic}' using user agent: {ua[:80]}..."
+                                    f"Topic '{topic}' using profile: {profile.user_agent[:60]}..."
                                 )
                             else:
                                 current_context = default_context
 
-                            # Create new page per topic to prevent memory accumulation
                             assert current_context is not None
                             page: Page = current_context.new_page()
-
-                            # Apply stealth if enabled
-                            if stealth is not None:
-                                stealth.apply_stealth_sync(page)
-
-                            # Inject anti-detection JS before any navigation
-                            page.add_init_script("""
-                                Object.defineProperty(navigator, 'webdriver', {
-                                    get: () => false,
-                                });
-                                Object.defineProperty(navigator, 'languages', {
-                                    get: () => ['en-US', 'en'],
-                                });
-                            """)
 
                             try:
                                 entries, scraper_logs = scrape_news(
@@ -249,7 +248,6 @@ def main():
                                 all_logs.extend(scraper_logs)
                             finally:
                                 page.close()
-                                # Close context if it was created for this topic (per_topic rotation)
                                 if need_context_per_topic and current_context:
                                     current_context.close()
                                     current_context = None
@@ -267,7 +265,6 @@ def main():
                         logger.error(f"Full traceback:\n{traceback.format_exc()}")
 
                     finally:
-                        # Clean up per-topic context if still open
                         if need_context_per_topic and current_context:
                             current_context.close()
 
@@ -277,19 +274,20 @@ def main():
                     else:
                         logger.error(f"Scrape failed in {elapsed:.1f}s")
 
-                    # Advance to next cycle (updates user agent for per_cycle strategy)
-                    ua_rotation.advance_cycle()
+                    profile_rotation.advance_cycle()
 
                     # Update context for next cycle if using per_cycle rotation
                     if (
                         anti_detection_config.user_agent_rotation_enabled
                         and anti_detection_config.user_agent_rotation_strategy == "per_cycle"
-                        and default_context
                     ):
-                        ua = ua_rotation.get_user_agent()
-                        logger.info(f"Next cycle user agent: {ua[:80]}...")
-                        default_context.close()
-                        default_context = _create_context(browser, ua)
+                        next_profile = profile_rotation.get_profile()
+                        logger.info(f"Next cycle profile: {next_profile.user_agent[:60]}...")
+                        if default_context:
+                            default_context.close()
+                        default_context = _create_context(browser, next_profile)
+                        if stealth:
+                            stealth.apply_stealth_sync(default_context)
 
                     sleep_time = max(0, scraper_config.scrape_interval - elapsed)
                     if sleep_time > 0:

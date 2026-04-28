@@ -5,6 +5,7 @@ and anti-detection settings.
 """
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Literal
 
@@ -14,6 +15,13 @@ logger = logging.getLogger(__name__)
 
 # Base config directory
 CONFIG_DIR = Path(__file__).parent.parent / "config"
+
+
+@dataclass
+class FingerprintProfile:
+    user_agent: str
+    sec_ch_ua: str
+    sec_ch_ua_platform: str
 
 
 class _BaseConfig:
@@ -168,7 +176,7 @@ class AntiDetectionConfig(_BaseConfig):
 
     @property
     def user_agent_list(self) -> List[str]:
-        """Get list of user agents for rotation."""
+        """Get list of user agents for rotation (legacy, without profiles)."""
         return self._get(
             "anti_detection",
             "browser_fingerprint",
@@ -176,6 +184,18 @@ class AntiDetectionConfig(_BaseConfig):
             "user_agents",
             default=[],
         )
+
+    @property
+    def fingerprint_profiles(self) -> List[FingerprintProfile]:
+        """Get fingerprint profiles with matching UA + Sec-CH-UA + platform."""
+        profiles_data = self._get(
+            "anti_detection",
+            "browser_fingerprint",
+            "user_agent_rotation",
+            "profiles",
+            default=[],
+        )
+        return [FingerprintProfile(**p) for p in profiles_data]
 
     @property
     def viewport_width(self) -> int:
@@ -277,6 +297,14 @@ class AntiDetectionConfig(_BaseConfig):
                 "Accept-Language": "en-US,en;q=0.9",
             },
         )
+
+    @property
+    def proxy_enabled(self) -> bool:
+        return self._get("anti_detection", "proxy", "enabled", default=False)
+
+    @property
+    def proxy_list(self) -> List[str]:
+        return self._get("anti_detection", "proxy", "proxies", default=[])
 
 
 # Global instances
