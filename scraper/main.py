@@ -19,6 +19,7 @@ IMPORTANT Assumption:
     missing news articles.
 """
 
+import atexit
 import logging
 import random
 import time
@@ -33,6 +34,8 @@ from common import database as db
 from common.config import anti_detection_config, scraper_config
 from common.model import NewsEntry
 from .scraper import scrape_news
+
+atexit.register(db.close_pool)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
