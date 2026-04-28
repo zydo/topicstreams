@@ -21,7 +21,7 @@ from common.database import close_pool
 from common.settings import settings
 from .exceptions import TopicStreamsException
 from .v1.router import router as v1_router
-from .v1.websocket import manager as websocket_manager
+from .v1.websocket.manager import manager as websocket_manager
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
