@@ -22,7 +22,7 @@ CMD ["python", "-m", "api.main"]
 
 FROM base AS scraper
 
-# Dependencies for Playwright
+# Install Google Chrome (real browser, not headless shell) + OS deps for Playwright
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     fonts-liberation \
@@ -46,12 +46,15 @@ RUN apt-get update && apt-get install -y \
     libxrandr2 \
     wget \
     xdg-utils \
+    && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
 COPY scraper/ /app/scraper/
 COPY requirements/scraper.txt /app/requirements/scraper.txt
 COPY config/ /app/config/
 
-RUN pip install --no-cache-dir -r /app/requirements/scraper.txt && playwright install chromium
+RUN pip install --no-cache-dir -r /app/requirements/scraper.txt && playwright install-deps chromium
 
 CMD ["python", "-u", "-m", "scraper.main"]

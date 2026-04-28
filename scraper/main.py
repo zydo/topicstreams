@@ -146,9 +146,9 @@ def main():
 
     with sync_playwright() as p:
         browser: Browser = p.chromium.launch(
-            headless=True,  # Always use headless mode in Docker containers
+            headless=True,
+            channel="chrome",
             args=anti_detection_config.browser_args,
-            # Explicitly disable Playwright's automation flags that Google detects
             ignore_default_args=["--enable-automation"],
         )
 
