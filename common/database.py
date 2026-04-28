@@ -81,12 +81,15 @@ def close_pool() -> None:
 
 class _Connection:
     def __init__(self) -> None:
-        self._conn = _get_pool().getconn()
+        self._conn: Optional = None
 
     def __enter__(self):
+        self._conn = _get_pool().getconn()
         return self
 
     def __exit__(self, exc_type, *_):
+        if self._conn is None:
+            return
         try:
             if exc_type:
                 self._conn.rollback()
