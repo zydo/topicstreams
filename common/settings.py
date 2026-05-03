@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     # Comma-separated list of allowed CORS origins, or '*' to allow all.
     cors_origins: str = Field(default="*", description="Comma-separated allowed CORS origins")
 
+    # ========== Data Retention ========== #
+
+    news_retention_days: int = Field(
+        default=30, ge=1, description="Days to retain news entries before purging"
+    )
+
     @property
     def cors_origins_list(self) -> List[str]:
         if self.cors_origins.strip() == "*":

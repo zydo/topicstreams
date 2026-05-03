@@ -32,6 +32,7 @@ from playwright_stealth import Stealth
 
 from common import database as db
 from common.config import FingerprintProfile, anti_detection_config, scraper_config
+from common.settings import settings
 from common.model import NewsEntry
 from .scraper import scrape_news
 
@@ -204,6 +205,10 @@ def main():
                     current_context: Optional[BrowserContext] = None
 
                     try:
+                        deleted = db.purge_old_news_entries(settings.news_retention_days)
+                        if deleted:
+                            logger.info(f"Purged {deleted} news entries older than {settings.news_retention_days} days")
+
                         topics = [topic.name for topic in db.get_topics()]
 
                         if anti_detection_config.randomized_order_enabled:
