@@ -2,10 +2,11 @@
 
 from typing import List
 
-from fastapi import APIRouter, Query, Path
+from fastapi import APIRouter, Depends, Query, Path
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from api.auth import require_api_key
 from common import database as db
 from common.model import Topic
 from common.utils import normalize_topic
@@ -28,13 +29,13 @@ async def get_topics(
     return await run_in_threadpool(db.get_topics, include_inactive=all)
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_api_key)])
 async def add_topic(topic: TopicCreate) -> None:
     normalized_name = normalize_topic(topic.name)
     await run_in_threadpool(db.add_topic, normalized_name)
 
 
-@router.delete("/{topic_name}")
+@router.delete("/{topic_name}", dependencies=[Depends(require_api_key)])
 async def delete_topic(
     topic_name: str = Path(..., min_length=1, max_length=100)
 ) -> None:

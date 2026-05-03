@@ -1,5 +1,7 @@
 """Configuration management for the TopicStreams API."""
 
+from typing import List, Optional
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
@@ -23,6 +25,19 @@ class Settings(BaseSettings):
     # ========== API ========== #
 
     api_port: int = Field(default=5000, ge=1, le=65535, description="API server port")
+
+    # When set, POST/DELETE topic endpoints require this key in the X-API-Key header.
+    # Leave unset to disable auth (useful for local development).
+    api_key: Optional[str] = Field(default=None, description="API key for write operations")
+
+    # Comma-separated list of allowed CORS origins, or '*' to allow all.
+    cors_origins: str = Field(default="*", description="Comma-separated allowed CORS origins")
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        if self.cors_origins.strip() == "*":
+            return ["*"]
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     class Config:
         env_file = ".env"

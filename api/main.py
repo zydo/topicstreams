@@ -7,7 +7,9 @@ database lifecycle management, and API v1 routes.
 import json
 import logging
 import uvicorn
+from collections import defaultdict
 from contextlib import asynccontextmanager
+from time import time
 from typing import Any
 
 from fastapi import FastAPI, Request, status
@@ -16,6 +18,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from common.database import close_pool
 from common.settings import settings
@@ -27,6 +30,39 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Fixed-window in-memory rate limiter keyed by client IP."""
+
+    def __init__(self, app, calls: int = 120, period: int = 60):
+        super().__init__(app)
+        self.calls = calls
+        self.period = period
+        self._requests: dict = defaultdict(list)
+
+    async def dispatch(self, request: Request, call_next):
+        ip = request.client.host if request.client else "unknown"
+        now = time()
+        window_start = now - self.period
+
+        hits = self._requests[ip]
+        # Evict timestamps outside the current window
+        self._requests[ip] = [t for t in hits if t > window_start]
+
+        if len(self._requests[ip]) >= self.calls:
+            return JSONResponse(
+                status_code=429,
+                content={"error": "RATE_LIMIT_EXCEEDED", "message": "Too many requests", "status": "error"},
+            )
+
+        self._requests[ip].append(now)
+
+        # Prevent unbounded dict growth if many unique IPs never return
+        if len(self._requests) > 10000:
+            self._requests.clear()
+
+        return await call_next(request)
 
 
 @asynccontextmanager
@@ -47,19 +83,17 @@ class PrettyJSONResponse(JSONResponse):
             separators=(", ", ": "),
         ).encode("utf-8")
 
-# TODO: Add authentication, authorization and rate limiting to API.
-
 app = FastAPI(
     title="TopicStreams API",
     lifespan=lifespan,
     default_response_class=PrettyJSONResponse,
 )
 
+app.add_middleware(RateLimitMiddleware, calls=120, period=60)
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify actual origins
+    allow_origins=settings.cors_origins_list,
     allow_methods=["*"],
     allow_headers=["*"],
 )
