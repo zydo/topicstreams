@@ -29,7 +29,7 @@ async def get_topics(
     return await run_in_threadpool(db.get_topics, include_inactive=all)
 
 
-@router.post("", dependencies=[Depends(require_api_key)])
+@router.post("", status_code=201, dependencies=[Depends(require_api_key)])
 async def add_topic(topic: TopicCreate) -> None:
     normalized_name = normalize_topic(topic.name)
     await run_in_threadpool(db.add_topic, normalized_name)
