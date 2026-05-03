@@ -4,6 +4,7 @@ from typing import List
 
 from fastapi import APIRouter, Query, Path
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from api.exceptions import TopicStreamsException
 from common import database as db
@@ -30,11 +31,11 @@ async def get_news(
 ) -> NewsListResponse:
     normalized_name = normalize_topic(topic_name)
 
-    if not db.topic_exists(normalized_name):
+    if not await run_in_threadpool(db.topic_exists, normalized_name):
         raise TopicStreamsException(f"Topic '{normalized_name}' not found", "TOPIC_NOT_FOUND")
 
-    entries = db.get_news_entries(normalized_name, limit, offset)
-    total = db.get_news_count(normalized_name)
+    entries = await run_in_threadpool(db.get_news_entries, normalized_name, limit, offset)
+    total = await run_in_threadpool(db.get_news_count, normalized_name)
 
     return NewsListResponse(
         topic=normalized_name,

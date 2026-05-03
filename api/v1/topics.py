@@ -4,6 +4,7 @@ from typing import List
 
 from fastapi import APIRouter, Query, Path
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from common import database as db
 from common.model import Topic
@@ -24,13 +25,13 @@ async def get_topics(
         description="Show all topics including inactive (soft deleted) ones",
     ),
 ) -> List[Topic]:
-    return db.get_topics(include_inactive=all)
+    return await run_in_threadpool(db.get_topics, include_inactive=all)
 
 
 @router.post("")
 async def add_topic(topic: TopicCreate) -> None:
     normalized_name = normalize_topic(topic.name)
-    db.add_topic(normalized_name)
+    await run_in_threadpool(db.add_topic, normalized_name)
 
 
 @router.delete("/{topic_name}")
@@ -42,4 +43,4 @@ async def delete_topic(
     This operation is idempotent - deleting a non-existent topic succeeds.
     """
     normalized_name = normalize_topic(topic_name)
-    db.delete_topic(normalized_name)
+    await run_in_threadpool(db.delete_topic, normalized_name)

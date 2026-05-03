@@ -3,6 +3,7 @@
 from typing import List
 
 from fastapi import APIRouter, Query
+from starlette.concurrency import run_in_threadpool
 
 from common import database as db
 from common.model import ScraperLog
@@ -20,4 +21,4 @@ async def get_logs(limit: int = Query(20, ge=1, le=100)) -> List[ScraperLog]:
     Returns:
         List of scraper logs ordered by scraped_at DESC (newest first).
     """
-    return db.get_scraper_logs(limit)
+    return await run_in_threadpool(db.get_scraper_logs, limit)
