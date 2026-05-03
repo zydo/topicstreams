@@ -22,7 +22,7 @@ CMD ["python", "-m", "api.main"]
 
 FROM base AS scraper
 
-# Install Google Chrome (real browser, not headless shell) + OS deps for Playwright
+# Install Google Chrome + OS deps for Playwright
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     fonts-liberation \

@@ -38,8 +38,10 @@ anti_detection:
     # Fingerprint profiles for rotation (overrides static user_agent when enabled)
     # Each profile bundles UA with matching Sec-CH-UA and platform headers.
     # Only Chrome profiles — Firefox/Safari UAs on a Chromium browser are detectable.
+    # Disabled because persistent context uses one consistent identity — rotating
+    # UAs while reusing the same cookies/profile is more suspicious than not rotating.
     user_agent_rotation:
-      enabled: true
+      enabled: false
       strategy: "per_topic"  # "per_cycle" (rotate once per scrape cycle) or "per_topic" (rotate per topic)
       profiles:
         # Chrome 131 on Windows

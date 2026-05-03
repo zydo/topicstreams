@@ -41,6 +41,8 @@ services:
         - linux/amd64
     env_file:
       - .env
+    volumes:
+      - browser_profiles:/app/.browser_profiles
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,6 +52,8 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  browser_profiles:
     driver: local
 
 networks:
