@@ -43,14 +43,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # TODO: Use Redis with TTL to replace this.
-# Memorize inserted NewsEntry tuple (topic, title, source) to avoid unnecessary insert.
-# Use 'source' because 'domain' field is not calculated yet.
-# At schema level there is also UNIQUE(topic, title, domain) constraint. This in-memory
-# dedup is just an optimization to reduce DB operations, removing it won't affect
-# behavior.
+# Memorize inserted NewsEntry tuple (topic, title, domain) to match the DB
+# UNIQUE(topic, title, domain) constraint. This in-memory dedup is just an optimization
+# to reduce DB round-trips; removing it won't affect correctness.
 # Using set for O(1) lookups with periodic cleanup to prevent unbounded memory growth.
 # Max 25,000 entries (~6 hours of data at 10 topics * 5 entries/min * 60 min * 6 hours).
-_seen_entries: Set[Tuple[str, str, str | None]] = set()
+_seen_entries: Set[Tuple[str, str, str]] = set()
 _MAX_SEEN_ENTRIES = 25000
 
 # Default profile matching the static user_agent in config
@@ -97,7 +95,7 @@ def _dedup_entries(entries: List[NewsEntry]) -> List[NewsEntry]:
     # Dedup both in-batch and with seen_entries
     res, seen = [], set()
     for entry in entries:
-        signature = (entry.topic, entry.title, entry.source)
+        signature = (entry.topic, entry.title, entry.domain)
         if signature in seen or signature in _seen_entries:
             continue
         res.append(entry)
@@ -114,7 +112,7 @@ def _add_to_seen_entries(entries: List[NewsEntry]) -> None:
         _seen_entries.clear()
 
     for entry in entries:
-        _seen_entries.add((entry.topic, entry.title, entry.source))
+        _seen_entries.add((entry.topic, entry.title, entry.domain))
 
 
 def _build_headers(profile: FingerprintProfile) -> dict:
