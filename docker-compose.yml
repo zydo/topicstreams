@@ -33,9 +33,12 @@ services:
 
   scraper:
     container_name: topicstreams-scraper
+    platform: linux/amd64
     build:
       context: .
       target: scraper
+      platforms:
+        - linux/amd64
     env_file:
       - .env
     depends_on:
