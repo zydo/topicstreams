@@ -5,6 +5,7 @@ from functools import wraps
 from typing import List, Optional
 
 import psycopg2
+from psycopg2.extensions import connection as PgConnection
 from psycopg2.extras import RealDictCursor, execute_values
 from psycopg2.pool import ThreadedConnectionPool
 
@@ -56,8 +57,8 @@ def _get_pool() -> ThreadedConnectionPool:
     global _pool
     if _pool is None:
         _pool = ThreadedConnectionPool(
-            minconn=2,
-            maxconn=10,
+            minconn=settings.db_pool_min_conn,
+            maxconn=settings.db_pool_max_conn,
             host=settings.postgres_host,
             port=settings.postgres_port,
             database=settings.postgres_db,
@@ -81,7 +82,7 @@ def close_pool() -> None:
 
 class _Connection:
     def __init__(self) -> None:
-        self._conn: Optional = None
+        self._conn: Optional[PgConnection] = None
 
     def __enter__(self):
         self._conn = _get_pool().getconn()

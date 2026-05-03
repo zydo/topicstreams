@@ -18,9 +18,7 @@ class Settings(BaseSettings):
     )
     postgres_db: str = Field(default="newsdb", description="PostgreSQL database name")
     postgres_user: str = Field(default="newsuser", description="PostgreSQL username")
-    postgres_password: str = Field(
-        default="newspass", description="PostgreSQL password"
-    )
+    postgres_password: str = Field(description="PostgreSQL password (required — no default)")
 
     # ========== API ========== #
 
@@ -32,6 +30,11 @@ class Settings(BaseSettings):
 
     # Comma-separated list of allowed CORS origins, or '*' to allow all.
     cors_origins: str = Field(default="*", description="Comma-separated allowed CORS origins")
+
+    # ========== Database Pool ========== #
+
+    db_pool_min_conn: int = Field(default=2, ge=1, description="Minimum DB connections in pool")
+    db_pool_max_conn: int = Field(default=10, ge=1, description="Maximum DB connections in pool")
 
     # ========== Data Retention ========== #
 
