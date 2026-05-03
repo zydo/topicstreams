@@ -69,7 +69,7 @@ class WebSocketManager:
                     notify = conn.notifies.pop(0)
                     await self._handle_notification(notify.payload)
             except Exception:
-                logger.warning("Postgres listener connection lost, reconnecting...")
+                logger.exception("Postgres listener error, reconnecting...")
                 conn = self._reconnect()
             await asyncio.sleep(1)
 
@@ -116,9 +116,8 @@ class WebSocketManager:
         for connection in self._topic_subscribers[topic]:
             try:
                 await connection.send_text(formatted_json)
-            except (RuntimeError, TypeError):
-                disconnected.append(connection)
-            except Exception:
+            except Exception as e:
+                logger.debug("WebSocket send failed, marking as disconnected: %s", e)
                 disconnected.append(connection)
 
         for connection in disconnected:
