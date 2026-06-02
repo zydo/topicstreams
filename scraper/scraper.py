@@ -155,7 +155,9 @@ def _scrape_one_page(
                 if response_status == 429:
                     logger.error("Rate limiting detected - Too many requests")
                 elif response_status in (403, 503):
-                    logger.error("Access blocked - May need to adjust scraping strategy")
+                    logger.error(
+                        "Access blocked - May need to adjust scraping strategy"
+                    )
                 return (
                     [],
                     ScraperLog.create_new(

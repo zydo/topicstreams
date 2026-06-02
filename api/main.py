@@ -53,7 +53,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if len(self._requests[ip]) >= self.calls:
             return JSONResponse(
                 status_code=429,
-                content={"error": "RATE_LIMIT_EXCEEDED", "message": "Too many requests", "status": "error"},
+                content={
+                    "error": "RATE_LIMIT_EXCEEDED",
+                    "message": "Too many requests",
+                    "status": "error",
+                },
             )
 
         self._requests[ip].append(now)
@@ -83,6 +87,7 @@ class PrettyJSONResponse(JSONResponse):
             separators=(", ", ": "),
         ).encode("utf-8")
 
+
 app = FastAPI(
     title="TopicStreams API",
     lifespan=lifespan,
@@ -99,9 +104,10 @@ app.add_middleware(
 )
 
 # Mount static files for the web UI
-static_dir = Path("/app/api/static") # In-container path
+static_dir = Path("/app/api/static")  # In-container path
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
 
 # Root endpoint to serve the web UI
 @app.get("/")
@@ -112,8 +118,9 @@ async def read_root():
         return FileResponse(index_file)
     return JSONResponse(
         status_code=404,
-        content={"error": "Web UI not found", "message": "Static files not available"}
+        content={"error": "Web UI not found", "message": "Static files not available"},
     )
+
 
 app.include_router(v1_router)
 

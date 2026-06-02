@@ -12,7 +12,6 @@ from psycopg2.pool import ThreadedConnectionPool
 from common.settings import settings
 from common.model import Topic, NewsEntry, ScraperLog
 
-
 # Package-level connection pool singleton
 _pool: Optional[ThreadedConnectionPool] = None
 
@@ -121,7 +120,9 @@ def get_topics(include_inactive: bool = False) -> List[Topic]:
 def topic_exists(name: str) -> bool:
     with _Connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT 1 FROM topics WHERE name = %s AND is_active = TRUE LIMIT 1", (name,))
+        cursor.execute(
+            "SELECT 1 FROM topics WHERE name = %s AND is_active = TRUE LIMIT 1", (name,)
+        )
         return cursor.fetchone() is not None
 
 
@@ -256,7 +257,13 @@ def insert_scraper_logs(logs: List[ScraperLog]) -> int:
         """
 
         values = [
-            (log.topic, log.scraped_at, log.success, log.http_status_code, log.error_message)
+            (
+                log.topic,
+                log.scraped_at,
+                log.success,
+                log.http_status_code,
+                log.error_message,
+            )
             for log in logs
         ]
 

@@ -18,7 +18,9 @@ class Settings(BaseSettings):
     )
     postgres_db: str = Field(default="newsdb", description="PostgreSQL database name")
     postgres_user: str = Field(default="newsuser", description="PostgreSQL username")
-    postgres_password: str = Field(description="PostgreSQL password (required — no default)")
+    postgres_password: str = Field(
+        description="PostgreSQL password (required — no default)"
+    )
 
     # ========== API ========== #
 
@@ -26,15 +28,23 @@ class Settings(BaseSettings):
 
     # When set, POST/DELETE topic endpoints require this key in the X-API-Key header.
     # Leave unset to disable auth (useful for local development).
-    api_key: Optional[str] = Field(default=None, description="API key for write operations")
+    api_key: Optional[str] = Field(
+        default=None, description="API key for write operations"
+    )
 
     # Comma-separated list of allowed CORS origins, or '*' to allow all.
-    cors_origins: str = Field(default="*", description="Comma-separated allowed CORS origins")
+    cors_origins: str = Field(
+        default="*", description="Comma-separated allowed CORS origins"
+    )
 
     # ========== Database Pool ========== #
 
-    db_pool_min_conn: int = Field(default=2, ge=1, description="Minimum DB connections in pool")
-    db_pool_max_conn: int = Field(default=10, ge=1, description="Maximum DB connections in pool")
+    db_pool_min_conn: int = Field(
+        default=2, ge=1, description="Minimum DB connections in pool"
+    )
+    db_pool_max_conn: int = Field(
+        default=10, ge=1, description="Maximum DB connections in pool"
+    )
 
     # ========== Data Retention ========== #
 

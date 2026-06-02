@@ -11,7 +11,6 @@ from common import database as db
 from common.model import Topic
 from common.utils import normalize_topic
 
-
 router = APIRouter(prefix="/topics", tags=["topics"])
 
 

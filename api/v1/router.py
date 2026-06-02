@@ -5,7 +5,6 @@ from fastapi import APIRouter
 from . import topics, news, logs
 from .websocket import news as websocket_news
 
-
 router = APIRouter(prefix="/api/v1")
 
 router.include_router(topics.router)

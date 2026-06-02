@@ -97,20 +97,22 @@ def _build_headers(profile: FingerprintProfile) -> dict:
 
 
 def _add_consent_cookies(context: BrowserContext) -> None:
-    context.add_cookies([
-        {
-            "name": "CONSENT",
-            "value": "PENDING+987",
-            "domain": ".google.com",
-            "path": "/",
-        },
-        {
-            "name": "SOCS",
-            "value": "CAESHAgBEhJnd3NfMjAyMzA5MTMtMF9SQzIaAmVuIAEaBgiAo_LmBg",
-            "domain": ".google.com",
-            "path": "/",
-        },
-    ])
+    context.add_cookies(
+        [
+            {
+                "name": "CONSENT",
+                "value": "PENDING+987",
+                "domain": ".google.com",
+                "path": "/",
+            },
+            {
+                "name": "SOCS",
+                "value": "CAESHAgBEhJnd3NfMjAyMzA5MTMtMF9SQzIaAmVuIAEaBgiAo_LmBg",
+                "domain": ".google.com",
+                "path": "/",
+            },
+        ]
+    )
 
 
 def _sleep_between_topics() -> None:

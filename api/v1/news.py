@@ -11,7 +11,6 @@ from common import database as db
 from common.model import NewsEntry
 from common.utils import normalize_topic
 
-
 router = APIRouter(prefix="/news", tags=["news"])
 
 
@@ -32,9 +31,13 @@ async def get_news(
     normalized_name = normalize_topic(topic_name)
 
     if not await run_in_threadpool(db.topic_exists, normalized_name):
-        raise TopicStreamsException(f"Topic '{normalized_name}' not found", "TOPIC_NOT_FOUND")
+        raise TopicStreamsException(
+            f"Topic '{normalized_name}' not found", "TOPIC_NOT_FOUND"
+        )
 
-    entries = await run_in_threadpool(db.get_news_entries, normalized_name, limit, offset)
+    entries = await run_in_threadpool(
+        db.get_news_entries, normalized_name, limit, offset
+    )
     total = await run_in_threadpool(db.get_news_count, normalized_name)
 
     return NewsListResponse(

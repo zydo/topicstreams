@@ -164,14 +164,22 @@ class AntiDetectionConfig(_BaseConfig):
     def user_agent_rotation_enabled(self) -> bool:
         """Check if user agent rotation is enabled."""
         return self._get(
-            "anti_detection", "browser_fingerprint", "user_agent_rotation", "enabled", default=False
+            "anti_detection",
+            "browser_fingerprint",
+            "user_agent_rotation",
+            "enabled",
+            default=False,
         )
 
     @property
     def user_agent_rotation_strategy(self) -> str:
         """Get user agent rotation strategy."""
         return self._get(
-            "anti_detection", "browser_fingerprint", "user_agent_rotation", "strategy", default="per_topic"
+            "anti_detection",
+            "browser_fingerprint",
+            "user_agent_rotation",
+            "strategy",
+            default="per_topic",
         )
 
     @property
