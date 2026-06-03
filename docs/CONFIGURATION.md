@@ -234,21 +234,38 @@ When `user_agent_rotation.enabled` is `false`, the scraper uses the static `user
 
 ### Proxy Configuration
 
-Optional proxy support for residential proxy rotation:
+Route the browser through a **residential or mobile** proxy. This is effectively
+required: Google blocks automated browsers from `/search` (including the News
+tab) even from a residential IP, so without a proxy the scrape returns only
+CAPTCHA pages. Datacenter proxies are detected and blocked like a direct
+connection.
 
-```yaml
-anti_detection:
-  proxy:
-    enabled: false
-    proxies: []
-    # - "http://user:pass@proxy1.example.com:8080"
-    # - "socks5://user:pass@proxy2.example.com:1080"
+Configure it in **either** place — the `SCRAPER_PROXY` env var takes precedence:
+
+```bash
+# .env  (recommended: no image rebuild, keeps credentials out of the image)
+SCRAPER_PROXY=http://user:pass@gateway.provider.com:7777
 ```
 
-| Setting   | Default | Description                          |
-| --------- | ------- | ------------------------------------ |
-| `enabled` | `false` | Enable or disable proxy rotation     |
-| `proxies` | `[]`    | List of proxy URLs to rotate through |
+```yaml
+# config/anti_detection.yml
+anti_detection:
+  proxy:
+    enabled: true
+    proxies:
+      - "http://user:pass@gateway.provider.com:7777"
+      - "socks5://user:pass@gateway.provider.com:1080"
+```
+
+| Setting          | Default | Description                                                                 |
+| ---------------- | ------- | --------------------------------------------------------------------------- |
+| `enabled`        | `false` | Enable proxying. Implicitly `true` when `SCRAPER_PROXY` is set.             |
+| `proxies`        | `[]`    | Proxy URLs `scheme://[user:pass@]host:port` (http/https/socks5). One is chosen per browser launch. |
+| `SCRAPER_PROXY`  | unset   | Single proxy URL (env var). Overrides `proxies` and enables proxying.       |
+
+> **Match the location.** Set `timezone_id` and `geolocation` (above in
+> `anti_detection.yml`) to the proxy's exit country — a mismatch is itself a
+> detection signal.
 
 ## Reloading Configuration
 

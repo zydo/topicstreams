@@ -5,6 +5,7 @@ and anti-detection settings.
 """
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Literal
@@ -308,10 +309,24 @@ class AntiDetectionConfig(_BaseConfig):
 
     @property
     def proxy_enabled(self) -> bool:
+        # Setting SCRAPER_PROXY in the environment implicitly enables proxying,
+        # so credentials can be supplied via .env without rebuilding the image
+        # (config/ is baked into the scraper image at build time).
+        if os.environ.get("SCRAPER_PROXY", "").strip():
+            return True
         return self._get("anti_detection", "proxy", "enabled", default=False)
 
     @property
-    def proxy_list(self) -> List[str]:
+    def proxy_servers(self) -> List[str]:
+        """Proxy URLs (scheme://[user:pass@]host:port).
+
+        The SCRAPER_PROXY environment variable (a single URL) takes precedence
+        over the YAML ``proxies`` list, which is the convenient path for Docker
+        since the scraper reads .env at runtime.
+        """
+        env = os.environ.get("SCRAPER_PROXY", "").strip()
+        if env:
+            return [env]
         return self._get("anti_detection", "proxy", "proxies", default=[])
 
 

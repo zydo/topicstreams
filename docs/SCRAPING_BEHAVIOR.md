@@ -85,38 +85,48 @@ If you see frequent HTTP 429 or 403 errors in logs (check via [scraper logs API]
 
 # Proxy Rotation
 
-> **Not implemented yet** - This is a recommended enhancement for high-volume scraping scenarios.
+> **Implemented — and in practice required.** Google blocks automated browsers
+> from `/search` (including the News tab) even from a residential IP, so without
+> a proxy the scrape returns only CAPTCHA (`/sorry/`) pages. Use **residential
+> or mobile** proxies; datacenter proxies are blocked just like a direct
+> connection.
 
-## The Problem: Scaling Beyond Sequential Scraping
+## How It Works
 
-The current implementation uses **sequential scraping** with reasonable intervals (default 60s from `config/scraper.yml`) to avoid detection. However, for aggressive scraping needs:
+The scraper reads a proxy from configuration and routes its persistent browser
+context through it (`scraper/main.py:_build_proxy`). One endpoint is chosen per
+browser launch — residential gateways rotate their exit IP server-side, so a
+single sticky endpoint is the common setup, while a longer list varies the
+identity across container restarts.
 
-- **High QPS requirements** - Scraping many topics frequently (e.g., `scrape_interval: 0` for continuous scraping)
-- **24/7 operation** - Long-running scrapers from the same IP
-- **Concurrent scraping** - Switching from sequential to parallel topic scraping for speed
+## Configuration
 
-These scenarios significantly increase the risk of being rate-limited or blocked by Google, even with anti-bot detection measures.
+Set a proxy in **either** place (the env var wins):
 
-## Recommended Solution: Proxy Rotation
-
-Implement **rotating proxies** for outbound traffic instead of direct connections from your server:
-
-```python
-# Future implementation example
-proxies = [
-    {"server": "http://proxy1.example.com:8080", "country": "US"},
-    {"server": "http://proxy2.example.com:8080", "country": "UK"},
-    {"server": "http://proxy3.example.com:8080", "country": "CA"},
-]
-
-for topic in topics:
-    proxy = select_next_proxy()  # Rotate through proxy pool
-    context = browser.new_context(proxy=proxy, ...)
-    page = context.new_page()
-    scrape_news(page, topic)
+```bash
+# .env  (recommended — no image rebuild, keeps credentials out of the image)
+SCRAPER_PROXY=http://user:pass@gateway.provider.com:7777
 ```
 
+```yaml
+# config/anti_detection.yml
+anti_detection:
+  proxy:
+    enabled: true
+    proxies:
+      - "http://user:pass@gateway.provider.com:7777"
+      - "socks5://user:pass@gateway.provider.com:1080"
+```
+
+`http`, `https`, and `socks5` schemes are supported. **Match `timezone_id` and
+`geolocation`** (also in `anti_detection.yml`) to the proxy's exit country, or
+the mismatch itself becomes a detection signal.
+
 ## Advanced: Different Personas per Proxy
+
+> **Illustrative / not implemented.** The scraper currently runs a single
+> persistent identity. Per-proxy personas are a possible future enhancement;
+> the snippet below is conceptual.
 
 For maximum stealth, pair each proxy with a unique browser fingerprint ("persona"):
 

@@ -28,7 +28,8 @@ import time
 import traceback
 from pathlib import Path
 from random import shuffle
-from typing import List, Set, Tuple
+from typing import List, Optional, Set, Tuple
+from urllib.parse import unquote, urlparse
 
 from playwright.sync_api import BrowserContext, Page, sync_playwright
 from playwright_stealth import Stealth
@@ -124,6 +125,43 @@ def _sleep_between_topics() -> None:
     time.sleep(delay)
 
 
+def _build_proxy() -> Optional[dict]:
+    """Resolve the configured proxy into Playwright's ``proxy`` argument.
+
+    Google now blocks automated browsers from /search outright (residential IP
+    or not), so routing through a residential/mobile proxy is the only way to
+    keep the News-tab scrape working. Returns None when proxying is disabled or
+    misconfigured, in which case the browser connects directly.
+    """
+    if not anti_detection_config.proxy_enabled:
+        return None
+
+    servers = anti_detection_config.proxy_servers
+    if not servers:
+        logger.warning("Proxy enabled but no proxy servers configured; "
+                       "connecting directly")
+        return None
+
+    # One endpoint per browser launch. Residential gateways rotate exit IPs
+    # server-side, so a single sticky endpoint is the common case; a longer
+    # list lets the identity vary across container restarts.
+    parsed = urlparse(random.choice(servers))
+    if not parsed.hostname:
+        logger.warning("Invalid proxy URL (no host); connecting directly")
+        return None
+
+    server = f"{parsed.scheme or 'http'}://{parsed.hostname}"
+    if parsed.port:
+        server += f":{parsed.port}"
+
+    proxy: dict = {"server": server}
+    if parsed.username:
+        proxy["username"] = unquote(parsed.username)
+    if parsed.password:
+        proxy["password"] = unquote(parsed.password)
+    return proxy
+
+
 def _launch_context(p) -> BrowserContext:
     USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
     # Remove stale lockfile left by a previous Chrome instance (e.g. after
@@ -132,10 +170,15 @@ def _launch_context(p) -> BrowserContext:
     if lockfile.exists():
         lockfile.unlink()
     profile = _DEFAULT_PROFILE
+    proxy = _build_proxy()
+    if proxy:
+        # Never log credentials, only the server endpoint.
+        logger.info(f"Routing browser traffic through proxy: {proxy['server']}")
     return p.chromium.launch_persistent_context(
         str(USER_DATA_DIR),
         headless=True,
         channel="chrome",
+        proxy=proxy,
         args=anti_detection_config.browser_args,
         ignore_default_args=["--enable-automation"],
         user_agent=profile.user_agent,

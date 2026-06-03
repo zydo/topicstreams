@@ -290,7 +290,7 @@ For detailed information about scraping behavior, monitoring, and scaling strate
 - [**Sequential execution**](docs/SCRAPING_BEHAVIOR.md#sequential-execution) - How topics are scraped one after another
 - [**Scrape interval**](docs/SCRAPING_BEHAVIOR.md#scrape-interval-behavior) - How scrape_interval controls timing
 - [**Monitoring**](docs/SCRAPING_BEHAVIOR.md#monitoring-scrape-performance) - Track scraper performance
-- [**Proxy rotation**](docs/SCRAPING_BEHAVIOR.md#proxy-rotation) - Scaling strategies for high-volume scraping *(not implemented yet)*
+- [**Proxy support**](docs/SCRAPING_BEHAVIOR.md#proxy-rotation) - Route the scraper through residential/mobile proxies (in practice required — Google blocks direct automated access to the News tab)
 
 ## Authentication & Security
 

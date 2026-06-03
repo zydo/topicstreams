@@ -113,9 +113,23 @@ anti_detection:
       # Sec-Ch-Ua and Sec-Ch-Ua-Platform come from fingerprint profiles,
       # not here — to keep headers consistent with the rotated user agent.
 
-  # Proxy rotation (optional, for use with residential proxies)
+  # Proxy support (recommended). Google now blocks automated browsers from
+  # /search outright — even from a residential IP — so a residential or mobile
+  # proxy is effectively required to keep the News-tab scrape working.
+  # Datacenter proxies are detected and blocked just like a direct connection.
   proxy:
     enabled: false
+    # Proxy URLs (scheme://[user:pass@]host:port); http, https, and socks5 are
+    # supported. One endpoint is chosen per browser launch — residential
+    # gateways rotate exit IPs server-side, so a single sticky endpoint is the
+    # common case; a longer list varies the identity across restarts.
+    #
+    # Prefer the SCRAPER_PROXY env var (in .env) for credentials: config/ is
+    # baked into the scraper image at build time, so .env avoids a rebuild and
+    # keeps secrets out of the image. SCRAPER_PROXY overrides this list.
+    #
+    # IMPORTANT: set timezone_id / geolocation above to match the proxy's exit
+    # country, or the mismatch itself becomes a detection signal.
     proxies: []
-    # - "http://user:pass@proxy1.example.com:8080"
-    # - "socks5://user:pass@proxy2.example.com:1080"
+    # - "http://user:pass@gateway.provider.com:7777"
+    # - "socks5://user:pass@gateway.provider.com:1080"
