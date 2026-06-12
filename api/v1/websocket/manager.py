@@ -9,8 +9,8 @@ from typing import Dict, List, Optional, Set
 import psycopg2
 from fastapi import WebSocket
 from psycopg2.extensions import connection as PgConnection, ISOLATION_LEVEL_AUTOCOMMIT
+from starlette.concurrency import run_in_threadpool
 
-from api.exceptions import NotificationError
 from common import database as db
 from common.model import NewsEntry
 from common.settings import settings
@@ -50,16 +50,12 @@ class WebSocketManager:
         return self._get_conn()
 
     async def _handle_notification(self, payload: str) -> None:
-        try:
-            topic, entry_id = payload.rsplit(":", 1)
-            entry = db.get_news_entry(entry_id)
-            if entry:
-                await self._broadcast_to_topic(topic, entry)
-
-        except ValueError as e:
-            raise NotificationError(f"Invalid payload format: {payload}", payload)
-        except Exception as e:
-            raise NotificationError(f"Failed to handle notification: {e}", payload)
+        topic, entry_id = payload.rsplit(":", 1)
+        # Threadpool: a sync psycopg2 call here would block the event loop
+        # (all HTTP/WS traffic) on every notification.
+        entry = await run_in_threadpool(db.get_news_entry, entry_id)
+        if entry:
+            await self._broadcast_to_topic(topic, entry)
 
     async def _postgres_listener(self, conn: PgConnection) -> None:
         while True:
@@ -67,11 +63,30 @@ class WebSocketManager:
                 conn.poll()
                 while conn.notifies:
                     notify = conn.notifies.pop(0)
-                    await self._handle_notification(notify.payload)
+                    try:
+                        await self._handle_notification(notify.payload)
+                    except Exception:
+                        # A bad payload or transient DB error must not tear
+                        # down a healthy LISTEN connection.
+                        logger.exception(
+                            "Failed to handle notification: %s", notify.payload
+                        )
             except Exception:
                 logger.exception("Postgres listener error, reconnecting...")
-                conn = self._reconnect()
+                conn = await self._reconnect_with_backoff()
             await asyncio.sleep(1)
+
+    async def _reconnect_with_backoff(self) -> PgConnection:
+        # Keep retrying until Postgres is back: an unhandled exception here
+        # would silently kill the listener task until the API restarts.
+        delay = 1.0
+        while True:
+            try:
+                return await run_in_threadpool(self._reconnect)
+            except Exception:
+                logger.exception("Reconnect failed, retrying in %.0fs", delay)
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 60.0)
 
     def start_listener(self) -> None:
         if self._listener_task is not None:
