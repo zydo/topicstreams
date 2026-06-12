@@ -24,6 +24,7 @@ IMPORTANT Assumption:
 import atexit
 import logging
 import random
+import sys
 import time
 import traceback
 from pathlib import Path
@@ -57,12 +58,32 @@ USER_DATA_DIR = Path("/app/.browser_profiles/default")
 _seen_entries: Set[Tuple[str, str, str]] = set()
 _MAX_SEEN_ENTRIES = 25000
 
-# Single consistent identity for the persistent context.
-_DEFAULT_PROFILE = FingerprintProfile(
-    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    sec_ch_ua='"Chromium";v="131", "Not_A Brand";v="24"',
-    sec_ch_ua_platform='"macOS"',
-)
+def _detect_fingerprint(p) -> FingerprintProfile:
+    """Build a fingerprint matching the installed browser version.
+
+    Google blocks /search when the claimed UA version diverges from the real
+    browser (verified 2026-06-11: a hardcoded Chrome/131 UA on Chrome 149 is
+    CAPTCHA'd every time, while a version-matched UA passes). Headless Chromium
+    also brands itself "HeadlessChrome", an instant block. So: read the real
+    version at startup, claim the matching "Chrome/<major>.0.0.0" (real Chrome
+    zeroes minor versions via UA reduction) on the actual OS platform.
+    """
+    browser = p.chromium.launch(headless=True)
+    version = browser.version
+    browser.close()
+    major = version.split(".")[0]
+    if sys.platform == "darwin":
+        os_part, platform_brand = "Macintosh; Intel Mac OS X 10_15_7", '"macOS"'
+    else:
+        os_part, platform_brand = "X11; Linux x86_64", '"Linux"'
+    logger.info(f"Detected Chromium {version}; claiming Chrome/{major} UA")
+    return FingerprintProfile(
+        user_agent=(f"Mozilla/5.0 ({os_part}) AppleWebKit/537.36 "
+                    f"(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"),
+        sec_ch_ua=(f'"Chromium";v="{major}", "Google Chrome";v="{major}", '
+                   f'"Not;A=Brand";v="24"'),
+        sec_ch_ua_platform=platform_brand,
+    )
 
 
 def _dedup_entries(entries: List[NewsEntry]) -> List[NewsEntry]:
@@ -128,10 +149,9 @@ def _sleep_between_topics() -> None:
 def _build_proxy() -> Optional[dict]:
     """Resolve the configured proxy into Playwright's ``proxy`` argument.
 
-    Google now blocks automated browsers from /search outright (residential IP
-    or not), so routing through a residential/mobile proxy is the only way to
-    keep the News-tab scrape working. Returns None when proxying is disabled or
-    misconfigured, in which case the browser connects directly.
+    Optional fallback: with a version-matched fingerprint, /search works from
+    a clean residential IP without a proxy. Returns None when proxying is
+    disabled or misconfigured, in which case the browser connects directly.
     """
     if not anti_detection_config.proxy_enabled:
         return None
@@ -169,15 +189,17 @@ def _launch_context(p) -> BrowserContext:
     lockfile = USER_DATA_DIR / "SingletonLock"
     if lockfile.exists():
         lockfile.unlink()
-    profile = _DEFAULT_PROFILE
+    profile = _detect_fingerprint(p)
     proxy = _build_proxy()
     if proxy:
         # Never log credentials, only the server endpoint.
         logger.info(f"Routing browser traffic through proxy: {proxy['server']}")
+    # Playwright's bundled Chromium (no channel="chrome"): Google Chrome has
+    # no Linux arm64 build, and running an amd64 Chrome under Rosetta 2
+    # emulation gets CAPTCHA'd by Google (verified 2026-06-11).
     return p.chromium.launch_persistent_context(
         str(USER_DATA_DIR),
         headless=True,
-        channel="chrome",
         proxy=proxy,
         args=anti_detection_config.browser_args,
         ignore_default_args=["--enable-automation"],

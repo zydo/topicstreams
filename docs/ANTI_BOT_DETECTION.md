@@ -6,9 +6,22 @@ TopicStreams uses sophisticated techniques to make the scraper appear as a real 
 
 ## How It Works
 
-The scraper uses **Playwright** (real Google Chrome browser) combined with **playwright-stealth** patches to hide automation signals and mimic genuine user behavior.
+The scraper uses **Playwright** (bundled Chromium browser) combined with **playwright-stealth** patches to hide automation signals and mimic genuine user behavior.
 
 All strategies below are loaded from `config/anti_detection.yml` and can be enabled/disabled individually.
+
+> **Hard-won findings (verified 2026-06-11):** Google CAPTCHAs `/search` whenever
+> any of these is true, regardless of everything else:
+>
+> 1. **The claimed UA version doesn't match the real browser** (e.g. a hardcoded
+>    `Chrome/131` UA on a v149 browser). The scraper therefore derives the UA from
+>    the installed browser version at startup instead of using a static string.
+> 2. **`navigator.webdriver` is `true`** — requires
+>    `--disable-blink-features=AutomationControlled`.
+> 3. **The browser runs under CPU emulation** (amd64 image via Rosetta 2 on Apple
+>    Silicon). This is why the scraper uses Playwright's bundled Chromium on the
+>    host's native architecture, not `channel="chrome"`: Google Chrome has no
+>    Linux arm64 build.
 
 ### 1. Browser Launch Arguments
 
@@ -17,7 +30,6 @@ All strategies below are loaded from `config/anti_detection.yml` and can be enab
 browser_args = anti_detection_config.browser_args  # Configurable
 browser.launch(
     headless=True,
-    channel="chrome",                # Use real Google Chrome, not Chromium
     args=browser_args,
     ignore_default_args=["--enable-automation"],  # Remove automation flag
 )
@@ -29,13 +41,14 @@ Default arguments (configurable in YAML):
     "--no-sandbox",                                # Docker compatibility
     "--disable-setuid-sandbox",                    # Docker compatibility
     "--disable-dev-shm-usage",                     # Prevent /dev/shm crashes in Docker
+    "--disable-gpu",                               # No GPU in the container
     "--window-size=1920,1080",                     # Consistent viewport
-    "--disable-background-timer-throttling",       # Keep timers accurate
-    "--disable-backgrounding-occluded-windows",    # Prevent background throttling
-    "--disable-renderer-backgrounding",            # Prevent renderer throttling
+    "--disable-blink-features=AutomationControlled",  # navigator.webdriver = false
 ]
 ```
 
+- The arg set is deliberately minimal: extra feature-disable switches make the
+  browser *less* like stock Chrome and were part of why Google blocked the scraper
 - `ignore_default_args=["--enable-automation"]` removes the `--enable-automation` flag that Chromium sets by default, preventing `navigator.webdriver` from being exposed
 
 ### 2. Realistic Browser Context
@@ -64,37 +77,23 @@ context = browser.new_context(
 
 **Key points:**
 
-- **User Agent**: Determined by the active fingerprint profile (Chrome on Windows/macOS/Linux)
+- **User Agent**: Derived at startup from the installed browser version (see `_detect_fingerprint` in `scraper/main.py`) — a stale hardcoded UA is an instant CAPTCHA
 - **Permissions**: Configurable browser permissions (default: geolocation)
 - **Timezone & Geolocation**: Recommended to match your server's IP location (see [Configuration](CONFIGURATION.md))
-- **HTTP Headers**: Base headers from config merged with profile-specific Sec-CH-UA headers (see below)
+- **HTTP Headers**: Only the Sec-CH-UA trio matching the derived UA (see below)
 
-### HTTP Headers Optimization
+### HTTP Headers
 
-Modern browsers send additional headers that indicate navigation intent and browser capabilities. The base headers are configured via `http_headers.headers` in `config/anti_detection.yml`, and the Sec-CH-UA headers are automatically merged from the active fingerprint profile:
+Playwright's `extra_http_headers` are applied to **every** request (documents, XHR, images). Real browsers vary headers like `Accept` and `Sec-Fetch-*` per request type, so forcing them globally is itself a detection signal — the scraper used to do this and it contributed to CAPTCHA blocks. Only the Sec-CH-UA client hints (which genuinely are constant across requests) are set, matching the derived user agent:
 
 ```python
 def _build_headers(profile: FingerprintProfile) -> dict:
-    base_headers = dict(anti_detection_config.http_headers)
+    base_headers = dict(anti_detection_config.http_headers)  # empty by default
     base_headers["Sec-Ch-Ua"] = profile.sec_ch_ua
     base_headers["Sec-Ch-Ua-Mobile"] = "?0"
     base_headers["Sec-Ch-Ua-Platform"] = profile.sec_ch_ua_platform
     return base_headers
 ```
-
-**Base Headers** (from `http_headers.headers` config):
-
-| Header                      | Value                                 | Purpose                         |
-| --------------------------- | ------------------------------------- | ------------------------------- |
-| `Accept`                    | `text/html,application/xhtml+xml,...` | Content negotiation             |
-| `Accept-Language`           | `en-US,en;q=0.9`                      | Language preference             |
-| `Sec-Fetch-Dest`            | `document`                            | Destination of navigation       |
-| `Sec-Fetch-Mode`            | `navigate`                            | Navigation mode                 |
-| `Sec-Fetch-Site`            | `none`                                | Origin-destination relationship |
-| `Sec-Fetch-User`            | `?1`                                  | User-initiated navigation       |
-| `Upgrade-Insecure-Requests` | `1`                                   | HTTPS preference                |
-
-**Profile-Specific Headers** (merged dynamically from active `FingerprintProfile`):
 
 | Header               | Source                       | Purpose                   |
 | -------------------- | ---------------------------- | ------------------------- |
@@ -104,29 +103,16 @@ def _build_headers(profile: FingerprintProfile) -> dict:
 
 This ensures Sec-CH-UA headers always match the user agent being used, which is critical for avoiding detection.
 
-### 3. Playwright-Stealth Patches
+### 3. Playwright-Stealth Patches — DISABLED
 
-After creating each browser context, we apply stealth patches at the context level (configurable via `playwright_stealth.enabled` in YAML):
+playwright-stealth support exists in the code (configurable via `playwright_stealth.enabled` in YAML) but is **disabled by default, and must stay disabled for Google**: bisection on 2026-06-11 showed Google detects the stealth JS patches themselves (fake plugins, monkey-patched native functions) and CAPTCHAs `/search` whenever they are applied — the identical setup passes with stealth off.
 
-```python
-# Loaded from config/anti_detection.yml
-stealth = Stealth() if anti_detection_config.playwright_stealth_enabled else None
+The signals stealth used to mask are covered without JS patching:
 
-# Applied to each context (not individual pages)
-context = browser.new_context(...)
-if stealth:
-    stealth.apply_stealth_sync(context)
-```
-
-This patches ~20 automation detection vectors:
-
-| Detection Vector      | Before    | After          |
-| --------------------- | --------- | -------------- |
-| `navigator.webdriver` | `true`    | `false`        |
-| `navigator.plugins`   | Empty (0) | 3 fake plugins |
-| `window.chrome`       | Missing   | Present        |
-| Canvas fingerprints   | Generic   | Realistic      |
-| WebGL fingerprints    | Generic   | Realistic      |
+| Detection Vector      | Covered by                                        |
+| --------------------- | ------------------------------------------------- |
+| `navigator.webdriver` | `--disable-blink-features=AutomationControlled`   |
+| User agent / brands   | Runtime-derived fingerprint (`_detect_fingerprint`) |
 
 ### 4. Memory Management & Additional Strategies
 
@@ -207,15 +193,17 @@ browser_fingerprint:
 
 ## What Google Sees
 
-After all patches, Google's JavaScript sees:
+Google's JavaScript sees an unmodified Chromium with one launch-flag tweak:
 
 ```javascript
-navigator.webdriver        // false (was true)
-navigator.plugins.length   // 3 (was 0)
-window.chrome              // Object (was undefined)
-navigator.languages        // ["en-US", "en"]
-navigator.platform         // "MacIntel"
+navigator.webdriver        // false (via --disable-blink-features=AutomationControlled)
+navigator.userAgent        // "... Chrome/<real major>.0.0.0 ..." (version-matched, no "Headless")
+navigator.languages        // ["en-US"]
+navigator.platform         // "Linux x86_64" (matches the real container OS)
 ```
+
+No JS objects are patched — that is the point. Patched natives are themselves
+detectable and were getting the scraper blocked.
 
 ## Limitations
 

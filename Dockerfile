@@ -22,39 +22,19 @@ CMD ["python", "-m", "api.main"]
 
 FROM base AS scraper
 
-# Install Google Chrome + OS deps for Playwright
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    fonts-liberation \
-    gnupg \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libatspi2.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgbm1 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libwayland-client0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxkbcommon0 \
-    libxrandr2 \
-    wget \
-    xdg-utils \
-    && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update && apt-get install -y google-chrome-stable \
+# Playwright's bundled Chromium, NOT google-chrome-stable: Chrome has no
+# Linux arm64 build, which forced amd64 emulation (Rosetta 2) on Apple
+# Silicon — and Google's bot detection CAPTCHAs emulated browsers on /search
+# (verified 2026-06-11: identical setup passes natively, fails under
+# emulation). Bundled Chromium runs native on both arches.
+RUN apt-get update && apt-get install -y ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY scraper/ /app/scraper/
 COPY requirements/scraper.txt /app/requirements/scraper.txt
 COPY config/ /app/config/
 
-RUN pip install --no-cache-dir -r /app/requirements/scraper.txt && playwright install-deps chromium
+RUN pip install --no-cache-dir -r /app/requirements/scraper.txt \
+    && playwright install --with-deps chromium
 
 CMD ["python", "-u", "-m", "scraper.main"]

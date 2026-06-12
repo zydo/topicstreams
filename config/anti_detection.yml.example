@@ -1,20 +1,30 @@
 # TopicStreams Anti-Detection Configuration
 
 anti_detection:
+  # DISABLED (verified 2026-06-11): Google detects playwright-stealth's JS
+  # patches (fake plugins, monkey-patched natives) and CAPTCHAs /search when
+  # they are applied — the identical setup passes with stealth off. The two
+  # signals stealth used to mask are covered without JS patching:
+  # navigator.webdriver via --disable-blink-features=AutomationControlled,
+  # and the UA via the runtime-detected fingerprint. Do not re-enable.
   playwright_stealth:
-    enabled: true
+    enabled: false
     description: "Applies playwright-stealth to each context to mask automation"
 
+  # Minimal arg set, verified to pass Google /search from a residential IP
+  # (2026-06-11). --disable-blink-features=AutomationControlled is the one
+  # anti-detection essential (keeps navigator.webdriver false; true = instant
+  # CAPTCHA). The rest are container-operational flags. Avoid piling on extra
+  # feature-disable switches — they make the browser LESS like stock Chrome.
   browser_args:
     enabled: true
     args:
       - "--no-sandbox"
       - "--disable-setuid-sandbox"
       - "--disable-dev-shm-usage"
+      - "--disable-gpu"
       - "--window-size=1920,1080"
-      - "--disable-background-timer-throttling"
-      - "--disable-backgrounding-occluded-windows"
-      - "--disable-renderer-backgrounding"
+      - "--disable-blink-features=AutomationControlled"
 
   page_isolation:
     enabled: true
@@ -32,7 +42,11 @@ anti_detection:
 
   browser_fingerprint:
     enabled: true
-    # Static user agent (fallback when rotation is disabled)
+    # NOTE: the UA and Sec-CH-UA are now derived at runtime from the installed
+    # Chrome version (scraper/main.py:_detect_fingerprint). A hardcoded UA goes
+    # stale as Chrome updates, and Google CAPTCHAs any /search request whose
+    # claimed UA version doesn't match the real browser (verified 2026-06-11).
+    # The static user_agent below is therefore unused.
     user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
     # Fingerprint profiles for rotation (overrides static user_agent when enabled)
@@ -94,29 +108,21 @@ anti_detection:
       - 503 # Service unavailable
     description: "Detects and logs HTTP errors"
 
+  # Extra headers are applied to EVERY request (documents, XHR, images), so
+  # forcing per-navigation headers here (Accept, Sec-Fetch-*, Upgrade-*) is a
+  # detection signal: real browsers vary them per request type. Verified
+  # 2026-06-11 that dropping them (Sec-CH-UA comes from the runtime-detected
+  # fingerprint in scraper/main.py) passes Google /search. Keep this empty
+  # unless you have a specific reason.
   http_headers:
     enabled: true
-    headers:
-      # Standard browser headers
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
-      Accept-Language: "en-US,en;q=0.9"
+    headers: {}
 
-      # Sec-Fetch headers (modern browsers)
-      Sec-Fetch-Dest: "document"
-      Sec-Fetch-Mode: "navigate"
-      Sec-Fetch-Site: "none"
-      Sec-Fetch-User: "?1"
-
-      # Upgrade hints
-      Upgrade-Insecure-Requests: "1"
-
-      # Sec-Ch-Ua and Sec-Ch-Ua-Platform come from fingerprint profiles,
-      # not here — to keep headers consistent with the rotated user agent.
-
-  # Proxy support (recommended). Google now blocks automated browsers from
-  # /search outright — even from a residential IP — so a residential or mobile
-  # proxy is effectively required to keep the News-tab scrape working.
-  # Datacenter proxies are detected and blocked just like a direct connection.
+  # Proxy support (optional fallback). With a version-matched fingerprint
+  # (see browser_fingerprint note above) Google /search works from a clean
+  # residential IP without a proxy. Use a residential/mobile proxy if your IP
+  # gets rate-limited or flagged. Datacenter proxies are detected and blocked
+  # just like a flagged direct connection.
   proxy:
     enabled: false
     # Proxy URLs (scheme://[user:pass@]host:port); http, https, and socks5 are

@@ -31,14 +31,14 @@ services:
     networks:
       - topicstreams-network
 
+  # No platform pin: the scraper must run on the host's native architecture.
+  # Under amd64 emulation (Rosetta 2 on Apple Silicon) Google's bot detection
+  # CAPTCHAs every /search request (verified 2026-06-11).
   scraper:
     container_name: topicstreams-scraper
-    platform: linux/amd64
     build:
       context: .
       target: scraper
-      platforms:
-        - linux/amd64
     env_file:
       - .env
     volumes:
