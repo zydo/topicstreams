@@ -182,28 +182,23 @@ git clone https://github.com/zydo/topicstreams.git
 cd topicstreams
 ```
 
-### 2. Configure Environment
+### 2. Start Services
 
-Copy `.env.example` to `.env`:
+```bash
+./start.sh
+```
+
+All config files are created from their templates automatically — default settings work out-of-the-box: `start.sh` copies `.env.example` to `.env` if missing, and the YAML config files (`config/scraper.yml`, `config/anti_detection.yml`) are created from their `.yml.example` templates on first run.
+
+To customize settings, copy the templates manually and edit them before starting:
 
 ```bash
 cp .env.example .env
-```
-
-The YAML config files (`config/scraper.yml`, `config/anti_detection.yml`) are created automatically from their `.yml.example` templates on first run. To customize settings ahead of time, copy them manually:
-
-```bash
 cp config/scraper.yml.example config/scraper.yml
 cp config/anti_detection.yml.example config/anti_detection.yml
 ```
 
-Default settings work out-of-the-box.
-
-### 3. Start Services
-
-```bash
-docker compose up -d
-```
+> **Note:** `start.sh` is a thin wrapper around `docker compose up -d` — once `.env` exists, you can use `docker compose` commands directly.
 
 This will start three containers:
 
@@ -211,7 +206,7 @@ This will start three containers:
 - **scraper** - Background scraping service
 - **api** - FastAPI server [http://localhost:5000](http://localhost:5000) (or port set by `HOST_PORT` in `.env`)
 
-### 4. Add Topics to Track
+### 3. Add Topics to Track
 
 ```bash
 # Add a topic (replace 5000 with your HOST_PORT if changed)
@@ -222,7 +217,7 @@ curl -X POST http://localhost:5000/api/v1/topics \
 
 Scraping of the topic will start on the next iteration.
 
-### 5. Access Real-Time News
+### 4. Access Real-Time News
 
 **WebSocket (for real-time):**
 
@@ -249,7 +244,7 @@ curl http://localhost:5000/api/v1/logs?limit=10 | jq
 
 See the [API Reference](#api-reference) section below for complete endpoint documentation.
 
-### 6. Monitor Logs
+### 5. Monitor Logs
 
 ```bash
 # Background scraper logs
