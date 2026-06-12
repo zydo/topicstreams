@@ -13,6 +13,9 @@ router = APIRouter(prefix="/ws/news")
 @router.websocket("/{topic_name}")
 async def websocket_news_topic(websocket: WebSocket, topic_name: str) -> None:
     normalized_topic = normalize_topic(topic_name)
+    if not normalized_topic:
+        await websocket.close(code=1008, reason="Invalid topic name")
+        return
 
     await run_in_threadpool(
         db.add_topic, normalized_topic
