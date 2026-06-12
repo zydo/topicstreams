@@ -1,5 +1,6 @@
 """PostgreSQL database connection and operations module."""
 
+import threading
 import time
 from functools import wraps
 from typing import List, Optional
@@ -14,6 +15,10 @@ from common.model import Topic, NewsEntry, ScraperLog
 
 # Package-level connection pool singleton
 _pool: Optional[ThreadedConnectionPool] = None
+# Guards lazy init: concurrent first requests (FastAPI threadpool) could
+# otherwise create two pools and return connections to the wrong one,
+# raising "trying to put unkeyed connection".
+_pool_lock = threading.Lock()
 
 
 # Transient errors that should trigger retry
@@ -54,37 +59,43 @@ def retry_on_transient_error(max_attempts: int = 3, delay_seconds: float = 0.1):
 
 def _get_pool() -> ThreadedConnectionPool:
     global _pool
-    if _pool is None:
-        _pool = ThreadedConnectionPool(
-            minconn=settings.db_pool_min_conn,
-            maxconn=settings.db_pool_max_conn,
-            host=settings.postgres_host,
-            port=settings.postgres_port,
-            database=settings.postgres_db,
-            user=settings.postgres_user,
-            password=settings.postgres_password,
-            connect_timeout=10,
-            keepalives=1,
-            keepalives_idle=30,
-            keepalives_interval=10,
-            keepalives_count=5,
-        )
-    return _pool
+    with _pool_lock:
+        if _pool is None:
+            _pool = ThreadedConnectionPool(
+                minconn=settings.db_pool_min_conn,
+                maxconn=settings.db_pool_max_conn,
+                host=settings.postgres_host,
+                port=settings.postgres_port,
+                database=settings.postgres_db,
+                user=settings.postgres_user,
+                password=settings.postgres_password,
+                connect_timeout=10,
+                keepalives=1,
+                keepalives_idle=30,
+                keepalives_interval=10,
+                keepalives_count=5,
+            )
+        return _pool
 
 
 def close_pool() -> None:
     global _pool
-    if _pool is not None:
-        _pool.closeall()
-        _pool = None
+    with _pool_lock:
+        if _pool is not None:
+            _pool.closeall()
+            _pool = None
 
 
 class _Connection:
     def __init__(self) -> None:
+        self._pool: Optional[ThreadedConnectionPool] = None
         self._conn: Optional[PgConnection] = None
 
     def __enter__(self):
-        self._conn = _get_pool().getconn()
+        # Remember which pool the connection came from: re-resolving the
+        # global in __exit__ could return a different pool instance.
+        self._pool = _get_pool()
+        self._conn = self._pool.getconn()
         return self
 
     def __exit__(self, exc_type, *_):
@@ -96,7 +107,7 @@ class _Connection:
             else:
                 self._conn.commit()
         finally:
-            _get_pool().putconn(self._conn)
+            self._pool.putconn(self._conn)
 
     def cursor(self):
         return self._conn.cursor(cursor_factory=RealDictCursor)
@@ -237,7 +248,9 @@ def insert_news_entries(entries: List[NewsEntry]) -> int:
         return cursor.rowcount
 
 
-@retry_on_transient_error()
+# No retry: scraper_logs has no unique constraint, so a retry after a commit
+# that actually landed (e.g. connection dropped on confirmation) would
+# duplicate rows. Losing a diagnostic log batch on a transient error is fine.
 def insert_scraper_logs(logs: List[ScraperLog]) -> int:
     """Insert scraper log entries into the database.
 
@@ -278,7 +291,7 @@ def purge_old_news_entries(days: int) -> int:
     with _Connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "DELETE FROM news_entries WHERE scraped_at < NOW() - INTERVAL '%s days'",
+            "DELETE FROM news_entries WHERE scraped_at < NOW() - %s * INTERVAL '1 day'",
             (days,),
         )
         return cursor.rowcount
