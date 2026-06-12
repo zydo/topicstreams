@@ -19,6 +19,9 @@ _pool: Optional[ThreadedConnectionPool] = None
 # otherwise create two pools and return connections to the wrong one,
 # raising "trying to put unkeyed connection".
 _pool_lock = threading.Lock()
+# ThreadedConnectionPool.getconn raises "connection pool exhausted" instead
+# of waiting; this caps concurrent checkouts so burst requests queue.
+_conn_slots = threading.BoundedSemaphore(settings.db_pool_max_conn)
 
 
 # Transient errors that should trigger retry
@@ -92,10 +95,15 @@ class _Connection:
         self._conn: Optional[PgConnection] = None
 
     def __enter__(self):
-        # Remember which pool the connection came from: re-resolving the
-        # global in __exit__ could return a different pool instance.
-        self._pool = _get_pool()
-        self._conn = self._pool.getconn()
+        _conn_slots.acquire()
+        try:
+            # Remember which pool the connection came from: re-resolving the
+            # global in __exit__ could return a different pool instance.
+            self._pool = _get_pool()
+            self._conn = self._pool.getconn()
+        except BaseException:
+            _conn_slots.release()
+            raise
         return self
 
     def __exit__(self, exc_type, *_):
@@ -107,7 +115,10 @@ class _Connection:
             else:
                 self._conn.commit()
         finally:
-            self._pool.putconn(self._conn)
+            try:
+                self._pool.putconn(self._conn)
+            finally:
+                _conn_slots.release()
 
     def cursor(self):
         return self._conn.cursor(cursor_factory=RealDictCursor)
