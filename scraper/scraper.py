@@ -276,7 +276,10 @@ def _scrape_one_page(
 
 
 def _find_news_items(soup: BeautifulSoup) -> ResultSet:
-    news_items: ResultSet = soup.select("div.SoaBEf")
+    # Selectors ordered newest layout first; Google rotates markup over time.
+    news_items: ResultSet = soup.select("div.WCv1we")
+    if not news_items:
+        news_items = soup.select("div.SoaBEf")
     if not news_items:
         news_items = soup.select("div.Gx5Zad")
     if not news_items:
