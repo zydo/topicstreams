@@ -7,31 +7,30 @@ TopicStreams uses two types of configuration files:
 
 ## First-Time Setup
 
-Before running the application, you must create your configuration files from templates:
+Before running the application, create your `.env` file from the template:
 
 ```bash
 # Copy environment variables template
 cp .env.example .env
 
-# Create YAML configuration files from templates
-cp config/scraper.yml.example config/scraper.yml
-cp config/anti_detection.yml.example config/anti_detection.yml
-
-# Optional: Edit the configurations with your settings
-vim config/scraper.yml
-vim config/anti_detection.yml
-
 # Now start the application
 docker compose up
 ```
 
-The application will **not** start without these configuration files. If you try to start without them, you'll see an error with instructions on how to create them.
+The YAML configuration files are created automatically: if `config/scraper.yml` or `config/anti_detection.yml` is missing at startup, it is copied from its `.yml.example` template (a warning is logged). To customize settings before the first run, create and edit them manually:
+
+```bash
+cp config/scraper.yml.example config/scraper.yml
+cp config/anti_detection.yml.example config/anti_detection.yml
+vim config/scraper.yml
+vim config/anti_detection.yml
+```
 
 **How YAML configuration works:**
 - Template files (`.yml.example`) are tracked in git and contain sensible defaults
 - Your local `.yml` files are gitignored and contain your custom settings
 - You can modify your `.yml` files anytime, and changes will be preserved
-- To reset to defaults, delete your local `.yml` files and re-copy from the templates
+- To reset to defaults, delete your local `.yml` files; they will be re-created from the templates on next startup
 
 ## Environment Variables (.env)
 
@@ -289,12 +288,9 @@ docker compose restart
 **To reset configuration to defaults:**
 
 ```bash
-# Delete your local config files
+# Delete your local config files (they are re-created from the
+# .yml.example templates on next startup)
 rm config/scraper.yml config/anti_detection.yml
-
-# Re-copy from templates
-cp config/scraper.yml.example config/scraper.yml
-cp config/anti_detection.yml.example config/anti_detection.yml
 
 # Restart the application
 docker compose restart

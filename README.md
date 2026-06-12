@@ -184,10 +184,15 @@ cd topicstreams
 
 ### 2. Configure Environment
 
-Copy `.env.example` to `.env` and YAML config templates:
+Copy `.env.example` to `.env`:
 
 ```bash
 cp .env.example .env
+```
+
+The YAML config files (`config/scraper.yml`, `config/anti_detection.yml`) are created automatically from their `.yml.example` templates on first run. To customize settings ahead of time, copy them manually:
+
+```bash
 cp config/scraper.yml.example config/scraper.yml
 cp config/anti_detection.yml.example config/anti_detection.yml
 ```
@@ -278,7 +283,7 @@ TopicStreams uses sophisticated techniques to make the scraper appear as a real 
 For detailed information about anti-detection strategies (Playwright stealth, browser fingerprinting, random delays, etc.), see [Anti-Bot Detection Documentation](docs/ANTI_BOT_DETECTION.md).
 
 **Quick Reference:**
-- All anti-detection strategies are configurable via `config/anti_detection.yml` (created from template on first-time setup)
+- All anti-detection strategies are configurable via `config/anti_detection.yml` (auto-created from the template on first run)
 - See [Configuration](docs/CONFIGURATION.md#anti-detection-settings-configanti_detectionyml) for YAML configuration details
 
 ## Scraping Behavior

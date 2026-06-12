@@ -6,6 +6,7 @@ and anti-detection settings.
 
 import logging
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Literal
@@ -37,7 +38,19 @@ class _BaseConfig:
 
     def _load_config(self) -> None:
         if not self.config_path.exists():
-            raise FileNotFoundError(f"Config file not found: {self.config_path}")
+            example_path = self.config_path.with_name(
+                self.config_path.name + ".example"
+            )
+            if not example_path.exists():
+                raise FileNotFoundError(
+                    f"Config file not found: {self.config_path} "
+                    f"(and no template at {example_path})"
+                )
+            shutil.copy(example_path, self.config_path)
+            logger.warning(
+                f"Config file {self.config_path} not found; "
+                f"created it from {example_path}"
+            )
 
         try:
             with open(self.config_path, "r") as f:
