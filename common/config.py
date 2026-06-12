@@ -97,11 +97,6 @@ class AntiDetectionConfig(_BaseConfig):
         )
 
     @property
-    def page_isolation_enabled(self) -> bool:
-        """Check if page isolation is enabled."""
-        return self._get("anti_detection", "page_isolation", "enabled", default=True)
-
-    @property
     def random_delays_enabled(self) -> bool:
         """Check if random delays are enabled."""
         return self._get("anti_detection", "random_delays", "enabled", default=True)
@@ -150,61 +145,6 @@ class AntiDetectionConfig(_BaseConfig):
     def random_delay_max(self) -> float:
         """Get maximum random delay in seconds."""
         return self._get("anti_detection", "random_delays", "max_seconds", default=5)
-
-    @property
-    def user_agent(self) -> str:
-        """Get browser user agent (static fallback)."""
-        return self._get(
-            "anti_detection",
-            "browser_fingerprint",
-            "user_agent",
-            default="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        )
-
-    @property
-    def user_agent_rotation_enabled(self) -> bool:
-        """Check if user agent rotation is enabled."""
-        return self._get(
-            "anti_detection",
-            "browser_fingerprint",
-            "user_agent_rotation",
-            "enabled",
-            default=False,
-        )
-
-    @property
-    def user_agent_rotation_strategy(self) -> str:
-        """Get user agent rotation strategy."""
-        return self._get(
-            "anti_detection",
-            "browser_fingerprint",
-            "user_agent_rotation",
-            "strategy",
-            default="per_topic",
-        )
-
-    @property
-    def user_agent_list(self) -> List[str]:
-        """Get list of user agents for rotation (legacy, without profiles)."""
-        return self._get(
-            "anti_detection",
-            "browser_fingerprint",
-            "user_agent_rotation",
-            "user_agents",
-            default=[],
-        )
-
-    @property
-    def fingerprint_profiles(self) -> List[FingerprintProfile]:
-        """Get fingerprint profiles with matching UA + Sec-CH-UA + platform."""
-        profiles_data = self._get(
-            "anti_detection",
-            "browser_fingerprint",
-            "user_agent_rotation",
-            "profiles",
-            default=[],
-        )
-        return [FingerprintProfile(**p) for p in profiles_data]
 
     @property
     def viewport_width(self) -> int:

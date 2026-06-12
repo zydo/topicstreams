@@ -26,10 +26,6 @@ anti_detection:
       - "--window-size=1920,1080"
       - "--disable-blink-features=AutomationControlled"
 
-  page_isolation:
-    enabled: true
-    description: "Create new page per topic to prevent memory accumulation"
-
   random_delays:
     enabled: true
     min_seconds: 2
@@ -40,49 +36,11 @@ anti_detection:
     enabled: true
     description: "Shuffle topics each scrape cycle"
 
+  # NOTE: the UA and Sec-CH-UA are derived at runtime from the installed
+  # Chrome version (scraper/main.py:_detect_fingerprint). A hardcoded UA goes
+  # stale as Chrome updates, and Google CAPTCHAs any /search request whose
+  # claimed UA version doesn't match the real browser (verified 2026-06-11).
   browser_fingerprint:
-    enabled: true
-    # NOTE: the UA and Sec-CH-UA are now derived at runtime from the installed
-    # Chrome version (scraper/main.py:_detect_fingerprint). A hardcoded UA goes
-    # stale as Chrome updates, and Google CAPTCHAs any /search request whose
-    # claimed UA version doesn't match the real browser (verified 2026-06-11).
-    # The static user_agent below is therefore unused.
-    user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-
-    # Fingerprint profiles for rotation (overrides static user_agent when enabled)
-    # Each profile bundles UA with matching Sec-CH-UA and platform headers.
-    # Only Chrome profiles — Firefox/Safari UAs on a Chromium browser are detectable.
-    # Disabled because persistent context uses one consistent identity — rotating
-    # UAs while reusing the same cookies/profile is more suspicious than not rotating.
-    user_agent_rotation:
-      enabled: false
-      strategy: "per_topic"  # "per_cycle" (rotate once per scrape cycle) or "per_topic" (rotate per topic)
-      profiles:
-        # Chrome 131 on Windows
-        - user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-          sec_ch_ua: '"Chromium";v="131", "Not_A Brand";v="24"'
-          sec_ch_ua_platform: '"Windows"'
-        # Chrome 131 on macOS
-        - user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-          sec_ch_ua: '"Chromium";v="131", "Not_A Brand";v="24"'
-          sec_ch_ua_platform: '"macOS"'
-        # Chrome 131 on Linux
-        - user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-          sec_ch_ua: '"Chromium";v="131", "Not_A Brand";v="24"'
-          sec_ch_ua_platform: '"Linux"'
-        # Chrome 130 on Windows
-        - user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-          sec_ch_ua: '"Chromium";v="130", "Not_A Brand";v="24"'
-          sec_ch_ua_platform: '"Windows"'
-        # Chrome 130 on macOS
-        - user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-          sec_ch_ua: '"Chromium";v="130", "Not_A Brand";v="24"'
-          sec_ch_ua_platform: '"macOS"'
-        # Chrome 130 on Linux
-        - user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-          sec_ch_ua: '"Chromium";v="130", "Not_A Brand";v="24"'
-          sec_ch_ua_platform: '"Linux"'
-
     viewport_width: 1920
     viewport_height: 1080
     locale: "en-US"

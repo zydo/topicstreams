@@ -33,7 +33,6 @@ from typing import List, Optional, Set, Tuple
 from urllib.parse import unquote, urlparse
 
 from playwright.sync_api import BrowserContext, Page, sync_playwright
-from playwright_stealth import Stealth
 
 from common import database as db
 from common.config import FingerprintProfile, anti_detection_config, scraper_config
@@ -224,6 +223,10 @@ def main():
     with sync_playwright() as p:
         context = _launch_context(p)
         if anti_detection_config.playwright_stealth_enabled:
+            # Deferred import: stealth is permanently disabled (Google detects
+            # its JS patches), so don't require the package unless enabled.
+            from playwright_stealth import Stealth
+
             Stealth().apply_stealth_sync(context)
         _add_consent_cookies(context)
 
