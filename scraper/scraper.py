@@ -210,22 +210,31 @@ def _scrape_one_page(
 
         content: str = page.content()
 
-        # Check for CAPTCHA or blocking if enabled
+        # Check for CAPTCHA or blocking if enabled. The definitive signal is
+        # the redirect to /sorry/; keyword matching alone false-positives
+        # because real results pages mention "captcha" in Google's inline JS.
         if anti_detection_config.captcha_detection_enabled:
-            content_lower = content.lower()
-            for keyword in anti_detection_config.captcha_keywords:
-                if keyword.lower() in content_lower:
-                    logger.error(f"Google detected unusual traffic - '{keyword}' found")
-                    logger.error(f"Response preview (first 500 chars): {content[:500]}")
-                    return (
-                        [],
-                        ScraperLog.create_new(
-                            topic=topic,
-                            success=False,
-                            http_status_code=response_status,
-                            error_message=f"Google CAPTCHA/blocking detected ('{keyword}')",
-                        ),
-                    )
+            blocked_reason = None
+            if "/sorry/" in page.url:
+                blocked_reason = "redirected to /sorry/ block page"
+            else:
+                content_lower = content.lower()
+                for keyword in anti_detection_config.captcha_keywords:
+                    if keyword.lower() in content_lower:
+                        blocked_reason = f"'{keyword}' found"
+                        break
+            if blocked_reason:
+                logger.error(f"Google detected unusual traffic - {blocked_reason}")
+                logger.error(f"Response preview (first 500 chars): {content[:500]}")
+                return (
+                    [],
+                    ScraperLog.create_new(
+                        topic=topic,
+                        success=False,
+                        http_status_code=response_status,
+                        error_message=f"Google CAPTCHA/blocking detected ({blocked_reason})",
+                    ),
+                )
 
         soup: BeautifulSoup = BeautifulSoup(content, "lxml")
 

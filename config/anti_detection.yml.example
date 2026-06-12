@@ -93,11 +93,15 @@ anti_detection:
     permissions:
       - "geolocation"
 
+  # The primary block signal is the redirect to google.com/sorry/ (checked in
+  # code). Keywords are a fallback and must be SPECIFIC to the block page:
+  # bare "captcha" false-positives because real results pages mention it in
+  # Google's own inline JS.
   captcha_detection:
     enabled: true
     keywords:
-      - "captcha"
-      - "unusual traffic"
+      - "unusual traffic from your computer network"
+      - "our systems have detected unusual traffic"
     description: "Detects CAPTCHA or blocking in response HTML"
 
   http_error_handling:
