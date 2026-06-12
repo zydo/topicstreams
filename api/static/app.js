@@ -5,6 +5,9 @@ class TopicStreamsApp {
     topics = new Map();
     newsItems = [];
     activeTopicSubscriptions = new Set();
+    topicWebSockets = new Map();
+    reconnectAttempts = new Map();
+    apiKey = localStorage.getItem('topicstreams-api-key') || '';
 
     constructor() {
         this.init();
@@ -27,6 +30,27 @@ class TopicStreamsApp {
         // Feed controls
         document.getElementById('clear-feed').addEventListener('click', () => this.clearFeed());
         document.getElementById('topic-filter').addEventListener('change', () => this.filterNews());
+    }
+
+    // Write endpoints require X-API-Key when the server has API_KEY set.
+    // On 401, prompt once for the key, remember it, and retry.
+    async fetchWithAuth(url, options = {}) {
+        const doFetch = () => {
+            const headers = { ...(options.headers || {}) };
+            if (this.apiKey) headers['X-API-Key'] = this.apiKey;
+            return fetch(url, { ...options, headers });
+        };
+
+        let response = await doFetch();
+        if (response.status === 401) {
+            const key = prompt('This action requires an API key. Enter API key:');
+            if (key?.trim()) {
+                this.apiKey = key.trim();
+                localStorage.setItem('topicstreams-api-key', this.apiKey);
+                response = await doFetch();
+            }
+        }
+        return response;
     }
 
     async loadInitialData() {
@@ -184,7 +208,7 @@ class TopicStreamsApp {
         button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...';
 
         try {
-            const response = await fetch(`${this.apiBase}/topics`, {
+            const response = await this.fetchWithAuth(`${this.apiBase}/topics`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: topicName })
@@ -213,7 +237,7 @@ class TopicStreamsApp {
         }
 
         try {
-            const response = await fetch(`${this.apiBase}/topics/${encodeURIComponent(topicName)}`, {
+            const response = await this.fetchWithAuth(`${this.apiBase}/topics/${encodeURIComponent(topicName)}`, {
                 method: 'DELETE'
             });
 
@@ -302,10 +326,7 @@ class TopicStreamsApp {
 
         ws.onclose = () => {
             console.log(`Disconnected from WebSocket for topic: ${topicName}`);
-            // Clear the WebSocket reference
-            if (this.topicWebSockets?.has(topicName)) {
-                this.topicWebSockets.delete(topicName);
-            }
+            this.topicWebSockets.delete(topicName);
 
             // Reconnect if still subscribed (with backoff)
             if (this.activeTopicSubscriptions.has(topicName)) {
@@ -324,42 +345,28 @@ class TopicStreamsApp {
             console.error(`WebSocket error for topic ${topicName}:`, error);
         };
 
-        // Store WebSocket reference
-        if (!this.topicWebSockets) {
-            this.topicWebSockets = new Map();
-        }
-        if (!this.reconnectAttempts) {
-            this.reconnectAttempts = new Map();
-        }
         this.topicWebSockets.set(topicName, ws);
         this.resetReconnectAttempts(topicName);
     }
 
     closeTopicWebSocket(topicName) {
-        if (this.topicWebSockets?.has(topicName)) {
-            const ws = this.topicWebSockets.get(topicName);
-            if (ws?.readyState === WebSocket.OPEN) {
-                ws.close();
-            }
-            this.topicWebSockets.delete(topicName);
+        const ws = this.topicWebSockets.get(topicName);
+        if (ws?.readyState === WebSocket.OPEN) {
+            ws.close();
         }
+        this.topicWebSockets.delete(topicName);
     }
 
     getReconnectAttempts(topicName) {
-        return this.reconnectAttempts ? (this.reconnectAttempts.get(topicName) || 0) : 0;
+        return this.reconnectAttempts.get(topicName) || 0;
     }
 
     incrementReconnectAttempts(topicName) {
-        if (this.reconnectAttempts) {
-            const current = this.reconnectAttempts.get(topicName) || 0;
-            this.reconnectAttempts.set(topicName, current + 1);
-        }
+        this.reconnectAttempts.set(topicName, this.getReconnectAttempts(topicName) + 1);
     }
 
     resetReconnectAttempts(topicName) {
-        if (this.reconnectAttempts) {
-            this.reconnectAttempts.set(topicName, 0);
-        }
+        this.reconnectAttempts.set(topicName, 0);
     }
 
     addNewsItem(newsItem) {
@@ -445,12 +452,21 @@ class TopicStreamsApp {
                 statusMessage = 'Scrape failed';
             }
 
-            logEntry.innerHTML = `
-                <span class="log-time">${this.formatTime(log.scraped_at)}</span>
-                <span class="log-topic">${log.topic}</span>
-                <span class="log-message">${statusMessage}</span>
-            `;
+            // textContent, not innerHTML: topic and error_message contain
+            // scraper-derived text and must not be parsed as HTML.
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'log-time';
+            timeSpan.textContent = this.formatTime(log.scraped_at);
 
+            const topicSpan = document.createElement('span');
+            topicSpan.className = 'log-topic';
+            topicSpan.textContent = log.topic;
+
+            const messageSpan = document.createElement('span');
+            messageSpan.className = 'log-message';
+            messageSpan.textContent = statusMessage;
+
+            logEntry.append(timeSpan, topicSpan, messageSpan);
             container.appendChild(logEntry);
         }
     }
@@ -506,10 +522,11 @@ class TopicStreamsApp {
     showToast(message, type = 'info') {
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
-        toast.innerHTML = `
-            <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-triangle'}"></i>
-            ${message}
-        `;
+        const icon = document.createElement('i');
+        icon.className = `fas fa-${type === 'success' ? 'check-circle' : 'exclamation-triangle'}`;
+        // append() inserts the message as a text node — messages embed raw
+        // user input (topic names), which must not be parsed as HTML.
+        toast.append(icon, message);
 
         // Add toast styles if not already added
         if (!document.querySelector('#toast-styles')) {
