@@ -277,7 +277,11 @@ class TopicStreamsApp {
         // Close existing WebSocket if it exists
         this.closeTopicWebSocket(topicName);
 
-        const wsUrl = `ws://localhost:5000/api/v1/ws/news/${encodeURIComponent(topicName)}`;
+        // Derive from the page location: the app may be served on any host
+        // port (e.g. compose maps HOST_PORT->API_PORT), and wss is needed
+        // when served over https.
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const wsUrl = `${wsProtocol}://${window.location.host}/api/v1/ws/news/${encodeURIComponent(topicName)}`;
         const ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
@@ -396,7 +400,8 @@ class TopicStreamsApp {
             newsElement.querySelector('.news-time').textContent = this.formatTime(item.scraped_at);
             newsElement.querySelector('.news-topic').textContent = item.topic;
             newsElement.querySelector('.news-link').href = item.url;
-            newsElement.querySelector('.news-snippet').textContent = item.snippet;
+            // NewsEntry has no snippet field; show the source instead.
+            newsElement.querySelector('.news-snippet').textContent = item.source || item.domain || '';
 
             container.appendChild(newsElement);
         }
