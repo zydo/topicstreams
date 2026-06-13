@@ -12,6 +12,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - topicstreams-network
 
@@ -47,6 +48,10 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    # Cap the scraper so a Chromium memory leak gets cgroup-OOM-killed (and
+    # restarted) instead of taking down the whole host (postmortem 2026-06-13).
+    mem_limit: 1500m
+    memswap_limit: 1500m
     networks:
       - topicstreams-network
 

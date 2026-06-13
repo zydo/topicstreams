@@ -50,6 +50,12 @@ logger = logging.getLogger(__name__)
 # Persistent browser profile directory (mounted as a Docker volume in production).
 USER_DATA_DIR = Path("/app/.browser_profiles/default")
 
+# Recycle the Chromium context every N cycles to release accumulated memory.
+# A single long-lived context grows unbounded over thousands of cycles; on the
+# swap-less production host this exhausted RAM and livelocked the box (postmortem
+# 2026-06-13). The on-disk persistent profile survives the recycle.
+BROWSER_RECYCLE_CYCLES = 50
+
 # TODO: Use Redis with TTL to replace this.
 # Memorize inserted NewsEntry tuple (topic, title, domain) to match the DB
 # UNIQUE(topic, title, domain) constraint. This in-memory dedup is just an optimization
@@ -219,16 +225,22 @@ def _launch_context(p) -> BrowserContext:
     )
 
 
+def _new_context(p) -> BrowserContext:
+    context = _launch_context(p)
+    if anti_detection_config.playwright_stealth_enabled:
+        # Deferred import: stealth is permanently disabled (Google detects
+        # its JS patches), so don't require the package unless enabled.
+        from playwright_stealth import Stealth
+
+        Stealth().apply_stealth_sync(context)
+    _add_consent_cookies(context)
+    return context
+
+
 def main():
     with sync_playwright() as p:
-        context = _launch_context(p)
-        if anti_detection_config.playwright_stealth_enabled:
-            # Deferred import: stealth is permanently disabled (Google detects
-            # its JS patches), so don't require the package unless enabled.
-            from playwright_stealth import Stealth
-
-            Stealth().apply_stealth_sync(context)
-        _add_consent_cookies(context)
+        context = _new_context(p)
+        cycle_count = 0
 
         try:
             while True:
@@ -294,6 +306,15 @@ def main():
                         f"Cycle elapsed time (exceeds {scraper_config.scrape_interval}s "
                         "interval), starting next cycle immediately"
                     )
+
+                cycle_count += 1
+                if cycle_count % BROWSER_RECYCLE_CYCLES == 0:
+                    logger.info(
+                        f"Recycling browser context after {cycle_count} cycles "
+                        "to release accumulated memory"
+                    )
+                    context.close()
+                    context = _new_context(p)
 
         except KeyboardInterrupt:
             logger.info("Scraper interrupted by user")
