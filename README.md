@@ -184,21 +184,19 @@ cd topicstreams
 
 ### 2. Start Services
 
-```bash
-./start.sh
-```
-
-All config files are created from their templates automatically — default settings work out-of-the-box: `start.sh` copies `.env.example` to `.env` if missing, and the YAML config files (`config/scraper.yml`, `config/anti_detection.yml`) are created from their `.yml.example` templates on first run.
-
-To customize settings, copy the templates manually and edit them before starting:
+Create your `.env` first — the stack fails fast with a clear message if it's missing:
 
 ```bash
 cp .env.example .env
+docker compose up -d
+```
+
+The defaults in `.env.example` work out-of-the-box; edit `.env` to customize ports, credentials, or the optional API key. The YAML config files (`config/scraper.yml`, `config/anti_detection.yml`) are still created from their `.yml.example` templates on first run, so you only need to copy them when you want to change scraper settings:
+
+```bash
 cp config/scraper.yml.example config/scraper.yml
 cp config/anti_detection.yml.example config/anti_detection.yml
 ```
-
-> **Note:** `start.sh` is a thin wrapper around `docker compose up -d` — once `.env` exists, you can use `docker compose` commands directly.
 
 This will start three containers:
 
