@@ -60,7 +60,8 @@ curl http://topicstreams.dongziyu.com/api/v1/news/bitcoin?limit=5 | jq
 For real-time news updates, connect via WebSocket:
 
 ```bash
-# Real-time WebSocket news stream for "China" (automatically add topic if not present)
+# Real-time WebSocket news stream for an existing topic
+# (add the topic first via POST /api/v1/topics — the WS doesn't create topics)
 websocat ws://topicstreams.dongziyu.com/api/v1/ws/news/china | jq
 ```
 

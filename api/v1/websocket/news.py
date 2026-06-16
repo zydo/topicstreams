@@ -17,9 +17,13 @@ async def websocket_news_topic(websocket: WebSocket, topic_name: str) -> None:
         await websocket.close(code=1008, reason="Invalid topic name")
         return
 
-    await run_in_threadpool(
-        db.add_topic, normalized_topic
-    )  # Ensure the topic exists for continuous scraping
+    # Do NOT create the topic here. Auto-creating on connect let any
+    # unauthenticated client add scraper targets (more Google requests ->
+    # CAPTCHA/cost risk). Only stream topics that already exist; creation is
+    # done via the authenticated POST /topics.
+    if not await run_in_threadpool(db.topic_exists, normalized_topic):
+        await websocket.close(code=1008, reason="Unknown topic")
+        return
 
     await manager.connect(websocket, normalized_topic)
 

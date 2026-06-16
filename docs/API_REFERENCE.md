@@ -250,7 +250,7 @@ websocat ws://localhost:5000/api/v1/ws/news/{topic_name}
 
 **Behavior:**
 
-- Automatically adds the topic if it doesn't exist (starts scraping), no need to ```POST /api/v1/topics``` to add topic in advance
+- The topic must already exist; create it via ```POST /api/v1/topics``` first. Connecting to an unknown or inactive topic closes the socket with code `1008`. (The WS never creates topics — auto-creating let unauthenticated clients add scraper load.)
 - Pushes JSON messages when new news entries are scraped
 - Connection stays open until client disconnects
 

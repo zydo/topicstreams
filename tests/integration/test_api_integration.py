@@ -7,6 +7,7 @@ not run — the route handlers and exception handlers are still exercised.
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from common.model import NewsEntry
 
@@ -84,3 +85,28 @@ def test_status_endpoint_shape_and_idle(client, db):
     assert body["state"] == "idle"  # no scrapes recorded
     assert body["active_topics"] == 1
     assert body["total_news"] == 0
+
+
+def test_ws_accepts_existing_topic(client, db):
+    db.add_topic("alpha")
+    with client.websocket_connect("/api/v1/ws/news/alpha"):
+        pass  # handshake accepted = connection allowed
+
+
+def test_ws_rejects_unknown_topic_and_does_not_create_it(client, db):
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect("/api/v1/ws/news/ghost"):
+            pass
+    assert exc.value.code == 1008
+    # the unauthenticated connect must NOT have created the topic
+    assert not db.topic_exists("ghost")
+    assert "ghost" not in [t.name for t in db.get_topics(include_inactive=True)]
+
+
+def test_ws_rejects_soft_deleted_topic(client, db):
+    db.add_topic("alpha")
+    db.delete_topic("alpha")  # now inactive
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect("/api/v1/ws/news/alpha"):
+            pass
+    assert exc.value.code == 1008

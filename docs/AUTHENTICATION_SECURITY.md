@@ -1,31 +1,37 @@
 # Authentication & Security
 
-> **Not implemented yet** - The current project is designed for **localhost/LAN access only** and has **no authentication or security features**.
+TopicStreams ships a few built-in controls; beyond them it assumes a
+**localhost/LAN or behind-a-reverse-proxy** deployment.
 
-## Current State: Localhost/LAN Only
+## Built-in controls
 
-TopicStreams is intentionally minimal and assumes deployment in a **trusted environment**:
+- **API key on writes** — when the `API_KEY` env var is set, `POST` and
+  `DELETE /api/v1/topics` require a matching `X-API-Key` header (`api/auth.py`).
+  Unset = open (dev mode).
+- **Topic creation is the only state-changing action, and it's gated by that
+  key.** The WebSocket endpoint streams *existing* topics only — it does **not**
+  create them. Connecting to an unknown or inactive topic closes the socket with
+  code `1008`, so the stream can't be abused to add scraper targets anonymously.
+- **Rate limiting** — in-memory sliding-window limiter per client IP
+  (`RateLimitMiddleware` in `api/main.py`).
+- **CORS** — configurable via the `CORS_ORIGINS` env var (defaults to `*`).
 
-- Perfect for: Local machine, home network, trusted team LAN
-- **NOT safe for**: Public internet exposure without additional security layers
+## Not covered (add before public exposure)
 
-### No Built-in Security
+- No user accounts, roles, or sessions; no HTTPS termination; no DDoS protection.
+- Read endpoints (GET and WebSocket streams) are unauthenticated by design.
+- The rate limiter is per-process and keyed on `request.client.host`; behind a
+  proxy you'd add `X-Forwarded-For` handling and a shared store.
 
-- No user authentication or authorization
-- No API rate limiting (anyone can flood the API)
-- No protection against DDOS or malicious attacks
-- No HTTPS/SSL encryption
-- No input sanitization beyond basic validation
-- No CORS configuration for browser security
-
-## Recommended Solutions
+## Recommended Solutions (further hardening)
 
 ### 1. Authentication & Authorization
 
 #### API Key Authentication (Simple)
 
 ```python
-# Future implementation example
+# The project already gates writes via an X-API-Key dependency (api/auth.py).
+# A broader middleware variant that protects every route would look like:
 @app.middleware("http")
 async def verify_api_key(request: Request, call_next):
     api_key = request.headers.get("X-API-Key")
@@ -52,7 +58,7 @@ async def verify_api_key(request: Request, call_next):
 Protect against abuse and DDOS:
 
 ```python
-# Future implementation with slowapi
+# A library-based alternative to the built-in RateLimitMiddleware:
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
