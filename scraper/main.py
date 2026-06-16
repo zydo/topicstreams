@@ -29,7 +29,6 @@ import time
 import traceback
 from pathlib import Path
 from random import shuffle
-from typing import List, Optional, Set, Tuple
 from urllib.parse import unquote, urlparse
 
 from playwright.sync_api import BrowserContext, Page, sync_playwright
@@ -37,7 +36,6 @@ from playwright.sync_api import BrowserContext, Page, sync_playwright
 from common import database as db
 from common.config import FingerprintProfile, anti_detection_config, scraper_config
 from common.settings import settings
-from common.model import NewsEntry
 from .scraper import scrape_news
 
 atexit.register(db.close_pool)
@@ -55,13 +53,6 @@ USER_DATA_DIR = Path("/app/.browser_profiles/default")
 # swap-less production host this exhausted RAM and livelocked the box (postmortem
 # 2026-06-13). The on-disk persistent profile survives the recycle.
 BROWSER_RECYCLE_CYCLES = 50
-
-# TODO: Use Redis with TTL to replace this.
-# Memorize inserted NewsEntry tuple (topic, title, domain) to match the DB
-# UNIQUE(topic, title, domain) constraint. This in-memory dedup is just an optimization
-# to reduce DB round-trips; removing it won't affect correctness.
-_seen_entries: Set[Tuple[str, str, str]] = set()
-_MAX_SEEN_ENTRIES = 25000
 
 def _detect_fingerprint(p) -> FingerprintProfile:
     """Build a fingerprint matching the installed browser version.
@@ -89,30 +80,6 @@ def _detect_fingerprint(p) -> FingerprintProfile:
                    f'"Not;A=Brand";v="24"'),
         sec_ch_ua_platform=platform_brand,
     )
-
-
-def _dedup_entries(entries: List[NewsEntry]) -> List[NewsEntry]:
-    global _seen_entries
-
-    res, seen = [], set()
-    for entry in entries:
-        signature = (entry.topic, entry.title, entry.domain)
-        if signature in seen or signature in _seen_entries:
-            continue
-        res.append(entry)
-        seen.add(signature)
-    return res
-
-
-def _add_to_seen_entries(entries: List[NewsEntry]) -> None:
-    global _seen_entries
-
-    if len(_seen_entries) > _MAX_SEEN_ENTRIES:
-        logger.info(f"Clearing seen entries cache ({len(_seen_entries)} entries)")
-        _seen_entries.clear()
-
-    for entry in entries:
-        _seen_entries.add((entry.topic, entry.title, entry.domain))
 
 
 def _build_headers(profile: FingerprintProfile) -> dict:
@@ -151,7 +118,7 @@ def _sleep_between_topics() -> None:
     time.sleep(delay)
 
 
-def _build_proxy() -> Optional[dict]:
+def _build_proxy() -> dict | None:
     """Resolve the configured proxy into Playwright's ``proxy`` argument.
 
     Optional fallback: with a version-matched fingerprint, /search works from
@@ -279,11 +246,13 @@ def main():
                         finally:
                             page.close()
 
-                    new_entries = _dedup_entries(all_entries)
-                    logger.info(f"Found {len(new_entries)} new news entries")
-
-                    db.insert_news_entries(new_entries)
-                    _add_to_seen_entries(new_entries)
+                    # Dedup is handled by the DB (news upsert on a URL-derived
+                    # id + UNIQUE(topic, news_id) on matches), so insert the raw
+                    # parsed entries and let ON CONFLICT skip what already exists.
+                    new_events = db.insert_news_entries(all_entries)
+                    logger.info(
+                        f"Parsed {len(all_entries)} entries, {new_events} new feed events"
+                    )
                     db.insert_scraper_logs(all_logs)
                     cycle_success = True
 
