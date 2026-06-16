@@ -6,7 +6,7 @@ TopicStreams uses sophisticated techniques to make the scraper appear as a real 
 
 ## How It Works
 
-The scraper uses **Playwright** (bundled Chromium browser) combined with **playwright-stealth** patches to hide automation signals and mimic genuine user behavior.
+The scraper uses **Playwright** with its bundled **native Chromium** and a runtime-derived browser fingerprint to mimic a genuine user. Notably, **playwright-stealth is disabled by default and must stay that way for Google** — its JS patches are themselves detectable (see [Playwright-Stealth Patches — DISABLED](#3-playwright-stealth-patches--disabled) below).
 
 All strategies below are loaded from `config/anti_detection.yml` and can be enabled/disabled individually.
 

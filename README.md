@@ -89,7 +89,7 @@ The WebSocket delivers live news updates as they're scraped, showing the same co
 - **Multi-Topic Tracking** - Monitor multiple news topics simultaneously with configurable scrape intervals
 - **WebSocket Streaming** - Subscribe to live news updates per topic via WebSocket connections
 - **REST API** - Manage topics and retrieve historical news entries through HTTP endpoints
-- **Anti-Bot Detection** - Playwright with stealth patches, realistic browser fingerprinting, and configurable geolocation ([details](docs/ANTI_BOT_DETECTION.md))
+- **Anti-Bot Detection** - Native Chromium with runtime-derived browser fingerprinting and automation-signal hardening (playwright-stealth is deliberately disabled — Google detects its JS patches) ([details](docs/ANTI_BOT_DETECTION.md))
 
 ## Architecture
 
@@ -148,14 +148,14 @@ That's it! All dependencies (Python, PostgreSQL, Playwright browsers) are handle
 
 ## Web UI
 
-TopicStreams includes a modern, responsive Web UI that provides a complete dashboard for monitoring and managing your news aggregation system.
+TopicStreams ships a responsive Web UI styled as a **news wire desk** — a single live transmission feed indexed by time, in light or dark themes.
 
 ### Features
 
-- **System Status Dashboard** - Real-time monitoring of scraper health and activity
-- **Topic Management** - Easy add/remove topics with visual feedback
-- **Real-time News Feed** - Live updates with WebSocket connections
-- **Scraper Logs Panel** - Historical activity monitoring
+- **The Wire** - One chronological stream of all watched topics, newest first. Live entries arrive over WebSocket and prepend at the top; scrolling down loads earlier entries indefinitely (cursor pagination). Filter to a single topic or view all. A **↑ latest** button appears once you scroll down, jumping back to the live edge.
+- **Auto-watched topics** - Every topic you track is watched automatically (no per-topic subscribe step). Topics show as removable slugs; add one from the same row.
+- **Scrape-health indicator** - The masthead status reflects the real state of the scraper, derived from recent scraper logs: `live`, `degraded` (some feeds failing), `errors` (all feeds failing), `stalled` (no recent scrapes), `idle` (none yet), or `offline` (API unreachable). Hover it for detail.
+- **Light / dark themes** - Toggle in the masthead; defaults to your system preference and is remembered across visits.
 
 ### Access the Web UI
 
@@ -168,10 +168,12 @@ http://localhost:5000
 > **Note:** By default, the Web UI is accessible on port 5000. If you changed `HOST_PORT` in your `.env` file (e.g., set to `80` for production), use that port instead (e.g., `http://localhost:80`).
 
 <p align="center">
-<img src="docs/pic/ui_screenshot.png" alt="TopicStreams Web UI - Complete dashboard for real-time news aggregation" width="600"/>
+<img src="docs/pic/ui_screenshot.png" alt="TopicStreams Web UI - the wire, a live news transmission feed" width="600"/>
 <br/>
-<em>TopicStreams Web UI - Complete dashboard for real-time news aggregation</em>
+<em>TopicStreams Web UI — "the wire": a live, time-indexed news transmission feed</em>
 </p>
+
+> **Scrape-health is frontend-derived.** The status indicator refreshes every 30s and reflects only what the scraper records in `scraper_logs`. One known gap: if Google changes its News-tab markup, a page can return HTTP 200 but parse to **0 entries**, which the scraper currently logs as a *success* — so the feed can go quiet while the indicator still reads `live`. Watch the feed's freshness, not just the badge. (Tracked as a scraper-side TODO: emit a distinct log state when a 200 response yields 0 parsed items.)
 
 ## Quick Start
 
@@ -230,8 +232,14 @@ websocat ws://localhost:5000/api/v1/ws/news/artificial+intelligence | jq
 **REST API (for historical data):**
 
 ```bash
-# Get recent news for a topic with pagination (result 11 to 15, newest first)
-curl http://localhost:5000/api/v1/news/artificial+intelligence?offset=10&limit=5 | jq
+# Get the latest 5 news entries for a topic (newest first)
+curl "http://localhost:5000/api/v1/news/artificial+intelligence?limit=5" | jq
+
+# Page back to older entries with the cursor from the previous response
+curl "http://localhost:5000/api/v1/news/artificial+intelligence?limit=5&before_id=104" | jq
+
+# Latest 5 across all topics
+curl "http://localhost:5000/api/v1/news?limit=5" | jq
 
 # List all actively scraping topics
 curl http://localhost:5000/api/v1/topics | jq

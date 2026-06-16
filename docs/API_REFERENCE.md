@@ -55,13 +55,14 @@ POST /api/v1/topics
 }
 ```
 
-**Response:** `204 No Content`
+**Response:** `201 Created` (empty body)
 
 **Notes:**
 
 - Topic names are automatically normalized (lowercased, trimmed), in above example, name is normalized as ```climate change```
 - Adding an existing inactive topic reactivates it
 - Adding an existing active topic is idempotent (no error)
+- Requires `X-API-Key` when the server has `API_KEY` set
 
 **Example:**
 
@@ -83,7 +84,7 @@ DELETE /api/v1/topics/{topic_name}
 | ------------ | ------ | ------------------------------- |
 | `topic_name` | string | Topic name (will be normalized) |
 
-**Response:** `204 No Content`
+**Response:** `200 OK` (empty body)
 
 **Notes:**
 
@@ -91,6 +92,7 @@ DELETE /api/v1/topics/{topic_name}
 - Deleting a non-existent topic succeeds (idempotent)
 - Use URL encoding for topics with spaces: `Quantum%20Computing` or `Quantum+Computing`
 - In this example, the topic with normalized name `quantum computing` will be soft deleted
+- Requires `X-API-Key` when the server has `API_KEY` set
 
 **Example:**
 
@@ -99,6 +101,28 @@ curl -X DELETE http://localhost:5000/api/v1/topics/Quantum%20Computing
 ```
 
 ### News
+
+News uses **cursor pagination** keyed on the entry `id` (which is monotonic
+with scrape time, so it matches `scraped_at` order). To page backward through
+older entries, pass the `next_before_id` from the previous response as
+`before_id`. Cursor pagination is immune to the offset drift that live
+insertions cause at the top of the feed.
+
+#### Get News (all topics)
+
+```http
+GET /api/v1/news
+```
+
+A single chronological stream across **all active topics**, newest first.
+Entries from soft-deleted (inactive) topics are excluded.
+
+**Query Parameters:**
+
+| Parameter   | Type    | Default | Range | Description                                       |
+| ----------- | ------- | ------- | ----- | ------------------------------------------------- |
+| `limit`     | integer | `20`    | 1-100 | Number of entries per page                        |
+| `before_id` | integer | —       | ≥1    | Return only entries older than this id (cursor)   |
 
 #### Get News for Topic
 
@@ -114,16 +138,15 @@ GET /api/v1/news/{topic_name}
 
 **Query Parameters:**
 
-| Parameter | Type    | Default | Range | Description                |
-| --------- | ------- | ------- | ----- | -------------------------- |
-| `limit`   | integer | `20`    | 1-100 | Number of entries per page |
-| `offset`  | integer | `0`     | ≥0    | Pagination offset          |
+| Parameter   | Type    | Default | Range | Description                                       |
+| ----------- | ------- | ------- | ----- | ------------------------------------------------- |
+| `limit`     | integer | `20`    | 1-100 | Number of entries per page                        |
+| `before_id` | integer | —       | ≥1    | Return only entries older than this id (cursor)   |
 
 **Response:**
 
 ```json
 {
-  "topic": "artificial intelligence",
   "entries": [
     {
       "id": 123,
@@ -135,28 +158,30 @@ GET /api/v1/news/{topic_name}
       "scraped_at": "2025-12-03T10:45:00"
     }
   ],
-  "total": 150,
   "limit": 20,
-  "offset": 0
+  "next_before_id": 123,
+  "topic": "artificial intelligence",
+  "total": 150
 }
 ```
 
 **Notes:**
 
-- Results ordered by `scraped_at DESC` (newest first)
-- Use pagination for large result sets
+- Results ordered by `id DESC` (newest first).
+- `next_before_id` is the cursor for the next (older) page, or `null` when the earliest entry has been reached.
+- `topic` and `total` are populated only by the single-topic endpoint; the all-topics endpoint returns `null` for both.
 
 **Example:**
 
 ```bash
-# Get first (newest) 20 news entries
+# Newest 20 entries for a topic
 curl http://localhost:5000/api/v1/news/Artificial%20Intelligence
 
-# Get entries 21-40 (pagination)
-curl http://localhost:5000/api/v1/news/ARTIFICAL+INTELLIGENCE?limit=20&offset=20
+# Next (older) page — pass the previous response's next_before_id
+curl "http://localhost:5000/api/v1/news/artificial+intelligence?limit=20&before_id=104"
 
-# Get latest 5 entries
-curl http://localhost:5000/api/v1/news/artificial+intelligence?limit=5
+# Newest 5 across all topics
+curl "http://localhost:5000/api/v1/news?limit=5"
 ```
 
 ### Logs

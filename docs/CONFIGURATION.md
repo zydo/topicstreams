@@ -77,7 +77,7 @@ scraper:
 ```yaml
 anti_detection:
   playwright_stealth:
-    enabled: true  # Apply playwright-stealth patches to hide automation
+    enabled: false  # Keep disabled — Google detects playwright-stealth's JS patches
 
   browser_args:
     enabled: true
