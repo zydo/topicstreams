@@ -54,6 +54,7 @@ USER_DATA_DIR = Path("/app/.browser_profiles/default")
 # 2026-06-13). The on-disk persistent profile survives the recycle.
 BROWSER_RECYCLE_CYCLES = 50
 
+
 def _detect_fingerprint(p) -> FingerprintProfile:
     """Build a fingerprint matching the installed browser version.
 
@@ -74,10 +75,14 @@ def _detect_fingerprint(p) -> FingerprintProfile:
         os_part, platform_brand = "X11; Linux x86_64", '"Linux"'
     logger.info(f"Detected Chromium {version}; claiming Chrome/{major} UA")
     return FingerprintProfile(
-        user_agent=(f"Mozilla/5.0 ({os_part}) AppleWebKit/537.36 "
-                    f"(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"),
-        sec_ch_ua=(f'"Chromium";v="{major}", "Google Chrome";v="{major}", '
-                   f'"Not;A=Brand";v="24"'),
+        user_agent=(
+            f"Mozilla/5.0 ({os_part}) AppleWebKit/537.36 "
+            f"(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
+        ),
+        sec_ch_ua=(
+            f'"Chromium";v="{major}", "Google Chrome";v="{major}", '
+            f'"Not;A=Brand";v="24"'
+        ),
         sec_ch_ua_platform=platform_brand,
     )
 
@@ -130,8 +135,9 @@ def _build_proxy() -> dict | None:
 
     servers = anti_detection_config.proxy_servers
     if not servers:
-        logger.warning("Proxy enabled but no proxy servers configured; "
-                       "connecting directly")
+        logger.warning(
+            "Proxy enabled but no proxy servers configured; " "connecting directly"
+        )
         return None
 
     # One endpoint per browser launch. Residential gateways rotate exit IPs

@@ -1,6 +1,5 @@
 """Scraper logs API endpoints."""
 
-
 from fastapi import APIRouter, Query
 from starlette.concurrency import run_in_threadpool
 

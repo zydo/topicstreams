@@ -1,0 +1,9 @@
+# Runtime dependencies live in requirements/*.txt (used by the Docker builds).
+# This file holds dev-only tooling and its config.
+
+[dependency-groups]
+# Install with:  pip install --group dev
+dev = ["black>=24.0,<26"]
+
+[tool.black]
+line-length = 88

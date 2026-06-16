@@ -1,6 +1,5 @@
 """Topic management endpoints for API v1."""
 
-
 from fastapi import APIRouter, Depends, Query, Path
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool

@@ -1,7 +1,6 @@
 """Custom exception classes for TopicStreams API."""
 
 
-
 class TopicStreamsException(Exception):
     def __init__(self, message: str, error_code: str | None = None):
         self.message = message
