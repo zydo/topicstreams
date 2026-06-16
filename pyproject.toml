@@ -1,6 +1,16 @@
 # All Python dependencies live here. The Docker images install a per-service
 # group with `pip install --group <api|scraper>`; `dev` holds local tooling.
 
+# Minimal metadata so uv knows the Python version; the app isn't packaged
+# (tool.uv.package = false), it's run from source with PYTHONPATH=/app.
+[project]
+name = "topicstreams"
+version = "0.1.0"
+requires-python = ">=3.14"
+
+[tool.uv]
+package = false
+
 [dependency-groups]
 common = [
     "psycopg2-binary>=2.9.10,<3",
@@ -25,6 +35,8 @@ dev = [
     { include-group = "api" },
     "black>=24.0,<26",
     "pytest>=8.0,<9",
+    "httpx>=0.27,<1",          # FastAPI TestClient
+    "testcontainers>=4,<5",    # ephemeral Postgres for integration tests
 ]
 
 [tool.black]
@@ -33,3 +45,7 @@ line-length = 88
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+filterwarnings = [
+    # Starlette's TestClient nudges toward httpx2; httpx works fine here.
+    "ignore:Using `httpx` with `starlette.testclient`",
+]
