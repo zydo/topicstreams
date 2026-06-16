@@ -1,511 +1,313 @@
-/* Global Styles */
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
+/* TopicStreams — The Wire
+   An all-monospace "wire desk": the feed is a transmission tape indexed by
+   time, with a single wire-red signal reserved for live/new. Light and dark
+   themes via data-theme on <html>. */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
-    --primary-color: #2563eb;
-    --secondary-color: #64748b;
-    --success-color: #10b981;
-    --error-color: #ef4444;
-    --background-color: #f8fafc;
-    --card-background: #ffffff;
-    --text-primary: #1e293b;
-    --text-secondary: #64748b;
-    --border-color: #e2e8f0;
-    --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --paper: #E8E7E0;
+  --paper-raise: #F1F0EA;
+  --ink: #1A1A17;
+  --ink-soft: #6E6D64;
+  --ink-faint: #9D9B90;
+  --rule: #CDCBC1;
+  --signal: #C5341E;
+  --signal-rgb: 197, 52, 30;
+  --masthead-rule: #1A1A17;
+  --texture: rgba(0, 0, 0, 0.018);
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 }
+
+:root[data-theme="dark"] {
+  --paper: #17160F;
+  --paper-raise: #201E16;
+  --ink: #E9E7DD;
+  --ink-soft: #9A978A;
+  --ink-faint: #6A6860;
+  --rule: #332F26;
+  --signal: #F0512E;
+  --signal-rgb: 240, 81, 46;
+  --masthead-rule: #9A978A;
+  --texture: rgba(255, 255, 255, 0.02);
+}
+
+html { -webkit-font-smoothing: antialiased; }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-    background-color: var(--background-color);
-    color: var(--text-primary);
-    line-height: 1.6;
+  font-family: var(--mono);
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.5;
+  background-image: repeating-linear-gradient(180deg,
+      rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 39px,
+      var(--texture) 39px, var(--texture) 40px);
+  min-height: 100vh;
 }
 
-.container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 20px;
+.sheet { max-width: 900px; margin: 0 auto; padding: 0 28px 80px; }
+
+a { color: inherit; }
+
+::selection { background: rgba(var(--signal-rgb), 0.22); }
+
+/* ── Masthead status strip ─────────────────────────────── */
+.masthead {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap;
+  padding: 26px 0 14px;
+  border-bottom: 2px solid var(--masthead-rule);
 }
+.brand { font-weight: 700; font-size: 18px; letter-spacing: 0.04em; }
+.brand span { font-weight: 400; color: var(--ink-soft); margin-left: 2px; }
 
-/* Header */
-.header {
-    margin-bottom: 40px;
-    padding: 30px;
-    background: linear-gradient(135deg, var(--primary-color), #3b82f6);
-    color: white;
-    border-radius: 12px;
-    box-shadow: var(--shadow-lg);
+.status {
+  display: flex; align-items: center; gap: 16px;
+  font-size: 11px; letter-spacing: 0.1em; color: var(--ink-soft);
+  text-transform: uppercase;
 }
-
-.header-content {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 20px;
+.status .sep { color: var(--ink-faint); }
+.onair { display: inline-flex; align-items: center; gap: 7px; color: var(--ink); font-weight: 600; }
+.onair .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-faint); }
+/* live & healthy: the wire is open — pulsing red signal */
+.onair[data-state="live"] .dot {
+  background: var(--signal);
+  box-shadow: 0 0 0 0 rgba(var(--signal-rgb), 0.55);
+  animation: pulse 1.8s ease-out infinite;
 }
+/* failing or unreachable: solid red, no pulse, red label */
+.onair[data-state="error"] .dot,
+.onair[data-state="offline"] .dot { background: var(--signal); }
+.onair[data-state="error"] #scraper-status,
+.onair[data-state="offline"] #scraper-status { color: var(--signal); }
+/* partial outage: solid red dot, neutral label (distinct from full errors) */
+.onair[data-state="degraded"] .dot { background: var(--signal); }
+.onair[data-state="degraded"] #scraper-status { color: var(--ink); }
+/* stalled or never-run: dim, no pulse */
+.onair[data-state="stalled"] .dot,
+.onair[data-state="idle"] .dot { background: var(--ink-faint); }
+.onair[data-state="stalled"] #scraper-status,
+.onair[data-state="idle"] #scraper-status { color: var(--ink-soft); }
 
-.header-title h1 {
-    font-size: 2.5rem;
-    margin-bottom: 10px;
-    font-weight: 700;
+.chip {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+  text-transform: uppercase; text-decoration: none;
+  color: var(--ink-soft); background: none;
+  border: 1px solid var(--rule); padding: 4px 9px; cursor: pointer;
+  line-height: 1.2;
 }
+.chip:hover { border-color: var(--ink-soft); color: var(--ink); }
+#theme-toggle { min-width: 30px; text-align: center; }
 
-.header-title .subtitle {
-    font-size: 1.1rem;
-    opacity: 0.9;
-    margin: 0;
+/* ── Tracking: topics as wire slugs ────────────────────── */
+.tracking {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 14px 0; border-bottom: 1px solid var(--rule);
 }
-
-.header-links {
-    display: flex;
-    gap: 15px;
-    align-items: center;
+.tracking__label {
+  font-size: 11px; letter-spacing: 0.14em; color: var(--ink-faint);
+  text-transform: uppercase; margin-right: 2px;
 }
-
-.github-link {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
-    text-decoration: none;
-    border-radius: 8px;
-    transition: all 0.2s ease;
-    font-weight: 500;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.github-link:hover {
-    background: rgba(255, 255, 255, 0.2);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.github-link i {
-    font-size: 1.2rem;
-}
-
-.github-text {
-    font-size: 0.9rem;
-}
-
-/* Sections */
-section {
-    background: var(--card-background);
-    border-radius: 12px;
-    padding: 24px;
-    margin-bottom: 24px;
-    box-shadow: var(--shadow);
-}
-
-section h2 {
-    font-size: 1.5rem;
-    margin-bottom: 20px;
-    color: var(--text-primary);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-section h2 i {
-    color: var(--primary-color);
-}
-
-/* Status Panel */
-.status-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 20px;
-}
-
-.status-item {
-    padding: 16px;
-    background: var(--background-color);
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-    text-align: center;
-}
-
-.status-label {
-    display: block;
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    margin-bottom: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.status-value {
-    display: block;
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-
-
-/* Topic Management */
-.topic-controls {
-    margin-bottom: 24px;
-}
-
-.add-topic {
-    display: flex;
-    gap: 12px;
-}
-
-#topic-input {
-    flex: 1;
-    padding: 12px 16px;
-    border: 2px solid var(--border-color);
-    border-radius: 8px;
-    font-size: 1rem;
-    transition: border-color 0.2s;
-}
-
-#topic-input:focus {
-    outline: none;
-    border-color: var(--primary-color);
-}
-
-button {
-    padding: 12px 20px;
-    background: var(--primary-color);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 1rem;
-    cursor: pointer;
-    transition: background-color 0.2s;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-button:hover {
-    background: #1d4ed8;
-}
-
-button:disabled {
-    background: var(--secondary-color);
-    cursor: not-allowed;
-}
-
-
-button.danger {
-    background: var(--error-color);
-}
-
-button.danger:hover {
-    background: #dc2626;
-}
-
-.topics-list h3 {
-    margin-bottom: 16px;
-    color: var(--text-primary);
-}
-
-.topic-cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 16px;
-}
-
+.topic-cards { display: contents; }
 .topic-card {
-    padding: 16px;
-    background: var(--background-color);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    transition: box-shadow 0.2s;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 9px; border: 1px solid var(--rule);
+  background: var(--paper-raise); font-size: 12.5px; color: var(--ink);
+}
+.topic-name { font-size: 12.5px; }
+.delete-btn {
+  border: 0; background: none; color: var(--ink-faint); cursor: pointer;
+  font-family: var(--mono); font-size: 14px; line-height: 1; padding: 0;
+}
+.topic-card:hover .delete-btn { color: var(--signal); }
+
+.track-add { display: inline-flex; align-items: stretch; }
+#topic-input {
+  font-family: var(--mono); font-size: 12.5px; color: var(--ink);
+  background: var(--paper); border: 1px dashed var(--rule); border-right: 0;
+  padding: 5px 10px; width: 170px;
+}
+#topic-input::placeholder { color: var(--ink-faint); }
+#topic-input:focus { outline: none; border-color: var(--ink-soft); }
+#add-topic-btn {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--ink-soft);
+  background: none; border: 1px dashed var(--rule); padding: 5px 10px;
+  cursor: pointer; white-space: nowrap;
+}
+#add-topic-btn:hover { border-color: var(--ink-soft); color: var(--ink); }
+#add-topic-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* ── The Wire head + filter ────────────────────────────── */
+.wire { position: relative; }
+.wire__head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 16px; padding: 30px 0 12px;
+}
+.wire__head h2 {
+  font-size: 13px; letter-spacing: 0.26em; text-transform: uppercase;
+  color: var(--ink-soft); font-weight: 600;
+}
+.filter {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.filter select {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--ink); background: var(--paper);
+  border: 0; border-bottom: 1px solid var(--ink); padding: 3px 18px 3px 4px;
+  cursor: pointer; -webkit-appearance: none; appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--ink) 50%),
+    linear-gradient(135deg, var(--ink) 50%, transparent 50%);
+  background-position: calc(100% - 9px) 9px, calc(100% - 4px) 9px;
+  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
 }
 
-.topic-card:hover {
-    box-shadow: var(--shadow);
-}
-
-.topic-info h3 {
-    margin-bottom: 4px;
-    color: var(--primary-color);
-}
-
-
-.topic-actions {
-    display: flex;
-    gap: 8px;
-}
-
-.topic-actions button {
-    padding: 8px 12px;
-    font-size: 0.875rem;
-}
-
-/* News Feed */
-.feed-controls {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
-}
-
-#topic-filter {
-    flex: 1;
-    min-width: 200px;
-    padding: 10px 14px;
-    border: 2px solid var(--border-color);
-    border-radius: 8px;
-    font-size: 1rem;
-    background: white;
-}
-
+/* ── The transmission tape ─────────────────────────────── */
 .news-container {
-    max-height: 600px;
-    overflow-y: auto;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    background: var(--background-color);
+  /* Fill the space the removed scraper-log panel used to take. */
+  max-height: calc(100vh - 260px); min-height: 380px;
+  overflow-y: auto; overflow-x: hidden;
+  border-top: 1px solid var(--rule);
 }
+.news-list { list-style: none; }
 
-.news-item {
-    padding: 16px;
-    border-bottom: 1px solid var(--border-color);
+.news-item { display: grid; grid-template-columns: 92px 1fr; }
+.news-item__time {
+  text-align: right; padding: 18px 18px 0 0;
+  font-size: 12px; color: var(--ink-faint); font-weight: 500;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-
-/* Only newly-pushed live entries animate in. Paginated (older) entries that
-   load on scroll appear without motion, so the feed stays calm while reading. */
-.news-item--live {
-    animation: slideIn 0.3s ease-out;
+.news-item__body {
+  position: relative; border-left: 1px solid var(--rule);
+  padding: 18px 4px 22px 22px;
 }
-
-.news-list .news-item:last-child {
-    border-bottom: none;
+.news-item__body::before {
+  content: ""; position: absolute; left: -4px; top: 22px;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--ink-faint);
 }
+.news-item--live .news-item__body::before {
+  background: var(--signal);
+  box-shadow: 0 0 0 0 rgba(var(--signal-rgb), 0.5);
+  animation: pulse 1.8s ease-out infinite;
+}
+.news-item__dateline {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.news-topic {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink);
+}
+.news-snippet { font-size: 11.5px; color: var(--ink-soft); }
+.news-snippet::before { content: "·"; margin-right: 10px; color: var(--ink-faint); }
+.news-new {
+  margin-left: auto; font-size: 10px; font-weight: 600; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--signal); display: none;
+}
+.news-item--live .news-new { display: inline; }
 
-.news-item:hover {
-    background: white;
+.news-link { text-decoration: none; display: block; }
+.news-title {
+  font-size: 16.5px; font-weight: 500; line-height: 1.4; color: var(--ink);
+  max-width: 64ch;
+}
+.news-link:hover .news-title {
+  text-decoration: underline; text-underline-offset: 3px;
+  text-decoration-thickness: 1px; text-decoration-color: var(--ink-faint);
 }
 
 .feed-status {
-    padding: 18px;
-    text-align: center;
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    min-height: 8px;
+  padding: 18px; text-align: center; font-size: 11px; letter-spacing: 0.06em;
+  color: var(--ink-faint); text-transform: uppercase; min-height: 8px;
 }
+.feed-status:empty { padding: 0; min-height: 0; }
 
-.feed-status:empty {
-    padding: 0;
+/* "Jump to latest" — floats over the bottom-right of the tape once scrolled. */
+.feed-top {
+  position: absolute; right: 14px; bottom: 14px;
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--ink);
+  background: var(--paper-raise); border: 1px solid var(--rule);
+  padding: 7px 12px; cursor: pointer;
+  opacity: 0; visibility: hidden; transform: translateY(6px);
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
 }
+.feed-top.is-visible { opacity: 1; visibility: visible; transform: none; }
+.feed-top:hover { border-color: var(--ink-soft); }
+.feed-top .arrow { color: var(--signal); font-weight: 700; }
+@media (prefers-reduced-motion: reduce) { .feed-top { transition: none; } }
 
-@media (prefers-reduced-motion: reduce) {
-    .news-item--live {
-        animation: none;
-    }
+/* Empty / loading placeholders (JS-injected text) */
+.no-news, .loading {
+  padding: 20px 0; color: var(--ink-faint); font-size: 12px;
+  letter-spacing: 0.04em;
 }
+.news-list .no-news { text-align: center; padding: 28px; }
 
-.news-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 8px;
+/* ── Confirm dialog ────────────────────────────────────── */
+.modal {
+  /* margin:auto restores native centering that the global `* { margin:0 }`
+     reset would otherwise strip from the modal dialog. */
+  margin: auto;
+  border: 1px solid var(--rule); background: var(--paper-raise); color: var(--ink);
+  font-family: var(--mono); padding: 22px; max-width: 380px; width: calc(100% - 40px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.32);
 }
-
-.news-title {
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 0;
-    flex: 1;
+.modal::backdrop { background: rgba(0, 0, 0, 0.45); }
+.modal__title {
+  font-size: 13px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+  margin-bottom: 12px;
 }
-
-.news-time {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    white-space: nowrap;
+.modal__body { font-size: 13px; color: var(--ink-soft); line-height: 1.55; margin-bottom: 20px; }
+.modal__actions { display: flex; justify-content: flex-end; gap: 10px; }
+.modal__btn {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 7px 12px; cursor: pointer;
+  border: 1px solid var(--rule); background: var(--paper); color: var(--ink);
 }
+.modal__btn:hover { border-color: var(--ink-soft); }
+.modal__btn:focus-visible { outline: 2px solid var(--ink-soft); outline-offset: 2px; }
+.modal__btn--danger { border-color: var(--signal); color: var(--signal); }
+.modal__btn--danger:hover { background: var(--signal); color: var(--paper); }
 
-.news-meta {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
+/* ── Toasts ────────────────────────────────────────────── */
+.toast {
+  position: fixed; top: 20px; right: 20px; z-index: 10000;
+  max-width: 400px; padding: 12px 16px;
+  font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.02em;
+  color: var(--ink); background: var(--paper-raise);
+  border: 1px solid var(--rule); border-left: 2px solid var(--ink-soft);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  animation: toastIn 0.22s ease-out;
 }
+.toast.success { border-left-color: var(--ink); }
+.toast.error { border-left-color: var(--signal); }
+.toast--out { animation: toastOut 0.22s ease-out forwards; }
+@keyframes toastIn { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+@keyframes toastOut { to { opacity: 0; transform: translateX(12px); } }
 
-.news-topic {
-    background: var(--primary-color);
-    color: white;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 500;
-}
-
-.news-link {
-    color: var(--primary-color);
-    text-decoration: none;
-    font-size: 0.875rem;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.news-link:hover {
-    text-decoration: underline;
-}
-
-.news-snippet {
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-    line-height: 1.5;
-}
-
-.no-news,
-.loading {
-    text-align: center;
-    padding: 40px;
-    color: var(--text-secondary);
-}
-
-/* Logs Panel */
-.logs-container {
-    max-height: 300px;
-    overflow-y: auto;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    background: var(--background-color);
-}
-
-.log-entry {
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color);
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-    font-size: 0.875rem;
-}
-
-.log-entry:last-child {
-    border-bottom: none;
-}
-
-.log-entry.success {
-    border-left: 4px solid var(--success-color);
-}
-
-.log-entry.error {
-    border-left: 4px solid var(--error-color);
-}
-
-.log-time {
-    color: var(--text-secondary);
-    margin-right: 12px;
-}
-
-.log-topic {
-    font-weight: 600;
-    margin-right: 12px;
-    color: var(--primary-color);
-}
-
-.log-message {
-    color: var(--text-primary);
-}
-
-
-/* Animations */
-@keyframes slideIn {
-    from {
-        opacity: 0;
-        transform: translateY(-10px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
+/* ── Motion ────────────────────────────────────────────── */
 @keyframes pulse {
-
-    0%,
-    100% {
-        opacity: 1;
-    }
-
-    50% {
-        opacity: 0.5;
-    }
+  0%   { box-shadow: 0 0 0 0 rgba(var(--signal-rgb), 0.5); }
+  70%  { box-shadow: 0 0 0 7px rgba(var(--signal-rgb), 0); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--signal-rgb), 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .onair[data-state="live"] .dot, .news-item--live .news-item__body::before { animation: none; }
 }
 
-.fa-spin {
-    animation: pulse 1.5s ease-in-out infinite;
-}
-
-/* Responsive Design */
-@media (max-width: 768px) {
-    .container {
-        padding: 10px;
-    }
-
-    .header {
-        padding: 20px;
-    }
-
-    .header-content {
-        flex-direction: column;
-        text-align: center;
-        gap: 15px;
-    }
-
-    .header-title h1 {
-        font-size: 2rem;
-    }
-
-    .header-title .subtitle {
-        font-size: 1rem;
-    }
-
-    .github-text {
-        display: none;
-        /* Hide text on mobile, show only icon */
-    }
-
-    .github-link {
-        padding: 8px 12px;
-    }
-
-    .status-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-
-    .add-topic {
-        flex-direction: column;
-    }
-
-    .feed-controls {
-        flex-direction: column;
-    }
-
-    .topic-cards {
-        grid-template-columns: 1fr;
-    }
-
-    .news-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
-    }
-
-    .news-meta {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
-    }
-
+/* ── Responsive ────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .sheet { padding: 0 16px 60px; }
+  .status { gap: 12px; }
+  .news-item { grid-template-columns: 64px 1fr; }
+  .news-item__time { padding: 16px 12px 0 0; }
+  .news-item__body { padding-left: 16px; }
+  .news-title { font-size: 15px; }
+  #topic-input { width: 130px; }
 }

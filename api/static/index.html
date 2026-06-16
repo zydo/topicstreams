@@ -3,124 +3,135 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TopicStreams - Real-time News Aggregator</title>
+    <title>TopicStreams — The Wire</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/styles.css">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script>
+      // Set theme before first paint to avoid a flash of the wrong palette.
+      (function () {
+        try {
+          var t = localStorage.getItem('ts-theme');
+          if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          document.documentElement.dataset.theme = t;
+        } catch (e) {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-content">
-                <div class="header-title">
-                    <h1><i class="fas fa-newspaper"></i> TopicStreams</h1>
-                    <p class="subtitle">Real-time News Aggregator</p>
-                </div>
-                <div class="header-links">
-                    <a href="https://github.com/zydo/topicstreams" target="_blank" rel="noopener noreferrer" class="github-link" title="View on GitHub">
-                        <i class="fab fa-github"></i>
-                        <span class="github-text">GitHub</span>
-                    </a>
-                </div>
+    <div class="sheet">
+        <!-- Masthead status strip -->
+        <header class="masthead">
+            <div class="brand">TOPICSTREAMS <span>/ the wire</span></div>
+            <div class="status">
+                <span class="onair">
+                    <span class="dot"></span>
+                    <span id="scraper-status">connecting…</span>
+                </span>
+                <span class="sep">·</span>
+                <span><span id="active-topics">–</span> feeds</span>
+                <span class="sep">·</span>
+                <span><span id="total-news">–</span> filed</span>
+                <button id="theme-toggle" class="chip" type="button" aria-label="Toggle theme">☾</button>
+                <a class="chip" href="https://github.com/zydo/topicstreams" target="_blank" rel="noopener noreferrer">github ↗</a>
             </div>
         </header>
 
-        <!-- Status Panel -->
-        <section class="status-panel">
-            <h2><i class="fas fa-tachometer-alt"></i> System Status</h2>
-            <div class="status-grid">
-                <div class="status-item">
-                    <span class="status-label">Scraper Status</span>
-                    <span class="status-value" id="scraper-status">
-                        <i class="fas fa-spinner fa-spin"></i> Loading...
-                    </span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Last Scrape</span>
-                    <span class="status-value" id="last-scrape">Loading...</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Active Topics</span>
-                    <span class="status-value" id="active-topics">Loading...</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Total News</span>
-                    <span class="status-value" id="total-news">Loading...</span>
-                </div>
+        <!-- Tracking: topics as wire slugs -->
+        <section class="tracking">
+            <span class="tracking__label">Tracking</span>
+            <div class="topic-cards" id="topic-cards">
+                <div class="loading">loading…</div>
             </div>
+            <span class="track-add">
+                <input type="text" id="topic-input" placeholder="track a topic…" maxlength="100">
+                <button id="add-topic-btn" type="button">+ track</button>
+            </span>
         </section>
 
-        <!-- Topic Management -->
-        <section class="topic-management">
-            <h2><i class="fas fa-tags"></i> Topic Management</h2>
-            <div class="topic-controls">
-                <div class="add-topic">
-                    <input type="text" id="topic-input" placeholder="Enter a topic to track..." maxlength="100">
-                    <button id="add-topic-btn"><i class="fas fa-plus"></i> Add Topic</button>
-                </div>
-            </div>
-            <div class="topics-list" id="topics-list">
-                <h3>Active Topics</h3>
-                <div class="topic-cards" id="topic-cards">
-                    <div class="loading">Loading topics...</div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Real-time News Feed -->
-        <section class="news-feed">
-            <h2><i class="fas fa-rss"></i> Real-time News Feed</h2>
-            <div class="feed-controls">
-                <select id="topic-filter">
-                    <option value="">All topics</option>
-                </select>
+        <!-- The Wire: the transmission tape -->
+        <section class="wire">
+            <div class="wire__head">
+                <h2>The Wire</h2>
+                <label class="filter">Filter
+                    <select id="topic-filter">
+                        <option value="">All topics</option>
+                    </select>
+                </label>
             </div>
             <div class="news-container" id="news-container">
                 <div class="news-list" id="news-list"></div>
                 <div class="feed-status" id="feed-status" aria-live="polite"></div>
             </div>
-        </section>
-
-        <!-- Logs Panel -->
-        <section class="logs-panel">
-            <h2><i class="fas fa-file-alt"></i> Recent Scraper Logs</h2>
-            <div class="logs-container" id="logs-container">
-                <div class="loading">Loading logs...</div>
-            </div>
+            <button id="feed-top" class="feed-top" type="button" aria-label="Jump to latest">
+                <span class="arrow">↑</span> latest
+            </button>
         </section>
     </div>
 
-    <!-- News Item Template -->
+    <!-- News filing template -->
     <template id="news-item-template">
         <div class="news-item">
-            <div class="news-header">
-                <h4 class="news-title"></h4>
-                <span class="news-time"></span>
-            </div>
-            <div class="news-meta">
-                <span class="news-topic"></span>
-                <a class="news-link" href="" target="_blank">
-                    <i class="fas fa-external-link-alt"></i> Source
+            <div class="news-item__time"><span class="news-time"></span></div>
+            <div class="news-item__body">
+                <div class="news-item__dateline">
+                    <span class="news-topic"></span>
+                    <span class="news-snippet"></span>
+                    <span class="news-new">● new</span>
+                </div>
+                <a class="news-link" href="" target="_blank" rel="noopener noreferrer">
+                    <h3 class="news-title"></h3>
                 </a>
             </div>
-            <p class="news-snippet"></p>
         </div>
     </template>
 
-    <!-- Topic Card Template -->
+    <!-- Topic slug template -->
     <template id="topic-card-template">
-        <div class="topic-card">
-            <div class="topic-info">
-                <h3 class="topic-name"></h3>
-            </div>
-            <div class="topic-actions">
-                <button class="delete-btn" title="Delete topic">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </div>
-        </div>
+        <span class="topic-card">
+            <span class="topic-name"></span>
+            <button class="delete-btn" type="button" title="Stop tracking">×</button>
+        </span>
     </template>
 
     <script src="/static/app.js"></script>
+    <script>
+      // UI chrome only — theme + log toggles. The feed/WebSocket engine in
+      // app.js is untouched.
+      (function () {
+        var root = document.documentElement;
+        var themeBtn = document.getElementById('theme-toggle');
+        function syncTheme() {
+          var dark = root.dataset.theme === 'dark';
+          themeBtn.textContent = dark ? '☀' : '☾';
+          themeBtn.title = dark ? 'Switch to light' : 'Switch to dark';
+        }
+        syncTheme();
+        themeBtn.addEventListener('click', function () {
+          var next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+          root.dataset.theme = next;
+          try { localStorage.setItem('ts-theme', next); } catch (e) {}
+          syncTheme();
+        });
+
+        // "Jump to latest" — the newest filings sit at the top of the wire,
+        // so this just returns the feed scroll container to the top.
+        var feedBox = document.getElementById('news-container');
+        var feedTop = document.getElementById('feed-top');
+        var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        feedBox.addEventListener('scroll', function () {
+          feedTop.classList.toggle('is-visible', feedBox.scrollTop > 500);
+        });
+        feedTop.addEventListener('click', function () {
+          feedBox.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+        });
+      })();
+    </script>
 </body>
 </html>

@@ -82,7 +82,6 @@ class TopicStreamsApp {
     async loadInitialData() {
         await Promise.all([
             this.loadTopics(),
-            this.loadLogs(),
             this.updateStatus()
         ]);
         this.resetFeed();
@@ -127,22 +126,11 @@ class TopicStreamsApp {
         }
     }
 
-    async loadLogs() {
-        try {
-            const response = await fetch(`${this.apiBase}/logs?limit=50`);
-            const logs = await response.json();
-            this.renderLogs(logs);
-        } catch (error) {
-            console.error('Failed to load logs:', error);
-        }
-    }
-
     async updateStatus() {
         try {
-            // Get topics count
             const topicsResponse = await fetch(`${this.apiBase}/topics`);
             const topics = await topicsResponse.json();
-            const activeTopics = topics.filter(t => t.is_active).length;
+            const activeNames = new Set(topics.filter(t => t.is_active).map(t => t.name));
 
             // Get total news count (sum of all topics)
             let totalNews = 0;
@@ -156,23 +144,97 @@ class TopicStreamsApp {
                 }
             }
 
-            // Get last scrape info from logs
-            const logsResponse = await fetch(`${this.apiBase}/logs?limit=1`);
+            // Limit must cover at least one full scrape cycle so we can judge the
+            // latest outcome per topic; one log is written per topic per cycle.
+            const logsResponse = await fetch(`${this.apiBase}/logs?limit=30`);
             const logs = await logsResponse.json();
-            const lastScrape = logs.length > 0 ? this.formatTime(logs[0].scraped_at) : 'Never';
 
-            // Update status display
-            document.getElementById('active-topics').textContent = activeTopics;
+            document.getElementById('active-topics').textContent = activeNames.size;
             document.getElementById('total-news').textContent = totalNews;
-            document.getElementById('last-scrape').textContent = lastScrape;
-            document.getElementById('scraper-status').innerHTML =
-                `<i class="fas fa-check-circle success"></i> <span class="success">Active</span>`;
-
+            this.applyScraperHealth(logs, activeNames);
         } catch (error) {
             console.error('Failed to update status:', error);
-            document.getElementById('scraper-status').innerHTML =
-                `<i class="fas fa-exclamation-triangle error"></i> <span class="error">Error</span>`;
+            this.setStatus('offline', 'offline', "Can't reach the API");
         }
+    }
+
+    // Derive a real health signal from recent scraper logs: are scrapes recent
+    // and succeeding? Each log is one scrape attempt. This is the single
+    // indicator that replaces the removed transmission-log panel.
+    applyScraperHealth(logs, activeNames) {
+        if (!logs.length) {
+            this.setStatus('idle', 'idle', 'No scrapes recorded yet');
+            return;
+        }
+
+        const last = logs[0];
+
+        // Staleness adapts to the observed cadence instead of a fixed cutoff:
+        // the largest gap between recent scrapes approximates one cycle, and we
+        // flag "stalled" only after roughly three of them have been missed.
+        const ageMs = Date.now() - this.parseScrapedAt(last.scraped_at);
+        if (ageMs > this.staleThresholdMs(logs)) {
+            this.setStatus('stalled', 'stalled', `No scrape since ${this.formatTime(last.scraped_at)}`);
+            return;
+        }
+
+        // Judge by the latest scrape of each watched topic, so one failing feed
+        // surfaces as a partial outage ("degraded") rather than hiding inside a
+        // mostly-green window or dragging everything to "errors".
+        const latest = new Map();
+        for (const log of logs) {                       // newest first
+            if (activeNames && activeNames.size && !activeNames.has(log.topic)) continue;
+            if (!latest.has(log.topic)) latest.set(log.topic, log);
+        }
+        const tracked = Array.from(latest.values());
+        if (!tracked.length) {
+            this.setStatus('live', 'live', 'Scraping cleanly');
+            return;
+        }
+
+        const failed = tracked.filter(l => !l.success);
+        if (failed.length === tracked.length) {
+            this.setStatus('error', 'errors',
+                `All ${tracked.length} feeds failing — ${this.scrapeFailReason(failed[0])}`);
+        } else if (failed.length > 0) {
+            this.setStatus('degraded', 'degraded',
+                `${failed.length} of ${tracked.length} feeds failing: ${failed.map(l => l.topic).join(', ')}`);
+        } else {
+            this.setStatus('live', 'live', `All ${tracked.length} feeds scraping cleanly`);
+        }
+    }
+
+    // Expected cycle period ≈ the largest gap between recent scrapes; allow
+    // ~3 missed cycles before "stalled", clamped to a sane 5–30 min window.
+    staleThresholdMs(logs) {
+        let maxGap = 0;
+        for (let i = 0; i < logs.length - 1; i++) {
+            const gap = this.parseScrapedAt(logs[i].scraped_at) - this.parseScrapedAt(logs[i + 1].scraped_at);
+            if (gap > maxGap) maxGap = gap;
+        }
+        if (!maxGap) return 15 * 60 * 1000;             // too few logs to estimate
+        return Math.min(30 * 60 * 1000, Math.max(5 * 60 * 1000, maxGap * 3));
+    }
+
+    scrapeFailReason(log) {
+        return log.error_message
+            || (log.http_status_code ? `HTTP ${log.http_status_code}` : 'scrape failed');
+    }
+
+    setStatus(state, label, detail) {
+        const onair = document.querySelector('.onair');
+        if (onair) {
+            onair.dataset.state = state;
+            onair.title = detail || '';
+        }
+        document.getElementById('scraper-status').textContent = label;
+    }
+
+    parseScrapedAt(timestamp) {
+        const s = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
+            ? timestamp
+            : timestamp + 'Z';
+        return new Date(s).getTime();
     }
 
     renderTopics() {
@@ -240,7 +302,7 @@ class TopicStreamsApp {
 
         const button = document.getElementById('add-topic-btn');
         button.disabled = true;
-        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...';
+        button.textContent = 'tracking…';
 
         try {
             const response = await this.fetchWithAuth(`${this.apiBase}/topics`, {
@@ -262,14 +324,17 @@ class TopicStreamsApp {
             this.showError(`Failed to add topic "${topicName}"`);
         } finally {
             button.disabled = false;
-            button.innerHTML = '<i class="fas fa-plus"></i> Add Topic';
+            button.innerHTML = '+ track';
         }
     }
 
     async deleteTopic(topicName) {
-        if (!confirm(`Are you sure you want to delete the topic "${topicName}"?`)) {
-            return;
-        }
+        const confirmed = await this.confirmDialog({
+            title: 'Stop tracking?',
+            body: `“${topicName}” will leave the wire and stop being scraped. News already collected is kept.`,
+            confirmLabel: 'stop tracking',
+        });
+        if (!confirmed) return;
 
         try {
             const response = await this.fetchWithAuth(`${this.apiBase}/topics/${encodeURIComponent(topicName)}`, {
@@ -482,7 +547,7 @@ class TopicStreamsApp {
             return;
         }
         if (this.feedLoading) {
-            status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading…';
+            status.textContent = 'loading…';
             return;
         }
         if (!hasItems) {
@@ -498,59 +563,10 @@ class TopicStreamsApp {
         status.textContent = '';
     }
 
-    renderLogs(logs) {
-        const container = document.getElementById('logs-container');
-
-        if (logs.length === 0) {
-            container.innerHTML = '<div class="no-news">No logs available</div>';
-            return;
-        }
-
-        container.innerHTML = '';
-        for (const log of logs) {
-            const logEntry = document.createElement('div');
-            logEntry.className = `log-entry ${log.success ? 'success' : 'error'}`;
-
-            let statusMessage = '';
-            if (log.success) {
-                if (log.http_status_code) {
-                    statusMessage = `Scrape successful (HTTP ${log.http_status_code})`;
-                } else {
-                    statusMessage = 'Scrape successful';
-                }
-            } else if (log.error_message) {
-                statusMessage = `Error: ${log.error_message}`;
-            } else if (log.http_status_code) {
-                statusMessage = `HTTP error ${log.http_status_code}`;
-            } else {
-                statusMessage = 'Scrape failed';
-            }
-
-            // textContent, not innerHTML: topic and error_message contain
-            // scraper-derived text and must not be parsed as HTML.
-            const timeSpan = document.createElement('span');
-            timeSpan.className = 'log-time';
-            timeSpan.textContent = this.formatTime(log.scraped_at);
-
-            const topicSpan = document.createElement('span');
-            topicSpan.className = 'log-topic';
-            topicSpan.textContent = log.topic;
-
-            const messageSpan = document.createElement('span');
-            messageSpan.className = 'log-message';
-            messageSpan.textContent = statusMessage;
-
-            logEntry.append(timeSpan, topicSpan, messageSpan);
-            container.appendChild(logEntry);
-        }
-    }
-
-
     startStatusUpdates() {
-        // Update status every 30 seconds
+        // Refresh the masthead status strip every 30 seconds.
         setInterval(() => {
             this.updateStatus();
-            this.loadLogs();
         }, 30000);
     }
 
@@ -593,77 +609,65 @@ class TopicStreamsApp {
         this.showToast(message, 'error');
     }
 
+    // A wire-desk styled confirmation, replacing the native confirm() dialog.
+    // Resolves true if confirmed, false on cancel/Esc/backdrop.
+    confirmDialog({ title, body, confirmLabel = 'confirm', cancelLabel = 'cancel' }) {
+        return new Promise((resolve) => {
+            const dialog = document.createElement('dialog');
+            dialog.className = 'modal';
+
+            const heading = document.createElement('h3');
+            heading.className = 'modal__title';
+            heading.textContent = title;
+
+            const text = document.createElement('p');
+            text.className = 'modal__body';
+            text.textContent = body;   // textContent: topic names are user input
+
+            const actions = document.createElement('div');
+            actions.className = 'modal__actions';
+            const cancel = document.createElement('button');
+            cancel.className = 'modal__btn';
+            cancel.textContent = cancelLabel;
+            const confirm = document.createElement('button');
+            confirm.className = 'modal__btn modal__btn--danger';
+            confirm.textContent = confirmLabel;
+            actions.append(cancel, confirm);
+
+            dialog.append(heading, text, actions);
+            document.body.appendChild(dialog);
+
+            const close = (value) => {
+                dialog.close();
+                dialog.remove();
+                resolve(value);
+            };
+            cancel.addEventListener('click', () => close(false));
+            confirm.addEventListener('click', () => close(true));
+            dialog.addEventListener('cancel', (e) => { e.preventDefault(); close(false); });
+            dialog.addEventListener('click', (e) => { if (e.target === dialog) close(false); });
+
+            dialog.showModal();
+            confirm.focus();
+        });
+    }
+
     showToast(message, type = 'info') {
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
-        const icon = document.createElement('i');
-        icon.className = `fas fa-${type === 'success' ? 'check-circle' : 'exclamation-triangle'}`;
-        // append() inserts the message as a text node — messages embed raw
-        // user input (topic names), which must not be parsed as HTML.
-        toast.append(icon, message);
-
-        // Add toast styles if not already added
-        if (!document.querySelector('#toast-styles')) {
-            const style = document.createElement('style');
-            style.id = 'toast-styles';
-            style.textContent = `
-                .toast {
-                    position: fixed;
-                    top: 20px;
-                    right: 20px;
-                    padding: 16px 20px;
-                    background: white;
-                    border-radius: 8px;
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                    z-index: 10000;
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                    max-width: 400px;
-                    animation: slideIn 0.3s ease-out;
-                }
-                .toast.success {
-                    border-left: 4px solid #10b981;
-                    color: #10b981;
-                }
-                .toast.error {
-                    border-left: 4px solid #ef4444;
-                    color: #ef4444;
-                }
-                .toast.info {
-                    border-left: 4px solid #3b82f6;
-                    color: #3b82f6;
-                }
-            `;
-            document.head.appendChild(style);
-        }
-
+        // textContent, not innerHTML: messages embed raw user input (topic
+        // names) and must not be parsed as HTML.
+        toast.textContent = message;
         document.body.appendChild(toast);
 
         setTimeout(() => {
-            toast.style.animation = 'slideOut 0.3s ease-out forwards';
-            setTimeout(() => toast.remove(), 300);
+            toast.classList.add('toast--out');
+            setTimeout(() => toast.remove(), 250);
         }, 4000);
     }
 }
 
 // Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    // noqa: S1848
     new TopicStreamsApp();
 });
-
-// Add slide out animation
-if (!document.querySelector('#slide-out-styles')) {
-    const style = document.createElement('style');
-    style.id = 'slide-out-styles';
-    style.textContent = `
-        @keyframes slideOut {
-            to {
-                opacity: 0;
-                transform: translateX(100%);
-            }
-        }
-    `;
-    document.head.appendChild(style);
-}
