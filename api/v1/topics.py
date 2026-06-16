@@ -1,6 +1,5 @@
 """Topic management endpoints for API v1."""
 
-from typing import List
 
 from fastapi import APIRouter, Depends, Query, Path
 from pydantic import BaseModel, Field
@@ -37,7 +36,7 @@ async def get_topics(
         False,
         description="Show all topics including inactive (soft deleted) ones",
     ),
-) -> List[Topic]:
+) -> list[Topic]:
     return await run_in_threadpool(db.get_topics, include_inactive=all)
 
 

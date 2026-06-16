@@ -7,16 +7,15 @@ This module defines Pydantic models for database entities:
 """
 
 from datetime import datetime
-from typing import Optional
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 
 
 class Topic(BaseModel):
-    id: Optional[int] = Field(None, description="Primary key (auto-generated)")
+    id: int | None = Field(None, description="Primary key (auto-generated)")
     name: str = Field(..., description="Topic name")
-    created_at: Optional[datetime] = Field(
+    created_at: datetime | None = Field(
         None, description="Timestamp when topic was created"
     )
     is_active: bool = Field(True, description="Whether the topic is active")
@@ -27,15 +26,15 @@ class Topic(BaseModel):
 
 
 class NewsEntry(BaseModel):
-    id: Optional[int] = Field(None, description="Primary key (auto-generated)")
+    id: int | None = Field(None, description="Primary key (auto-generated)")
     topic: str = Field(..., description="Topic of the news entry")
     title: str = Field(..., description="Title of the news article")
     url: str = Field(..., description="URL of the news article")
     domain: str = Field(
         ..., description="Domain of the news article (extracted from URL)"
     )
-    source: Optional[str] = Field(None, description="Source of the news article")
-    scraped_at: Optional[datetime] = Field(
+    source: str | None = Field(None, description="Source of the news article")
+    scraped_at: datetime | None = Field(
         None, description="Timestamp when entry was scraped"
     )
 
@@ -45,7 +44,7 @@ class NewsEntry(BaseModel):
         topic: str,
         title: str,
         url: str,
-        source: Optional[str] = None,
+        source: str | None = None,
     ) -> "NewsEntry":
         """Create a new NewsEntry for insertion (without id and scraped_at)"""
 
@@ -75,16 +74,16 @@ class NewsEntry(BaseModel):
 
 
 class ScraperLog(BaseModel):
-    id: Optional[int] = Field(None, description="Primary key (auto-generated)")
+    id: int | None = Field(None, description="Primary key (auto-generated)")
     topic: str = Field(..., description="Topic that was scraped")
-    scraped_at: Optional[datetime] = Field(
+    scraped_at: datetime | None = Field(
         None, description="Timestamp when scrape was attempted"
     )
     success: bool = Field(True, description="Whether the scrape succeeded")
-    http_status_code: Optional[int] = Field(
+    http_status_code: int | None = Field(
         None, description="HTTP status code if available (e.g., 200, 429, 403)"
     )
-    error_message: Optional[str] = Field(
+    error_message: str | None = Field(
         None, description="Error message from exception if scrape failed"
     )
 
@@ -93,9 +92,9 @@ class ScraperLog(BaseModel):
         cls,
         topic: str,
         success: bool,
-        scraped_at: Optional[datetime] = None,
-        http_status_code: Optional[int] = None,
-        error_message: Optional[str] = None,
+        scraped_at: datetime | None = None,
+        http_status_code: int | None = None,
+        error_message: str | None = None,
     ) -> "ScraperLog":
         """Create a new ScraperLog for insertion (without id)"""
         return cls(

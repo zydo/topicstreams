@@ -9,7 +9,7 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Literal
+from typing import Any, Literal
 
 import yaml
 
@@ -33,7 +33,7 @@ class _BaseConfig:
 
     def __init__(self, config_path: Path):
         self.config_path = config_path
-        self._config: Dict[str, Any] = {}
+        self._config: dict[str, Any] = {}
         self._load_config()
 
     def _load_config(self) -> None:
@@ -136,7 +136,7 @@ class AntiDetectionConfig(_BaseConfig):
     # ============================================
 
     @property
-    def browser_args(self) -> List[str]:
+    def browser_args(self) -> list[str]:
         """Get browser launch arguments."""
         return self._get(
             "anti_detection",
@@ -218,7 +218,7 @@ class AntiDetectionConfig(_BaseConfig):
         )
 
     @property
-    def permissions(self) -> List[str]:
+    def permissions(self) -> list[str]:
         """Get browser permissions."""
         return self._get(
             "anti_detection",
@@ -228,7 +228,7 @@ class AntiDetectionConfig(_BaseConfig):
         )
 
     @property
-    def captcha_keywords(self) -> List[str]:
+    def captcha_keywords(self) -> list[str]:
         """Get CAPTCHA detection keywords."""
         return self._get(
             "anti_detection",
@@ -238,7 +238,7 @@ class AntiDetectionConfig(_BaseConfig):
         )
 
     @property
-    def monitored_http_codes(self) -> List[int]:
+    def monitored_http_codes(self) -> list[int]:
         """Get monitored HTTP error codes."""
         return self._get(
             "anti_detection",
@@ -248,7 +248,7 @@ class AntiDetectionConfig(_BaseConfig):
         )
 
     @property
-    def http_headers(self) -> Dict[str, str]:
+    def http_headers(self) -> dict[str, str]:
         """Get HTTP headers."""
         return self._get(
             "anti_detection",
@@ -270,7 +270,7 @@ class AntiDetectionConfig(_BaseConfig):
         return self._get("anti_detection", "proxy", "enabled", default=False)
 
     @property
-    def proxy_servers(self) -> List[str]:
+    def proxy_servers(self) -> list[str]:
         """Proxy URLs (scheme://[user:pass@]host:port).
 
         The SCRAPER_PROXY environment variable (a single URL) takes precedence

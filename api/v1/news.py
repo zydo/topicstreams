@@ -1,7 +1,5 @@
 """News retrieval endpoints for API v1."""
 
-from typing import List, Optional
-
 from fastapi import APIRouter, Query, Path
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -15,21 +13,21 @@ router = APIRouter(prefix="/news", tags=["news"])
 
 
 class NewsListResponse(BaseModel):
-    entries: List[NewsEntry] = Field(..., description="News entries, newest first")
+    entries: list[NewsEntry] = Field(..., description="News entries, newest first")
     limit: int = Field(..., description="Number of entries requested per page")
-    next_before_id: Optional[int] = Field(
+    next_before_id: int | None = Field(
         None,
         description="Cursor for the next (older) page; null when none remain",
     )
-    topic: Optional[str] = Field(
+    topic: str | None = Field(
         None, description="Normalized topic name, or null for the all-topics feed"
     )
-    total: Optional[int] = Field(
+    total: int | None = Field(
         None, description="Total entries for this topic (single-topic feed only)"
     )
 
 
-def _next_cursor(entries: List[NewsEntry], limit: int) -> Optional[int]:
+def _next_cursor(entries: list[NewsEntry], limit: int) -> int | None:
     # A short page means we hit the earliest entry — no older page follows.
     if len(entries) < limit:
         return None
@@ -39,7 +37,7 @@ def _next_cursor(entries: List[NewsEntry], limit: int) -> Optional[int]:
 @router.get("")
 async def list_all_news(
     limit: int = Query(20, ge=1, le=100),
-    before_id: Optional[int] = Query(None, ge=1),
+    before_id: int | None = Query(None, ge=1),
 ) -> NewsListResponse:
     entries = await run_in_threadpool(db.get_news_entries_all, limit, before_id)
     return NewsListResponse(
@@ -53,7 +51,7 @@ async def list_all_news(
 async def get_news(
     topic_name: str = Path(..., min_length=1, max_length=100),
     limit: int = Query(20, ge=1, le=100),
-    before_id: Optional[int] = Query(None, ge=1),
+    before_id: int | None = Query(None, ge=1),
 ) -> NewsListResponse:
     normalized_name = normalize_topic(topic_name)
 

@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 from collections import defaultdict
-from typing import Dict, List, Optional, Set
 
 import psycopg2
 from fastapi import WebSocket
@@ -20,9 +19,9 @@ logger = logging.getLogger(__name__)
 
 class WebSocketManager:
     def __init__(self):
-        self._conn: Optional[PgConnection] = None
-        self._listener_task: Optional[asyncio.Task[None]] = None
-        self._topic_subscribers: defaultdict[str, Set[WebSocket]] = defaultdict(set)
+        self._conn: PgConnection | None = None
+        self._listener_task: asyncio.Task[None] | None = None
+        self._topic_subscribers: defaultdict[str, set[WebSocket]] = defaultdict(set)
 
     def _get_conn(self) -> PgConnection:
         if self._conn:
@@ -116,7 +115,7 @@ class WebSocketManager:
         if topic not in self._topic_subscribers:
             return
 
-        message: Dict = entry.model_dump(mode="json")
+        message: dict = entry.model_dump(mode="json")
 
         formatted_json = json.dumps(
             message,
@@ -126,7 +125,7 @@ class WebSocketManager:
             separators=(", ", ": "),
         )
 
-        disconnected: List[WebSocket] = []
+        disconnected: list[WebSocket] = []
 
         for connection in self._topic_subscribers[topic]:
             try:

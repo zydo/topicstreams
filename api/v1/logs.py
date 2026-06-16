@@ -1,6 +1,5 @@
 """Scraper logs API endpoints."""
 
-from typing import List
 
 from fastapi import APIRouter, Query
 from starlette.concurrency import run_in_threadpool
@@ -12,7 +11,7 @@ router = APIRouter(prefix="/logs", tags=["logs"])
 
 
 @router.get("")
-async def get_logs(limit: int = Query(20, ge=1, le=100)) -> List[ScraperLog]:
+async def get_logs(limit: int = Query(20, ge=1, le=100)) -> list[ScraperLog]:
     """Get recent scraper log entries.
 
     Args:

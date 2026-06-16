@@ -20,7 +20,6 @@ import logging
 import random
 import re
 import traceback
-from typing import List, Optional, Tuple
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag, ResultSet
@@ -33,8 +32,8 @@ logger = logging.getLogger(__name__)
 
 
 def scrape_news(
-    page: Page, topic: str, max_result_pages: Optional[int] = None
-) -> Tuple[List[NewsEntry], List[ScraperLog]]:
+    page: Page, topic: str, max_result_pages: int | None = None
+) -> tuple[list[NewsEntry], list[ScraperLog]]:
     """Scrape news entries from Google Search News tab across multiple result pages.
 
     This function scrapes news articles from the recent 1 hour for a given topic
@@ -52,9 +51,9 @@ def scrape_news(
 
     Returns:
         Tuple containing:
-        - List[NewsEntry]: All scraped news entries across all pages, in chronological
+        - list[NewsEntry]: All scraped news entries across all pages, in chronological
                            order (oldest to newest)
-        - List[ScraperLog]: Log entries for each page scrape attempt
+        - list[ScraperLog]: Log entries for each page scrape attempt
 
     Note:
         - Results are filtered to the recent 1 hour only (qdr:h parameter)
@@ -87,7 +86,7 @@ def scrape_news(
 
 def _scrape_one_page(
     page: Page, topic: str, result_page_number: int
-) -> Tuple[List[NewsEntry], ScraperLog]:
+) -> tuple[list[NewsEntry], ScraperLog]:
     """Scrape news entries from a single Google Search News results page.
 
     Constructs a Google Search URL with News tab filters and pagination,
@@ -102,7 +101,7 @@ def _scrape_one_page(
 
     Returns:
         Tuple containing:
-        - List[NewsEntry]: Parsed news entries from this page (may be empty)
+        - list[NewsEntry]: Parsed news entries from this page (may be empty)
         - ScraperLog: Log entry for this scrape attempt (success or failure)
     """
 
@@ -125,7 +124,7 @@ def _scrape_one_page(
     logger.info(f"Scraping news for topic: {topic}")
 
     try:
-        response: Optional[Response] = page.goto(
+        response: Response | None = page.goto(
             url, wait_until="domcontentloaded", timeout=30000
         )
 
@@ -241,10 +240,10 @@ def _scrape_one_page(
         news_items: ResultSet = _find_news_items(soup)
         logger.info(f"Found {len(news_items)} potential news items")
 
-        entries: List[NewsEntry] = []
+        entries: list[NewsEntry] = []
         for item in news_items:
             try:
-                entry: Optional[NewsEntry] = _parse_item(item, topic)
+                entry: NewsEntry | None = _parse_item(item, topic)
                 if entry:
                     entries.append(entry)
             except Exception as e:
@@ -289,22 +288,22 @@ def _find_news_items(soup: BeautifulSoup) -> ResultSet:
     return news_items
 
 
-def _parse_item(item: Tag, topic: str) -> Optional[NewsEntry]:
+def _parse_item(item: Tag, topic: str) -> NewsEntry | None:
 
-    def _get_title(item: Tag) -> Optional[str]:
-        title_elem: Optional[Tag] = item.select_one(
+    def _get_title(item: Tag) -> str | None:
+        title_elem: Tag | None = item.select_one(
             'div[role="heading"], a[role="heading"]'
         )
         if not title_elem:
             title_elem = item.select_one("h3, h4")
         return title_elem.get_text(strip=True) if title_elem else None
 
-    title: Optional[str] = _get_title(item)
+    title: str | None = _get_title(item)
     if not title:
         return None
 
-    def _get_url(item: Tag) -> Optional[str]:
-        link_elem: Optional[Tag] = item.select_one("a[href]")
+    def _get_url(item: Tag) -> str | None:
+        link_elem: Tag | None = item.select_one("a[href]")
         if not link_elem:
             return None
 
@@ -320,17 +319,17 @@ def _parse_item(item: Tag, topic: str) -> Optional[NewsEntry]:
 
         return url
 
-    url: Optional[str] = _get_url(item)
+    url: str | None = _get_url(item)
     if not url:
         return None
 
-    def _get_source(item: Tag) -> Optional[str]:
-        source_elem: Optional[Tag] = item.select_one("div.MgUUmf, span.MgUUmf")
+    def _get_source(item: Tag) -> str | None:
+        source_elem: Tag | None = item.select_one("div.MgUUmf, span.MgUUmf")
         if not source_elem:
             source_elem = item.select_one("div[data-n-tid], div.CEMjEf span")
         return source_elem.get_text(strip=True) if source_elem else None
 
-    source: Optional[str] = _get_source(item)
+    source: str | None = _get_source(item)
 
     return NewsEntry.create_new(
         topic=topic,

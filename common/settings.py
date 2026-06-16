@@ -1,7 +1,5 @@
 """Configuration management for the TopicStreams API."""
 
-from typing import List, Optional
-
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -34,7 +32,7 @@ class Settings(BaseSettings):
 
     # When set, POST/DELETE topic endpoints require this key in the X-API-Key header.
     # Leave unset to disable auth (useful for local development).
-    api_key: Optional[str] = Field(
+    api_key: str | None = Field(
         default=None, description="API key for write operations"
     )
 
@@ -59,7 +57,7 @@ class Settings(BaseSettings):
     )
 
     @property
-    def cors_origins_list(self) -> List[str]:
+    def cors_origins_list(self) -> list[str]:
         if self.cors_origins.strip() == "*":
             return ["*"]
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
