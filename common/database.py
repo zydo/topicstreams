@@ -3,7 +3,6 @@
 import threading
 import time
 from functools import wraps
-from typing import List, Optional
 
 import psycopg2
 from psycopg2.extensions import connection as PgConnection
@@ -12,9 +11,18 @@ from psycopg2.pool import ThreadedConnectionPool
 
 from common.settings import settings
 from common.model import Topic, NewsEntry, ScraperLog
+from common.utils import news_id_for_url
+
+# A feed entry is a topic_news (match) row joined to its news content. The
+# exposed id is the topic_news id (the feed cursor); scraped_at is matched_at.
+_FEED_SELECT = (
+    "SELECT tn.id, tn.topic, n.title, n.url, n.domain, n.source, "
+    "tn.matched_at AS scraped_at "
+    "FROM topic_news tn JOIN news n ON n.id = tn.news_id"
+)
 
 # Package-level connection pool singleton
-_pool: Optional[ThreadedConnectionPool] = None
+_pool: ThreadedConnectionPool | None = None
 # Guards lazy init: concurrent first requests (FastAPI threadpool) could
 # otherwise create two pools and return connections to the wrong one,
 # raising "trying to put unkeyed connection".
@@ -91,8 +99,8 @@ def close_pool() -> None:
 
 class _Connection:
     def __init__(self) -> None:
-        self._pool: Optional[ThreadedConnectionPool] = None
-        self._conn: Optional[PgConnection] = None
+        self._pool: ThreadedConnectionPool | None = None
+        self._conn: PgConnection | None = None
 
     def __enter__(self):
         _conn_slots.acquire()
@@ -125,7 +133,7 @@ class _Connection:
 
 
 @retry_on_transient_error()
-def get_topics(include_inactive: bool = False) -> List[Topic]:
+def get_topics(include_inactive: bool = False) -> list[Topic]:
     if include_inactive:
         sql = "SELECT id, name, created_at, is_active FROM topics ORDER BY created_at DESC"
     else:
@@ -177,8 +185,8 @@ def delete_topic(name: str) -> None:
 
 @retry_on_transient_error()
 def get_news_entries(
-    topic: str, limit: int = 20, before_id: Optional[int] = None
-) -> List[NewsEntry]:
+    topic: str, limit: int = 20, before_id: int | None = None
+) -> list[NewsEntry]:
     """Get news entries for a topic, newest first, via id-cursor pagination.
 
     Args:
@@ -189,17 +197,16 @@ def get_news_entries(
             offset drift that live insertions cause at the top of the feed.
 
     Returns:
-        List of NewsEntry objects ordered by id DESC (newest first). id is
-        monotonic with scrape time, so this matches scraped_at DESC.
+        List of NewsEntry objects (topic matches) ordered by feed id DESC
+        (newest match first).
     """
     with _Connection() as conn:
-        sql = "SELECT id, topic, title, url, domain, source, scraped_at "
-        sql += "FROM news_entries WHERE topic = %s"
-        params: List = [topic]
+        sql = _FEED_SELECT + " WHERE tn.topic = %s"
+        params: list = [topic]
         if before_id is not None:
-            sql += " AND id < %s"
+            sql += " AND tn.id < %s"
             params.append(before_id)
-        sql += " ORDER BY id DESC LIMIT %s"
+        sql += " ORDER BY tn.id DESC LIMIT %s"
         params.append(limit)
 
         cursor = conn.cursor()
@@ -210,23 +217,25 @@ def get_news_entries(
 
 @retry_on_transient_error()
 def get_news_entries_all(
-    limit: int = 20, before_id: Optional[int] = None
-) -> List[NewsEntry]:
+    limit: int = 20, before_id: int | None = None
+) -> list[NewsEntry]:
     """Get news entries across all active topics, newest first.
 
     Mirrors get_news_entries but spans every active topic, so the feed's
-    "All topics" view is a single chronological stream. Entries belonging to
-    soft-deleted topics are excluded to match the watched (active) set.
+    "All topics" view is a single chronological stream of topic matches.
+    Matches on soft-deleted topics are excluded to track the active set. An
+    article matched by several topics appears once per match, by design.
     """
     with _Connection() as conn:
-        sql = "SELECT n.id, n.topic, n.title, n.url, n.domain, n.source, n.scraped_at "
-        sql += "FROM news_entries n JOIN topics t ON t.name = n.topic "
-        sql += "WHERE t.is_active = TRUE"
-        params: List = []
+        sql = (
+            _FEED_SELECT
+            + " JOIN topics t ON t.name = tn.topic WHERE t.is_active = TRUE"
+        )
+        params: list = []
         if before_id is not None:
-            sql += " AND n.id < %s"
+            sql += " AND tn.id < %s"
             params.append(before_id)
-        sql += " ORDER BY n.id DESC LIMIT %s"
+        sql += " ORDER BY tn.id DESC LIMIT %s"
         params.append(limit)
 
         cursor = conn.cursor()
@@ -236,15 +245,11 @@ def get_news_entries_all(
 
 
 @retry_on_transient_error()
-def get_news_entry(entry_id: str) -> Optional[NewsEntry]:
+def get_news_entry(entry_id: str) -> NewsEntry | None:
+    """Resolve a single feed entry by its topic_news (feed) id."""
     with _Connection() as conn:
-        sql = """
-            SELECT id, topic, title, url, domain, source, scraped_at
-            FROM news_entries
-            WHERE id = %s
-        """
         cursor = conn.cursor()
-        cursor.execute(sql, (entry_id,))
+        cursor.execute(_FEED_SELECT + " WHERE tn.id = %s", (entry_id,))
         row = cursor.fetchone()
         return NewsEntry.from_db_row(dict(row)) if row else None
 
@@ -252,7 +257,7 @@ def get_news_entry(entry_id: str) -> Optional[NewsEntry]:
 @retry_on_transient_error()
 def get_news_count(topic: str) -> int:
     with _Connection() as conn:
-        sql = "SELECT COUNT(id) as count FROM news_entries WHERE topic = %s"
+        sql = "SELECT COUNT(id) as count FROM topic_news WHERE topic = %s"
         cursor = conn.cursor()
         cursor.execute(sql, (topic,))
         result = cursor.fetchone()
@@ -260,45 +265,54 @@ def get_news_count(topic: str) -> int:
 
 
 @retry_on_transient_error()
-def insert_news_entries(entries: List[NewsEntry]) -> int:
-    """Insert news entries into database with automatic deduplication.
+def insert_news_entries(entries: list[NewsEntry]) -> int:
+    """Store scraped articles and their topic matches.
+
+    Each article is upserted once into `news` (keyed on a URL-derived content
+    id), then a `topic_news` match row is upserted per (topic, article).
 
     Args:
-        entries: List of NewsEntry objects to insert.
+        entries: List of NewsEntry objects (each carries a topic).
 
     Returns:
-        Number of entries actually inserted.
+        Number of new feed events (topic_news rows actually inserted).
     """
     if not entries:
         return 0
 
-    with _Connection() as conn:
-        dml = """
-            INSERT INTO news_entries (topic, title, url, domain, source)
-            VALUES %s
-            ON CONFLICT (topic, title, domain) DO NOTHING
-        """
-
-        values = [
-            (
-                entry.topic,
-                entry.title,
-                entry.url,
-                entry.domain,
-                entry.source,
+    news_values = []
+    seen_news: set = set()
+    match_values = []
+    for entry in entries:
+        news_id = str(news_id_for_url(entry.url))
+        if news_id not in seen_news:
+            seen_news.add(news_id)
+            news_values.append(
+                (news_id, entry.url, entry.title, entry.domain, entry.source)
             )
-            for entry in entries
-        ]
+        match_values.append((entry.topic, news_id))
 
+    with _Connection() as conn:
         cursor = conn.cursor()
-        execute_values(cursor, dml, values)
+        execute_values(
+            cursor,
+            "INSERT INTO news (id, url, title, domain, source) VALUES %s "
+            "ON CONFLICT (id) DO NOTHING",
+            news_values,
+        )
+        execute_values(
+            cursor,
+            "INSERT INTO topic_news (topic, news_id) VALUES %s "
+            "ON CONFLICT (topic, news_id) DO NOTHING",
+            match_values,
+        )
         return cursor.rowcount
 
 
 # No retry: scraper_logs has no unique constraint, so a retry after a commit
 # that actually landed (e.g. connection dropped on confirmation) would
 # duplicate rows. Losing a diagnostic log batch on a transient error is fine.
-def insert_scraper_logs(logs: List[ScraperLog]) -> int:
+def insert_scraper_logs(logs: list[ScraperLog]) -> int:
     """Insert scraper log entries into the database.
 
     Args:
@@ -334,18 +348,24 @@ def insert_scraper_logs(logs: List[ScraperLog]) -> int:
 
 @retry_on_transient_error()
 def purge_old_news_entries(days: int) -> int:
-    """Delete news entries older than `days` days. Returns count of deleted rows."""
+    """Delete feed events older than `days` days, then drop now-orphaned
+    articles. Returns the number of feed events deleted."""
     with _Connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "DELETE FROM news_entries WHERE scraped_at < NOW() - %s * INTERVAL '1 day'",
+            "DELETE FROM topic_news WHERE matched_at < NOW() - %s * INTERVAL '1 day'",
             (days,),
         )
-        return cursor.rowcount
+        deleted = cursor.rowcount
+        cursor.execute(
+            "DELETE FROM news WHERE NOT EXISTS "
+            "(SELECT 1 FROM topic_news tn WHERE tn.news_id = news.id)"
+        )
+        return deleted
 
 
 @retry_on_transient_error()
-def get_scraper_logs(limit: int = 10) -> List[ScraperLog]:
+def get_scraper_logs(limit: int = 10) -> list[ScraperLog]:
     """Get recent scraper log entries ordered by scraped_at DESC.
 
     Args:

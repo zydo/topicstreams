@@ -4,18 +4,34 @@ CREATE TABLE IF NOT EXISTS topics (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     is_active BOOLEAN DEFAULT TRUE
 );
-CREATE TABLE IF NOT EXISTS news_entries (
-    id SERIAL PRIMARY KEY,
-    topic VARCHAR(255) NOT NULL,
-    title TEXT NOT NULL,
+
+-- One row per article, deduped by a content id (UUIDv5 over the normalized
+-- URL). The topic is intentionally NOT part of the identity.
+CREATE TABLE IF NOT EXISTS news (
+    id UUID PRIMARY KEY,
     url TEXT NOT NULL,
+    title TEXT NOT NULL,
     domain VARCHAR(255) NOT NULL,
     source VARCHAR(255),
-    scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(topic, title, domain),
-    FOREIGN KEY (topic) REFERENCES topics(name) ON DELETE CASCADE
+    first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_topic_scraped_at ON news_entries(topic, scraped_at DESC);
+
+-- One row the first time a topic matches an article. This is the feed stream:
+-- each row is a distinct feed event, so an article matched by several topics
+-- appears once per topic. UNIQUE(topic, news_id) stops a topic re-emitting the
+-- same article every scrape cycle.
+CREATE TABLE IF NOT EXISTS topic_news (
+    id BIGSERIAL PRIMARY KEY,
+    topic VARCHAR(255) NOT NULL,
+    news_id UUID NOT NULL,
+    matched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(topic, news_id),
+    FOREIGN KEY (topic) REFERENCES topics(name) ON DELETE CASCADE,
+    FOREIGN KEY (news_id) REFERENCES news(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_topic_news_topic_id ON topic_news(topic, id DESC);
+CREATE INDEX IF NOT EXISTS idx_topic_news_id ON topic_news(id DESC);
+
 CREATE TABLE IF NOT EXISTS scraper_logs (
     id SERIAL PRIMARY KEY,
     topic VARCHAR(255) NOT NULL,
@@ -27,12 +43,14 @@ CREATE TABLE IF NOT EXISTS scraper_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_scraper_logs_scraped_at ON scraper_logs(scraped_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scraper_logs_topic_scraped_at ON scraper_logs(topic, scraped_at DESC);
-CREATE OR REPLACE FUNCTION notify_news_entry() RETURNS TRIGGER AS $$ BEGIN --
-    -- Send notification with topic and entry_id, format: "topic:new_entry_id"
+
+-- NOTIFY on each new feed event (topic match), not on news-content insert, so
+-- a topic referencing an already-stored article still streams to that topic.
+-- Format: "topic:topic_news_id".
+CREATE OR REPLACE FUNCTION notify_topic_news() RETURNS TRIGGER AS $$ BEGIN
     PERFORM pg_notify('news_updates', NEW.topic || ':' || NEW.id::text);
-RETURN NEW;
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-CREATE TRIGGER trigger_news_entry_insert
-AFTER
-INSERT ON news_entries FOR EACH ROW EXECUTE FUNCTION notify_news_entry();
+CREATE TRIGGER trigger_topic_news_insert
+AFTER INSERT ON topic_news FOR EACH ROW EXECUTE FUNCTION notify_topic_news();

@@ -1,6 +1,54 @@
 """Utility functions for TopicStreams application."""
 
 import re
+import uuid
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+
+# Unambiguous ad/click tracking params — safe to strip because they never
+# encode article identity. Ambiguous ones (e.g. "source", "id", "p") are kept
+# on purpose: some sites put the article identity in the query string, and a
+# wrong strip would merge distinct articles (worse than an occasional dupe).
+_TRACKING_PARAMS = frozenset(
+    {
+        "gclid",
+        "fbclid",
+        "msclkid",
+        "mc_eid",
+        "mc_cid",
+        "igshid",
+        "yclid",
+        "dclid",
+        "twclid",
+    }
+)
+
+
+def normalize_url(url: str) -> str:
+    """Canonicalize a URL for use as article identity.
+
+    Drops the fragment, lowercases the host, strips a trailing slash, and
+    removes utm_* plus the known tracking params above. Everything else is
+    preserved.
+    """
+    parts = urlsplit(url.strip())
+    path = parts.path.rstrip("/") or "/"
+    query = urlencode(
+        [
+            (k, v)
+            for k, v in parse_qsl(parts.query, keep_blank_values=True)
+            if not (k.lower().startswith("utm_") or k.lower() in _TRACKING_PARAMS)
+        ]
+    )
+    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, query, ""))
+
+
+def news_id_for_url(url: str) -> uuid.UUID:
+    """Deterministic content id for an article, derived from its normalized URL.
+
+    The same article always yields the same id, so inserts are a pure upsert
+    with no prior lookup, and the topic plays no part in the identity.
+    """
+    return uuid.uuid5(uuid.NAMESPACE_URL, normalize_url(url))
 
 
 def normalize_topic(topic: str) -> str:
