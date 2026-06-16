@@ -213,6 +213,14 @@ a { color: inherit; }
 .news-title {
   font-size: 16.5px; font-weight: 500; line-height: 1.4; color: var(--ink);
   max-width: 64ch;
+  /* Clamp truly long headlines to 3 lines with a real ellipsis, rather than
+     letting them run on. (Note: Google sometimes truncates the headline text
+     itself before we store it — that cut is in the data and looks the same as
+     a complete short title, so it can't be ellipsised here.) */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .news-link:hover .news-title {
   text-decoration: underline; text-underline-offset: 3px;
