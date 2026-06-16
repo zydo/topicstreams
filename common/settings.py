@@ -9,6 +9,9 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        # The .env / container env is shared with Docker Compose, which carries
+        # vars the app doesn't model (e.g. HOST_PORT); ignore rather than reject.
+        extra="ignore",
     )
 
     # ========== Database ========== #
@@ -72,4 +75,6 @@ class Settings(BaseSettings):
         return str(v).strip() if v else v
 
 
-settings = Settings()
+# Fields are populated from the environment / .env, not constructor args, which
+# the type checker can't model (it sees the required postgres_password as unset).
+settings = Settings()  # type: ignore[call-arg]

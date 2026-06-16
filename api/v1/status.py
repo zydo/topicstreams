@@ -23,7 +23,9 @@ _LOG_WINDOW = 30
 
 
 class StatusResponse(BaseModel):
-    state: str = Field(..., description="live | degraded | errors | parsing | stalled | idle")
+    state: str = Field(
+        ..., description="live | degraded | errors | parsing | stalled | idle"
+    )
     label: str = Field(..., description="Short label for the masthead")
     detail: str = Field(..., description="Human-readable explanation (tooltip)")
     active_topics: int = Field(..., description="Number of watched (active) topics")
@@ -52,7 +54,9 @@ def _fail_reason(log: ScraperLog) -> str:
     )
 
 
-def compute_health(logs: list[ScraperLog], active_names: set[str]) -> tuple[str, str, str]:
+def compute_health(
+    logs: list[ScraperLog], active_names: set[str]
+) -> tuple[str, str, str]:
     """Return (state, label, detail) from recent logs for active topics."""
     if not logs:
         return "idle", "idle", "No scrapes recorded yet"
@@ -73,14 +77,19 @@ def compute_health(logs: list[ScraperLog], active_names: set[str]) -> tuple[str,
 
     failed = [log for log in tracked if not log.success]
     if len(failed) == len(tracked):
-        return "errors", "errors", f"All {len(tracked)} feeds failing — {_fail_reason(failed[0])}"
+        return (
+            "errors",
+            "errors",
+            f"All {len(tracked)} feeds failing — {_fail_reason(failed[0])}",
+        )
 
     # Selector rot: scrapes succeed but parse nothing across the recent window.
     # Requiring *every* recent success to parse 0 makes a quiet hour (one topic
     # with no news) safe, while a real markup change (all topics, sustained)
     # trips it.
     successes = [
-        log for log in logs
+        log
+        for log in logs
         if log.success and (not active_names or log.topic in active_names)
     ]
     if successes and sum(log.entry_count for log in successes) == 0:
@@ -92,7 +101,11 @@ def compute_health(logs: list[ScraperLog], active_names: set[str]) -> tuple[str,
 
     if failed:
         names = ", ".join(log.topic for log in failed)
-        return "degraded", "degraded", f"{len(failed)} of {len(tracked)} feeds failing: {names}"
+        return (
+            "degraded",
+            "degraded",
+            f"{len(failed)} of {len(tracked)} feeds failing: {names}",
+        )
 
     return "live", "live", f"All {len(tracked)} feeds scraping cleanly"
 
