@@ -5,16 +5,19 @@ WORKDIR /app
 
 ENV PYTHONPATH=/app
 
-COPY common/ /app/common
+# pip >= 25.1 is required for `pip install --group` (PEP 735 dependency groups).
+# Install deps before copying app code so the deps layer caches across code edits.
+RUN pip install --no-cache-dir --upgrade pip
+COPY pyproject.toml /app/pyproject.toml
 
 # ========= API Image =========
 
 FROM base AS api
 
-COPY api/ /app/api/
-COPY requirements/api.txt /app/requirements/api.txt
+RUN pip install --no-cache-dir --group api
 
-RUN pip install --no-cache-dir -r /app/requirements/api.txt
+COPY common/ /app/common
+COPY api/ /app/api/
 
 CMD ["python", "-m", "api.main"]
 
@@ -30,11 +33,11 @@ FROM base AS scraper
 RUN apt-get update && apt-get install -y ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY scraper/ /app/scraper/
-COPY requirements/scraper.txt /app/requirements/scraper.txt
-COPY config/ /app/config/
-
-RUN pip install --no-cache-dir -r /app/requirements/scraper.txt \
+RUN pip install --no-cache-dir --group scraper \
     && playwright install --with-deps chromium
+
+COPY common/ /app/common
+COPY scraper/ /app/scraper/
+COPY config/ /app/config/
 
 CMD ["python", "-u", "-m", "scraper.main"]

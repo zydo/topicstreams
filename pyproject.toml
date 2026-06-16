@@ -1,8 +1,25 @@
-# Runtime dependencies live in requirements/*.txt (used by the Docker builds).
-# This file holds dev-only tooling and its config.
+# All Python dependencies live here. The Docker images install a per-service
+# group with `pip install --group <api|scraper>`; `dev` holds local tooling.
 
 [dependency-groups]
-# Install with:  pip install --group dev
+common = [
+    "psycopg2-binary>=2.9.10,<3",
+    "pydantic>=2.0.0,<3",
+    "pydantic-settings>=2.0.0,<3",
+]
+api = [
+    { include-group = "common" },
+    "fastapi>=0.115.0,<1",
+    "uvicorn[standard]>=0.32.0,<1",
+]
+scraper = [
+    { include-group = "common" },
+    "playwright>=1.49.1,<2",
+    "playwright-stealth>=2.0.3,<3",
+    "beautifulsoup4>=4.12.3,<5",
+    "lxml>=5.3.0,<7",
+    "pyyaml>=6.0.0,<7",
+]
 dev = ["black>=24.0,<26"]
 
 [tool.black]

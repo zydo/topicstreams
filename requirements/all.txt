@@ -1,2 +1,0 @@
--r api.txt
--r scraper.txt

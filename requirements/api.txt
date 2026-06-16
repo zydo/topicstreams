@@ -1,6 +1,0 @@
-# API dependencies (api/ and common/ directories)
-psycopg2-binary>=2.9.10,<3
-pydantic>=2.0.0,<3
-pydantic-settings>=2.0.0,<3
-fastapi>=0.115.0,<1
-uvicorn[standard]>=0.32.0,<1

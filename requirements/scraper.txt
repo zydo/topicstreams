@@ -1,9 +1,0 @@
-# Scraper dependencies (scraper/ and common/ directories)
-psycopg2-binary>=2.9.10,<3
-pydantic>=2.0.0,<3
-pydantic-settings>=2.0.0,<3
-playwright>=1.49.1,<2
-playwright-stealth>=2.0.3,<3
-beautifulsoup4>=4.12.3,<5
-lxml>=5.3.0,<7
-pyyaml>=6.0.0,<7
