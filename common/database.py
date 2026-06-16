@@ -326,7 +326,8 @@ def insert_scraper_logs(logs: list[ScraperLog]) -> int:
 
     with _Connection() as conn:
         dml = """
-            INSERT INTO scraper_logs (topic, scraped_at, success, http_status_code, error_message)
+            INSERT INTO scraper_logs
+                (topic, scraped_at, success, http_status_code, error_message, entry_count)
             VALUES %s
         """
 
@@ -337,6 +338,7 @@ def insert_scraper_logs(logs: list[ScraperLog]) -> int:
                 log.success,
                 log.http_status_code,
                 log.error_message,
+                log.entry_count,
             )
             for log in logs
         ]
@@ -376,7 +378,7 @@ def get_scraper_logs(limit: int = 10) -> list[ScraperLog]:
     """
     with _Connection() as conn:
         sql = """
-            SELECT id, topic, scraped_at, success, http_status_code, error_message
+            SELECT id, topic, scraped_at, success, http_status_code, error_message, entry_count
             FROM scraper_logs
             ORDER BY scraped_at DESC
             LIMIT %s
@@ -385,3 +387,16 @@ def get_scraper_logs(limit: int = 10) -> list[ScraperLog]:
         cursor.execute(sql, (limit,))
         rows = cursor.fetchall()
         return [ScraperLog.from_db_row(dict(row)) for row in rows]
+
+
+@retry_on_transient_error()
+def get_active_feed_count() -> int:
+    """Total feed events (topic matches) across active topics — the 'filed' count."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT count(*) AS count FROM topic_news tn "
+            "JOIN topics t ON t.name = tn.topic WHERE t.is_active = TRUE"
+        )
+        result = cursor.fetchone()
+        return result["count"] if result else 0

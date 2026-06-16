@@ -126,99 +126,21 @@ class TopicStreamsApp {
         }
     }
 
+    // Scrape health is computed server-side (recency, per-topic success, and
+    // selector-rot when scrapes parse 0 items) and returned with the counts.
     async updateStatus() {
         try {
-            const topicsResponse = await fetch(`${this.apiBase}/topics`);
-            const topics = await topicsResponse.json();
-            const activeNames = new Set(topics.filter(t => t.is_active).map(t => t.name));
+            const response = await fetch(`${this.apiBase}/status`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const s = await response.json();
 
-            // Get total news count (sum of all topics)
-            let totalNews = 0;
-            for (const topic of topics) {
-                try {
-                    const newsResponse = await fetch(`${this.apiBase}/news/${encodeURIComponent(topic.name)}?limit=1`);
-                    const newsData = await newsResponse.json();
-                    totalNews += newsData.total;
-                } catch (error) {
-                    console.warn(`Failed to fetch news count for topic "${topic.name}":`, error);
-                }
-            }
-
-            // Limit must cover at least one full scrape cycle so we can judge the
-            // latest outcome per topic; one log is written per topic per cycle.
-            const logsResponse = await fetch(`${this.apiBase}/logs?limit=30`);
-            const logs = await logsResponse.json();
-
-            document.getElementById('active-topics').textContent = activeNames.size;
-            document.getElementById('total-news').textContent = totalNews;
-            this.applyScraperHealth(logs, activeNames);
+            document.getElementById('active-topics').textContent = s.active_topics;
+            document.getElementById('total-news').textContent = s.total_news;
+            this.setStatus(s.state, s.label, s.detail);
         } catch (error) {
             console.error('Failed to update status:', error);
             this.setStatus('offline', 'offline', "Can't reach the API");
         }
-    }
-
-    // Derive a real health signal from recent scraper logs: are scrapes recent
-    // and succeeding? Each log is one scrape attempt. This is the single
-    // indicator that replaces the removed transmission-log panel.
-    applyScraperHealth(logs, activeNames) {
-        if (!logs.length) {
-            this.setStatus('idle', 'idle', 'No scrapes recorded yet');
-            return;
-        }
-
-        const last = logs[0];
-
-        // Staleness adapts to the observed cadence instead of a fixed cutoff:
-        // the largest gap between recent scrapes approximates one cycle, and we
-        // flag "stalled" only after roughly three of them have been missed.
-        const ageMs = Date.now() - this.parseScrapedAt(last.scraped_at);
-        if (ageMs > this.staleThresholdMs(logs)) {
-            this.setStatus('stalled', 'stalled', `No scrape since ${this.formatTime(last.scraped_at)}`);
-            return;
-        }
-
-        // Judge by the latest scrape of each watched topic, so one failing feed
-        // surfaces as a partial outage ("degraded") rather than hiding inside a
-        // mostly-green window or dragging everything to "errors".
-        const latest = new Map();
-        for (const log of logs) {                       // newest first
-            if (activeNames && activeNames.size && !activeNames.has(log.topic)) continue;
-            if (!latest.has(log.topic)) latest.set(log.topic, log);
-        }
-        const tracked = Array.from(latest.values());
-        if (!tracked.length) {
-            this.setStatus('live', 'live', 'Scraping cleanly');
-            return;
-        }
-
-        const failed = tracked.filter(l => !l.success);
-        if (failed.length === tracked.length) {
-            this.setStatus('error', 'errors',
-                `All ${tracked.length} feeds failing — ${this.scrapeFailReason(failed[0])}`);
-        } else if (failed.length > 0) {
-            this.setStatus('degraded', 'degraded',
-                `${failed.length} of ${tracked.length} feeds failing: ${failed.map(l => l.topic).join(', ')}`);
-        } else {
-            this.setStatus('live', 'live', `All ${tracked.length} feeds scraping cleanly`);
-        }
-    }
-
-    // Expected cycle period ≈ the largest gap between recent scrapes; allow
-    // ~3 missed cycles before "stalled", clamped to a sane 5–30 min window.
-    staleThresholdMs(logs) {
-        let maxGap = 0;
-        for (let i = 0; i < logs.length - 1; i++) {
-            const gap = this.parseScrapedAt(logs[i].scraped_at) - this.parseScrapedAt(logs[i + 1].scraped_at);
-            if (gap > maxGap) maxGap = gap;
-        }
-        if (!maxGap) return 15 * 60 * 1000;             // too few logs to estimate
-        return Math.min(30 * 60 * 1000, Math.max(5 * 60 * 1000, maxGap * 3));
-    }
-
-    scrapeFailReason(log) {
-        return log.error_message
-            || (log.http_status_code ? `HTTP ${log.http_status_code}` : 'scrape failed');
     }
 
     setStatus(state, label, detail) {
@@ -228,13 +150,6 @@ class TopicStreamsApp {
             onair.title = detail || '';
         }
         document.getElementById('scraper-status').textContent = label;
-    }
-
-    parseScrapedAt(timestamp) {
-        const s = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
-            ? timestamp
-            : timestamp + 'Z';
-        return new Date(s).getTime();
     }
 
     renderTopics() {

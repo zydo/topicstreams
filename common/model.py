@@ -86,6 +86,9 @@ class ScraperLog(BaseModel):
     error_message: str | None = Field(
         None, description="Error message from exception if scrape failed"
     )
+    entry_count: int = Field(
+        0, description="Number of news entries parsed from this scrape"
+    )
 
     @classmethod
     def create_new(
@@ -95,6 +98,7 @@ class ScraperLog(BaseModel):
         scraped_at: datetime | None = None,
         http_status_code: int | None = None,
         error_message: str | None = None,
+        entry_count: int = 0,
     ) -> "ScraperLog":
         """Create a new ScraperLog for insertion (without id)"""
         return cls(
@@ -104,6 +108,7 @@ class ScraperLog(BaseModel):
             success=success,
             http_status_code=http_status_code,
             error_message=error_message,
+            entry_count=entry_count,
         )
 
     @classmethod

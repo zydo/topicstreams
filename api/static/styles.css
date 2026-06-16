@@ -140,11 +140,13 @@ a { color: inherit; }
   box-shadow: 0 0 0 0 rgba(var(--signal-rgb), 0.55);
   animation: pulse 1.8s ease-out infinite;
 }
-/* failing or unreachable: solid red, no pulse, red label */
-.onair[data-state="error"] .dot,
-.onair[data-state="offline"] .dot { background: var(--signal); }
-.onair[data-state="error"] #scraper-status,
-.onair[data-state="offline"] #scraper-status { color: var(--signal); }
+/* failing, unreachable, or parsing nothing: solid red, no pulse, red label */
+.onair[data-state="errors"] .dot,
+.onair[data-state="offline"] .dot,
+.onair[data-state="parsing"] .dot { background: var(--signal); }
+.onair[data-state="errors"] #scraper-status,
+.onair[data-state="offline"] #scraper-status,
+.onair[data-state="parsing"] #scraper-status { color: var(--signal); }
 /* partial outage: solid red dot, neutral label (distinct from full errors) */
 .onair[data-state="degraded"] .dot { background: var(--signal); }
 .onair[data-state="degraded"] #scraper-status { color: var(--ink); }

@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS scraper_logs (
     success BOOLEAN DEFAULT TRUE,
     http_status_code INTEGER,
     error_message TEXT,
+    -- Items parsed from this scrape. A run of successful scrapes with 0 parsed
+    -- items signals Google changed its markup (selector rot), not "no news".
+    entry_count INTEGER DEFAULT 0,
     FOREIGN KEY (topic) REFERENCES topics(name) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_scraper_logs_scraped_at ON scraper_logs(scraped_at DESC);

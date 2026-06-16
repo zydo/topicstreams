@@ -257,6 +257,7 @@ def _scrape_one_page(
                 topic=topic,
                 success=True,
                 http_status_code=response_status,
+                entry_count=len(entries),
             ),
         )
 
