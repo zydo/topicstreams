@@ -46,9 +46,6 @@ Thumbs.db
 .playwright/
 .browser_profiles/
 
-# Linters
-.markdownlint.json
-
 # Configuration (local copies from templates)
 config/*.yml
 !config/*.yml.example
