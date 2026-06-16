@@ -72,12 +72,12 @@
             <h2><i class="fas fa-rss"></i> Real-time News Feed</h2>
             <div class="feed-controls">
                 <select id="topic-filter">
-                    <option value="">All Topics</option>
+                    <option value="">All topics</option>
                 </select>
-                <button id="clear-feed"><i class="fas fa-trash"></i> Clear</button>
             </div>
             <div class="news-container" id="news-container">
-                <div class="no-news">Waiting for news updates...</div>
+                <div class="news-list" id="news-list"></div>
+                <div class="feed-status" id="feed-status" aria-live="polite"></div>
             </div>
         </section>
 
@@ -114,9 +114,6 @@
                 <h3 class="topic-name"></h3>
             </div>
             <div class="topic-actions">
-                <button class="subscribe-btn" title="Subscribe to real-time updates">
-                    <i class="fas fa-plus"></i>
-                </button>
                 <button class="delete-btn" title="Delete topic">
                     <i class="fas fa-trash"></i>
                 </button>

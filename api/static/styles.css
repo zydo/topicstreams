@@ -248,14 +248,6 @@ button.danger:hover {
     font-size: 0.875rem;
 }
 
-.topic-actions button.subscribed {
-    background: var(--error-color);
-}
-
-.topic-actions button.subscribed:hover {
-    background: #dc2626;
-}
-
 /* News Feed */
 .feed-controls {
     display: flex;
@@ -285,15 +277,38 @@ button.danger:hover {
 .news-item {
     padding: 16px;
     border-bottom: 1px solid var(--border-color);
+}
+
+/* Only newly-pushed live entries animate in. Paginated (older) entries that
+   load on scroll appear without motion, so the feed stays calm while reading. */
+.news-item--live {
     animation: slideIn 0.3s ease-out;
 }
 
-.news-item:last-child {
+.news-list .news-item:last-child {
     border-bottom: none;
 }
 
 .news-item:hover {
     background: white;
+}
+
+.feed-status {
+    padding: 18px;
+    text-align: center;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    min-height: 8px;
+}
+
+.feed-status:empty {
+    padding: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .news-item--live {
+        animation: none;
+    }
 }
 
 .news-header {

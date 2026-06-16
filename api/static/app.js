@@ -1,13 +1,23 @@
 // TopicStreams Frontend Application
 class TopicStreamsApp {
     apiBase = '/api/v1';
-    maxNewsItems = 50;
+    feedPageSize = 20;
     topics = new Map();
-    newsItems = [];
     activeTopicSubscriptions = new Set();
     topicWebSockets = new Map();
     reconnectAttempts = new Map();
     apiKey = localStorage.getItem('topicstreams-api-key') || '';
+
+    // Real-time feed: a single chronological stream backed by the DB. Live
+    // WebSocket entries prepend at the top; scrolling loads older pages via an
+    // id cursor (feedCursor = next_before_id from the API).
+    feedFilter = '';            // '' = all topics, else a topic name
+    feedCursor = null;          // id cursor for the next (older) page
+    feedHasMore = true;
+    feedLoading = false;
+    feedError = false;
+    feedIds = new Set();        // rendered entry ids, for dedup
+    feedRequestToken = 0;       // guards against stale responses after a reset
 
     constructor() {
         this.init();
@@ -15,8 +25,8 @@ class TopicStreamsApp {
 
     init() {
         this.bindEvents();
+        this.setupFeedObserver();
         this.loadInitialData();
-        this.initWebSocket();
         this.startStatusUpdates();
     }
 
@@ -28,8 +38,24 @@ class TopicStreamsApp {
         });
 
         // Feed controls
-        document.getElementById('clear-feed').addEventListener('click', () => this.clearFeed());
-        document.getElementById('topic-filter').addEventListener('change', () => this.filterNews());
+        document.getElementById('topic-filter').addEventListener('change', () => {
+            this.feedFilter = document.getElementById('topic-filter').value;
+            this.resetFeed();
+        });
+    }
+
+    // The feed-status row sits at the bottom of the scroll container and acts
+    // as the sentinel: when it scrolls into view, load the next older page.
+    setupFeedObserver() {
+        const container = document.getElementById('news-container');
+        const sentinel = document.getElementById('feed-status');
+        this.feedObserver = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((e) => e.isIntersecting)) this.loadFeedPage();
+            },
+            { root: container, rootMargin: '200px' }
+        );
+        this.feedObserver.observe(sentinel);
     }
 
     // Write endpoints require X-API-Key when the server has API_KEY set.
@@ -59,6 +85,7 @@ class TopicStreamsApp {
             this.loadLogs(),
             this.updateStatus()
         ]);
+        this.resetFeed();
     }
 
     async loadTopics() {
@@ -72,10 +99,31 @@ class TopicStreamsApp {
             }
 
             this.renderTopics();
+            this.syncSubscriptions();
             this.updateTopicFilter();
         } catch (error) {
             console.error('Failed to load topics:', error);
             this.showError('Failed to load topics');
+        }
+    }
+
+    // Every active topic is watched automatically: open a WebSocket for any
+    // newly seen topic and drop subscriptions for topics that no longer exist.
+    syncSubscriptions() {
+        const activeNames = new Set(
+            Array.from(this.topics.values()).filter(t => t.is_active).map(t => t.name)
+        );
+
+        for (const name of activeNames) {
+            if (!this.activeTopicSubscriptions.has(name)) {
+                this.subscribeToTopic(name);
+            }
+        }
+
+        for (const name of Array.from(this.activeTopicSubscriptions)) {
+            if (!activeNames.has(name)) {
+                this.unsubscribeFromTopic(name);
+            }
         }
     }
 
@@ -144,18 +192,7 @@ class TopicStreamsApp {
 
             card.querySelector('.topic-name').textContent = topic.name;
 
-            const subscribeBtn = card.querySelector('.subscribe-btn');
             const deleteBtn = card.querySelector('.delete-btn');
-
-            if (this.activeTopicSubscriptions.has(topic.name)) {
-                subscribeBtn.innerHTML = '<i class="fas fa-minus"></i>';
-                subscribeBtn.classList.add('subscribed');
-                subscribeBtn.title = 'Remove from real-time feed';
-            } else {
-                subscribeBtn.title = 'Add to real-time feed';
-            }
-
-            subscribeBtn.addEventListener('click', () => this.toggleTopicSubscription(topic.name, subscribeBtn));
             deleteBtn.addEventListener('click', () => this.deleteTopic(topic.name));
 
             container.appendChild(card);
@@ -166,31 +203,29 @@ class TopicStreamsApp {
         const select = document.getElementById('topic-filter');
         const currentValue = select.value;
 
-        select.innerHTML = '<option value="">All Watched Topics</option>';
+        select.innerHTML = '<option value="">All topics</option>';
 
-        // Only show subscribed topics in the filter
-        const subscribedTopics = Array.from(this.activeTopicSubscriptions).sort((a, b) => a.localeCompare(b));
+        // Every active topic is watched, so the filter lists them all.
+        const topicNames = Array.from(this.topics.values())
+            .filter(t => t.is_active)
+            .map(t => t.name)
+            .sort((a, b) => a.localeCompare(b));
 
-        if (subscribedTopics.length === 0) {
+        for (const topicName of topicNames) {
             const option = document.createElement('option');
-            option.value = "";
-            option.textContent = "No topics being watched";
-            option.disabled = true;
+            option.value = topicName;
+            option.textContent = topicName;
             select.appendChild(option);
-        } else {
-            for (const topicName of subscribedTopics) {
-                const option = document.createElement('option');
-                option.value = topicName;
-                option.textContent = topicName;
-                select.appendChild(option);
-            }
         }
 
-        // Keep current value if it's still valid
-        if (currentValue && subscribedTopics.includes(currentValue)) {
-            select.value = currentValue;
-        } else {
-            select.value = "";
+        // Keep the current selection if it still exists, else fall back to All.
+        select.value = currentValue && topicNames.includes(currentValue) ? currentValue : '';
+
+        // If the filtered topic was just deleted, drop back to the all-topics
+        // stream so the feed doesn't keep showing a dead filter.
+        if (this.feedFilter && !topicNames.includes(this.feedFilter)) {
+            this.feedFilter = '';
+            this.resetFeed();
         }
     }
 
@@ -259,20 +294,6 @@ class TopicStreamsApp {
         }
     }
 
-    toggleTopicSubscription(topicName, button) {
-        if (this.activeTopicSubscriptions.has(topicName)) {
-            this.unsubscribeFromTopic(topicName);
-            button.innerHTML = '<i class="fas fa-plus"></i>';
-            button.classList.remove('subscribed');
-            button.title = 'Add to real-time feed';
-        } else {
-            this.subscribeToTopic(topicName);
-            button.innerHTML = '<i class="fas fa-minus"></i>';
-            button.classList.add('subscribed');
-            button.title = 'Remove from real-time feed';
-        }
-    }
-
     subscribeToTopic(topicName) {
         if (this.activeTopicSubscriptions.has(topicName)) {
             return; // Already subscribed
@@ -281,7 +302,6 @@ class TopicStreamsApp {
         // Connect to WebSocket for this topic
         this.connectTopicWebSocket(topicName);
         this.activeTopicSubscriptions.add(topicName);
-        this.showSuccess(`Added "${topicName}" to real-time feed`);
         this.updateTopicFilter();
     }
 
@@ -289,12 +309,7 @@ class TopicStreamsApp {
         this.activeTopicSubscriptions.delete(topicName);
         this.closeTopicWebSocket(topicName);
         this.resetReconnectAttempts(topicName);
-        this.showSuccess(`Removed "${topicName}" from real-time feed`);
         this.updateTopicFilter();
-    }
-
-    initWebSocket() {
-        // WebSocket connections are managed per topic subscription
     }
 
     connectTopicWebSocket(topicName) {
@@ -317,7 +332,7 @@ class TopicStreamsApp {
                 const data = JSON.parse(event.data);
                 // The WebSocket manager sends raw NewsEntry objects directly
                 if (data?.title && data?.url) {
-                    this.addNewsItem(data);
+                    this.handleLiveEntry(data);
                 }
             } catch (error) {
                 console.error('Failed to parse WebSocket message:', error);
@@ -369,59 +384,118 @@ class TopicStreamsApp {
         this.reconnectAttempts.set(topicName, 0);
     }
 
-    addNewsItem(newsItem) {
-        this.newsItems.unshift(newsItem);
-        if (this.newsItems.length > this.maxNewsItems) {
-            this.newsItems = this.newsItems.slice(0, this.maxNewsItems);
-        }
+    // A live entry from a WebSocket: prepend it if it belongs in the current
+    // view and we haven't already rendered it (a page fetch may race the push).
+    handleLiveEntry(entry) {
+        if (this.feedFilter && entry.topic !== this.feedFilter) return;
+        if (entry.id != null && this.feedIds.has(entry.id)) return;
 
-        this.renderNews();
+        if (entry.id != null) this.feedIds.add(entry.id);
+        const list = document.getElementById('news-list');
+        list.prepend(this.buildNewsItem(entry, true));
+        this.refreshFeedStatus();
     }
 
-    renderNews() {
-        const container = document.getElementById('news-container');
-        const filter = document.getElementById('topic-filter').value;
+    // Reset and reload the feed from the newest entry. Called on first load and
+    // whenever the topic filter changes.
+    resetFeed() {
+        this.feedRequestToken += 1;
+        this.feedCursor = null;
+        this.feedHasMore = true;
+        this.feedLoading = false;
+        this.feedError = false;
+        this.feedIds.clear();
+        document.getElementById('news-list').innerHTML = '';
+        this.refreshFeedStatus();
+        this.loadFeedPage();
+    }
 
-        const filteredNews = filter
-            ? this.newsItems.filter(item => item.topic === filter)
-            : this.newsItems;
+    async loadFeedPage() {
+        if (this.feedLoading || !this.feedHasMore) return;
+        this.feedLoading = true;
+        const token = this.feedRequestToken;
+        this.refreshFeedStatus();
 
-        if (filteredNews.length === 0) {
-            if (this.activeTopicSubscriptions.size === 0) {
-                container.innerHTML = '<div class="no-news">No topics being watched. Click the "+" button on topics to start watching real-time updates.</div>';
-            } else if (filter) {
-                container.innerHTML = `<div class="no-news">No recent news for "${filter}".</div>`;
-            } else {
-                container.innerHTML = '<div class="no-news">No recent news from watched topics. News updates will appear here when available.</div>';
+        const params = new URLSearchParams({ limit: this.feedPageSize });
+        if (this.feedCursor != null) params.set('before_id', this.feedCursor);
+        const path = this.feedFilter
+            ? `/news/${encodeURIComponent(this.feedFilter)}`
+            : '/news';
+
+        try {
+            const response = await fetch(`${this.apiBase}${path}?${params}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+
+            // A reset (filter change) happened mid-flight — discard this page.
+            if (token !== this.feedRequestToken) return;
+
+            const list = document.getElementById('news-list');
+            for (const entry of data.entries) {
+                if (entry.id != null && this.feedIds.has(entry.id)) continue;
+                if (entry.id != null) this.feedIds.add(entry.id);
+                list.appendChild(this.buildNewsItem(entry, false));
             }
+
+            this.feedCursor = data.next_before_id;
+            this.feedHasMore = data.next_before_id != null;
+        } catch (error) {
+            console.error('Failed to load news feed:', error);
+            if (token === this.feedRequestToken) this.feedError = true;
+        } finally {
+            if (token === this.feedRequestToken) {
+                this.feedLoading = false;
+                this.refreshFeedStatus();
+                // Auto-fill: if the page didn't fill the scroll area there's
+                // nothing to scroll, so pull the next page until it does.
+                const container = document.getElementById('news-container');
+                if (this.feedHasMore && container.scrollHeight <= container.clientHeight) {
+                    this.loadFeedPage();
+                }
+            }
+        }
+    }
+
+    buildNewsItem(entry, isLive) {
+        const template = document.getElementById('news-item-template');
+        const node = template.content.firstElementChild.cloneNode(true);
+
+        node.querySelector('.news-title').textContent = entry.title;
+        node.querySelector('.news-time').textContent = this.formatTime(entry.scraped_at);
+        node.querySelector('.news-topic').textContent = entry.topic;
+        node.querySelector('.news-link').href = entry.url;
+        // NewsEntry has no snippet field; show the source instead.
+        node.querySelector('.news-snippet').textContent = entry.source || entry.domain || '';
+
+        if (isLive) node.classList.add('news-item--live');
+        return node;
+    }
+
+    // The status row under the list doubles as empty state, loading spinner,
+    // and the end-of-stream marker.
+    refreshFeedStatus() {
+        const status = document.getElementById('feed-status');
+        const hasItems = this.feedIds.size > 0;
+
+        if (this.feedError && !hasItems) {
+            status.textContent = "Couldn't load the feed. It will retry as you scroll.";
             return;
         }
-
-        const template = document.getElementById('news-item-template');
-        container.innerHTML = '';
-
-        for (const item of filteredNews) {
-            const newsElement = template.content.cloneNode(true);
-
-            newsElement.querySelector('.news-title').textContent = item.title;
-            newsElement.querySelector('.news-time').textContent = this.formatTime(item.scraped_at);
-            newsElement.querySelector('.news-topic').textContent = item.topic;
-            newsElement.querySelector('.news-link').href = item.url;
-            // NewsEntry has no snippet field; show the source instead.
-            newsElement.querySelector('.news-snippet').textContent = item.source || item.domain || '';
-
-            container.appendChild(newsElement);
+        if (this.feedLoading) {
+            status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading…';
+            return;
         }
-    }
-
-    filterNews() {
-        this.renderNews();
-    }
-
-    clearFeed() {
-        this.newsItems = [];
-        this.renderNews();
-        this.showSuccess('Feed cleared');
+        if (!hasItems) {
+            status.textContent = this.feedFilter
+                ? `No news yet for "${this.feedFilter}".`
+                : 'No news yet. Add a topic above and entries will stream in as they’re scraped.';
+            return;
+        }
+        if (!this.feedHasMore) {
+            status.textContent = 'You’ve reached the earliest entry.';
+            return;
+        }
+        status.textContent = '';
     }
 
     renderLogs(logs) {
