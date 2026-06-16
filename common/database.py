@@ -176,25 +176,61 @@ def delete_topic(name: str) -> None:
 
 
 @retry_on_transient_error()
-def get_news_entries(topic: str, limit: int = 20, offset: int = 0) -> List[NewsEntry]:
-    """Get news entries for a specific topic with pagination.
+def get_news_entries(
+    topic: str, limit: int = 20, before_id: Optional[int] = None
+) -> List[NewsEntry]:
+    """Get news entries for a topic, newest first, via id-cursor pagination.
 
     Args:
         topic: The topic name to fetch news for.
         limit: Maximum number of entries to return (default: 20).
-        offset: Number of entries to skip for pagination (default: 0).
+        before_id: Return only entries older than this id (exclusive). None
+            starts from the newest entry. Cursor pagination is immune to the
+            offset drift that live insertions cause at the top of the feed.
 
     Returns:
-        List of NewsEntry objects ordered by scraped_at DESC (newest first).
+        List of NewsEntry objects ordered by id DESC (newest first). id is
+        monotonic with scrape time, so this matches scraped_at DESC.
     """
     with _Connection() as conn:
-        sql = (
-            "SELECT id, topic, title, url, domain, source, scraped_at "
-            "FROM news_entries WHERE topic = %s "
-            "ORDER BY scraped_at DESC LIMIT %s OFFSET %s"
-        )
+        sql = "SELECT id, topic, title, url, domain, source, scraped_at "
+        sql += "FROM news_entries WHERE topic = %s"
+        params: List = [topic]
+        if before_id is not None:
+            sql += " AND id < %s"
+            params.append(before_id)
+        sql += " ORDER BY id DESC LIMIT %s"
+        params.append(limit)
+
         cursor = conn.cursor()
-        cursor.execute(sql, (topic, limit, offset))
+        cursor.execute(sql, tuple(params))
+        rows = cursor.fetchall()
+        return [NewsEntry.from_db_row(dict(row)) for row in rows]
+
+
+@retry_on_transient_error()
+def get_news_entries_all(
+    limit: int = 20, before_id: Optional[int] = None
+) -> List[NewsEntry]:
+    """Get news entries across all active topics, newest first.
+
+    Mirrors get_news_entries but spans every active topic, so the feed's
+    "All topics" view is a single chronological stream. Entries belonging to
+    soft-deleted topics are excluded to match the watched (active) set.
+    """
+    with _Connection() as conn:
+        sql = "SELECT n.id, n.topic, n.title, n.url, n.domain, n.source, n.scraped_at "
+        sql += "FROM news_entries n JOIN topics t ON t.name = n.topic "
+        sql += "WHERE t.is_active = TRUE"
+        params: List = []
+        if before_id is not None:
+            sql += " AND n.id < %s"
+            params.append(before_id)
+        sql += " ORDER BY n.id DESC LIMIT %s"
+        params.append(limit)
+
+        cursor = conn.cursor()
+        cursor.execute(sql, tuple(params))
         rows = cursor.fetchall()
         return [NewsEntry.from_db_row(dict(row)) for row in rows]
 
