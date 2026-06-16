@@ -7,7 +7,6 @@ database lifecycle management, and API v1 routes.
 import json
 import logging
 import uvicorn
-from collections import defaultdict
 from contextlib import asynccontextmanager
 from time import time
 from typing import Any
@@ -33,24 +32,62 @@ logger = logging.getLogger(__name__)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Fixed-window in-memory rate limiter keyed by client IP."""
+    """Sliding-window in-memory rate limiter, keyed by client IP.
 
-    def __init__(self, app, calls: int = 120, period: int = 60):
+    Behind reverse proxies, set ``trusted_proxies`` so the client IP is read
+    from ``X-Forwarded-For`` instead of the proxy's address. The IP is taken as
+    the Nth entry from the *right*, which is spoof-resistant: a client can
+    prepend fake entries, but can't forge the address each trusted proxy
+    appends. With ``trusted_proxies=0``, ``X-Forwarded-For`` is ignored and the
+    direct peer IP is used.
+
+    State is in-memory and per-process (not shared across replicas).
+    """
+
+    def __init__(
+        self,
+        app,
+        calls: int = 120,
+        period: int = 60,
+        trusted_proxies: int = 0,
+        max_tracked: int = 10000,
+    ):
         super().__init__(app)
         self.calls = calls
         self.period = period
-        self._requests: dict = defaultdict(list)
+        self._trusted_proxies = trusted_proxies
+        self._max_tracked = max_tracked
+        self._requests: dict[str, list[float]] = {}
+
+    def _client_ip(self, request: Request) -> str:
+        if self._trusted_proxies > 0:
+            forwarded = request.headers.get("x-forwarded-for")
+            if forwarded:
+                parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+                if parts:
+                    return parts[-min(self._trusted_proxies, len(parts))]
+        return request.client.host if request.client else "unknown"
+
+    def _evict_stale(self, window_start: float) -> None:
+        # Drop only inactive IPs (newest hit outside the window), so active
+        # clients — including abusers — keep their counts. (A flood of >max_tracked
+        # simultaneously-active IPs would need a shared store like Redis.)
+        stale = [
+            ip
+            for ip, hits in self._requests.items()
+            if not hits or hits[-1] <= window_start
+        ]
+        for ip in stale:
+            del self._requests[ip]
 
     async def dispatch(self, request: Request, call_next):
-        ip = request.client.host if request.client else "unknown"
+        ip = self._client_ip(request)
         now = time()
         window_start = now - self.period
 
-        hits = self._requests[ip]
-        # Evict timestamps outside the current window
-        self._requests[ip] = [t for t in hits if t > window_start]
-
-        if len(self._requests[ip]) >= self.calls:
+        recent = [t for t in self._requests.get(ip, ()) if t > window_start]
+        if len(recent) >= self.calls:
+            self._requests[ip] = recent
             return JSONResponse(
                 status_code=429,
                 content={
@@ -60,11 +97,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 },
             )
 
-        self._requests[ip].append(now)
+        recent.append(now)
+        self._requests[ip] = recent
 
-        # Prevent unbounded dict growth if many unique IPs never return
-        if len(self._requests) > 10000:
-            self._requests.clear()
+        if len(self._requests) > self._max_tracked:
+            self._evict_stale(window_start)
 
         return await call_next(request)
 
@@ -94,7 +131,12 @@ app = FastAPI(
     default_response_class=PrettyJSONResponse,
 )
 
-app.add_middleware(RateLimitMiddleware, calls=120, period=60)
+app.add_middleware(
+    RateLimitMiddleware,
+    calls=120,
+    period=60,
+    trusted_proxies=settings.trusted_proxy_count,
+)
 
 app.add_middleware(
     CORSMiddleware,

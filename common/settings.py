@@ -44,6 +44,13 @@ class Settings(BaseSettings):
         default="*", description="Comma-separated allowed CORS origins"
     )
 
+    # Number of trusted reverse proxies in front of the app. When > 0, the rate
+    # limiter reads the client IP from X-Forwarded-For (the Nth entry from the
+    # right); when 0, X-Forwarded-For is ignored and the direct peer IP is used.
+    trusted_proxy_count: int = Field(
+        default=0, ge=0, description="Trusted reverse proxies in front of the app"
+    )
+
     # ========== Database Pool ========== #
 
     db_pool_min_conn: int = Field(

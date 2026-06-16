@@ -12,16 +12,22 @@ TopicStreams ships a few built-in controls; beyond them it assumes a
   key.** The WebSocket endpoint streams *existing* topics only — it does **not**
   create them. Connecting to an unknown or inactive topic closes the socket with
   code `1008`, so the stream can't be abused to add scraper targets anonymously.
-- **Rate limiting** — in-memory sliding-window limiter per client IP
-  (`RateLimitMiddleware` in `api/main.py`).
+- **Rate limiting** — in-memory sliding-window limiter (120 req/60s) per client
+  IP (`RateLimitMiddleware` in `api/main.py`). Behind a proxy, set
+  `TRUSTED_PROXY_COUNT` so it keys on the real client IP from `X-Forwarded-For`
+  (taken Nth-from-right, so prepended entries can't be spoofed). It evicts only
+  inactive IPs under memory pressure, so active clients keep their counts.
 - **CORS** — configurable via the `CORS_ORIGINS` env var (defaults to `*`).
 
 ## Not covered (add before public exposure)
 
 - No user accounts, roles, or sessions; no HTTPS termination; no DDoS protection.
 - Read endpoints (GET and WebSocket streams) are unauthenticated by design.
-- The rate limiter is per-process and keyed on `request.client.host`; behind a
-  proxy you'd add `X-Forwarded-For` handling and a shared store.
+- The rate limiter is **per-process** (not shared across replicas) and IP-based,
+  so clients behind one NAT/VPN/proxy egress share a bucket. For multi-instance
+  or precise limiting, use a shared store (Redis) or your proxy/CDN edge limiter.
+- WebSocket connections bypass the HTTP rate limiter (Starlette middleware is
+  HTTP-only); topic creation is still protected by the WS fix + the authed POST.
 
 ## Recommended Solutions (further hardening)
 

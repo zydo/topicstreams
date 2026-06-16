@@ -55,6 +55,16 @@ vim config/anti_detection.yml
 
 > **Note:** The `HOST_PORT` is mapped to `API_PORT` (e.g., `HOST_PORT=80` and `API_PORT=5000` means the app listens on container port 5000 but is accessible via host port 80). For production deployments, set `HOST_PORT=80` to use the standard HTTP port.
 
+### Security Settings
+
+| Variable              | Default | Description                                                                                                                                              |
+| --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `API_KEY`             | (unset) | When set, `POST`/`DELETE /api/v1/topics` require a matching `X-API-Key` header. Unset = writes are open (dev mode).                                      |
+| `CORS_ORIGINS`        | `*`     | Comma-separated allowed origins for browser requests.                                                                                                   |
+| `TRUSTED_PROXY_COUNT` | `0`     | Reverse proxies in front of the app. `>0` makes the rate limiter read the client IP from `X-Forwarded-For` (Nth entry from the right); `0` = direct, header ignored. Set this to match your proxy chain, or one IP rate-limits everyone. |
+
+> **Behind a reverse proxy:** set `TRUSTED_PROXY_COUNT` to the number of proxies between the client and the app (usually `1`). Lock the origin so it only accepts traffic from those proxies — otherwise `X-Forwarded-For` can be spoofed by hitting the app directly.
+
 ## YAML Configuration Files
 
 Scraper and anti-detection settings are configured via YAML files in the `config/` directory. These files are mounted into the containers at runtime and can be edited without rebuilding.
