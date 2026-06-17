@@ -5,3 +5,11 @@ scraper:
   scrape_interval: 60  # Seconds between scrape cycles
   max_pages: 1  # Maximum pages to scrape per topic
   description: "Basic scraper configuration"
+  engines:
+    # Search engines to scrape, in priority order. Available: google, bing.
+    enabled: [google]
+    # How enabled engines are combined per cycle:
+    #   fallback - try in order, stop at the first engine that returns items
+    #   all      - scrape every enabled engine every cycle (max coverage)
+    #   rotate   - use one engine per cycle, rotating through the list
+    strategy: fallback

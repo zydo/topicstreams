@@ -31,14 +31,14 @@ from pathlib import Path
 from random import shuffle
 from urllib.parse import unquote, urlparse
 
-from playwright.sync_api import BrowserContext, Page, sync_playwright
+from playwright.sync_api import BrowserContext, sync_playwright
 
 from common import database as db
 from common.config import FingerprintProfile, anti_detection_config, scraper_config
 from common.logging_config import configure_logging
 from common.settings import settings
-from .scraper import scrape_news
-from .sources import GoogleSource
+from .scraper import scrape_topic
+from .sources import get_source
 
 atexit.register(db.close_pool)
 
@@ -215,6 +215,14 @@ def main():
         context = _new_context(p)
         cycle_count = 0
 
+        # Resolve configured engines once (fails fast on an unknown name).
+        sources = [get_source(name) for name in scraper_config.engines]
+        strategy = scraper_config.engine_strategy
+        logger.info(
+            f"Scraping with engines {[s.name for s in sources]} "
+            f"(strategy: {strategy})"
+        )
+
         try:
             while True:
                 cycle_start, cycle_success = time.time(), False
@@ -246,25 +254,21 @@ def main():
                     else:
                         logger.info(f"Scraping for {len(topics)} topics")
 
-                    # TODO(multi-source): drive this from configured engines.
-                    source = GoogleSource()
                     all_entries, all_logs = [], []
                     for i, topic in enumerate(topics):
                         if i > 0 and anti_detection_config.random_delays_enabled:
                             _sleep_between_topics()
 
-                        page: Page = context.new_page()
-                        try:
-                            entries, scraper_logs = scrape_news(
-                                page,
-                                source,
-                                topic,
-                                max_result_pages=scraper_config.max_pages,
-                            )
-                            all_entries.extend(entries)
-                            all_logs.extend(scraper_logs)
-                        finally:
-                            page.close()
+                        entries, scraper_logs = scrape_topic(
+                            context.new_page,
+                            sources,
+                            topic,
+                            strategy=strategy,
+                            cycle=cycle_count,
+                            max_result_pages=scraper_config.max_pages,
+                        )
+                        all_entries.extend(entries)
+                        all_logs.extend(scraper_logs)
 
                     # Dedup is handled by the DB (news upsert on a URL-derived
                     # id + UNIQUE(topic, news_id) on matches), so insert the raw

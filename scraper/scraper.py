@@ -10,6 +10,7 @@ Google, Bing, etc.
 import logging
 import random
 import traceback
+from typing import Callable
 
 from bs4 import BeautifulSoup
 from playwright.sync_api import Page, Response
@@ -20,6 +21,68 @@ from common.model import NewsEntry, ScraperLog
 from .sources import Ordering, Recency, SearchSource
 
 logger = logging.getLogger(__name__)
+
+
+def _engines_for_cycle(
+    sources: list[SearchSource], strategy: str, cycle: int
+) -> list[SearchSource]:
+    """Pick which engines run this cycle for the given strategy.
+
+    'rotate' uses a single engine per cycle, advancing through the list;
+    'all' and 'fallback' both consider every enabled engine (fallback stops
+    early at scrape time once one yields items).
+    """
+    if strategy == "rotate" and sources:
+        return [sources[cycle % len(sources)]]
+    return sources
+
+
+def _yielded_results(logs: list[ScraperLog]) -> bool:
+    return any(log.success and log.entry_count > 0 for log in logs)
+
+
+def scrape_topic(
+    make_page: Callable[[], Page],
+    sources: list[SearchSource],
+    topic: str,
+    *,
+    strategy: str = "fallback",
+    cycle: int = 0,
+    ordering: Ordering = Ordering.DATE,
+    recency: Recency = Recency.HOUR,
+    max_result_pages: int | None = None,
+) -> tuple[list[NewsEntry], list[ScraperLog]]:
+    """Scrape one topic across the configured engines per ``strategy``.
+
+    A fresh page is created (via ``make_page``) and closed per engine so each
+    engine navigates independently. Returns the combined entries and the
+    per-engine, per-page ScraperLogs. Cross-engine duplicates are resolved
+    downstream by the URL-derived news id, so engines can safely overlap.
+    """
+    all_entries: list[NewsEntry] = []
+    all_logs: list[ScraperLog] = []
+
+    for source in _engines_for_cycle(sources, strategy, cycle):
+        page = make_page()
+        try:
+            entries, logs = scrape_news(
+                page,
+                source,
+                topic,
+                ordering=ordering,
+                recency=recency,
+                max_result_pages=max_result_pages,
+            )
+        finally:
+            page.close()
+
+        all_entries.extend(entries)
+        all_logs.extend(logs)
+
+        if strategy == "fallback" and _yielded_results(logs):
+            break
+
+    return all_entries, all_logs
 
 
 def scrape_news(

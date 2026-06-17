@@ -89,6 +89,16 @@ class ScraperConfig(_BaseConfig):
         """Get maximum pages to scrape per topic."""
         return self._get("scraper", "max_pages", default=1)
 
+    @property
+    def engines(self) -> list[str]:
+        """Enabled search-engine names, in priority order (e.g. ['google'])."""
+        return self._get("scraper", "engines", "enabled", default=["google"])
+
+    @property
+    def engine_strategy(self) -> str:
+        """How enabled engines are combined: 'fallback', 'all', or 'rotate'."""
+        return self._get("scraper", "engines", "strategy", default="fallback")
+
 
 class AntiDetectionConfig(_BaseConfig):
     """Anti-detection configuration loader and accessor."""
