@@ -76,6 +76,9 @@ def _scrape_one_page(
     )
     logger.info(f"Scraping {source.name} for topic: {topic}")
 
+    def _log(**kwargs):
+        return ScraperLog.create_new(topic=topic, engine=source.name, **kwargs)
+
     try:
         response: Response | None = page.goto(
             url, wait_until="domcontentloaded", timeout=30000
@@ -88,8 +91,7 @@ def _scrape_one_page(
             logger.error(f"URL: {url}")
             return (
                 [],
-                ScraperLog.create_new(
-                    topic=topic,
+                _log(
                     success=False,
                     error_message="No response received - Navigation failed",
                 ),
@@ -111,9 +113,7 @@ def _scrape_one_page(
                     )
                 return (
                     [],
-                    ScraperLog.create_new(
-                        topic=topic, success=False, http_status_code=response_status
-                    ),
+                    _log(success=False, http_status_code=response_status),
                 )
         elif _is_http_error(response_status):
             logger.error(
@@ -121,9 +121,7 @@ def _scrape_one_page(
             )
             return (
                 [],
-                ScraperLog.create_new(
-                    topic=topic, success=False, http_status_code=response_status
-                ),
+                _log(success=False, http_status_code=response_status),
             )
 
         # Let dynamic content load.
@@ -159,8 +157,7 @@ def _scrape_one_page(
             logger.error(f"Response preview (first 500 chars): {content[:500]}")
             return (
                 [],
-                ScraperLog.create_new(
-                    topic=topic,
+                _log(
                     success=False,
                     http_status_code=response_status,
                     error_message=f"{source.name} blocked: {blocked_reason}",
@@ -184,8 +181,7 @@ def _scrape_one_page(
         logger.info(f"Successfully parsed {len(entries)} news entries")
         return (
             entries,
-            ScraperLog.create_new(
-                topic=topic,
+            _log(
                 success=True,
                 http_status_code=response_status,
                 entry_count=len(entries),
@@ -198,8 +194,7 @@ def _scrape_one_page(
         logger.error(f"Full traceback:\n{traceback.format_exc()}")
         return (
             [],
-            ScraperLog.create_new(
-                topic=topic,
+            _log(
                 success=False,
                 error_message=f"{type(e).__name__}: {str(e)}",
             ),

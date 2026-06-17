@@ -40,8 +40,10 @@ CREATE TABLE IF NOT EXISTS scraper_logs (
     http_status_code INTEGER,
     error_message TEXT,
     -- Items parsed from this scrape. A run of successful scrapes with 0 parsed
-    -- items signals Google changed its markup (selector rot), not "no news".
+    -- items signals the engine changed its markup (selector rot), not "no news".
     entry_count INTEGER DEFAULT 0,
+    -- Which search engine this scrape used, so health can be per-engine.
+    engine VARCHAR(32) DEFAULT 'google',
     FOREIGN KEY (topic) REFERENCES topics(name) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_scraper_logs_scraped_at ON scraper_logs(scraped_at DESC);

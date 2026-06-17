@@ -12,7 +12,7 @@ def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _log(topic, ok=True, n=10, ago_s=0, code=200, err=None):
+def _log(topic, ok=True, n=10, ago_s=0, code=200, err=None, engine="google"):
     return ScraperLog(
         topic=topic,
         success=ok,
@@ -20,6 +20,7 @@ def _log(topic, ok=True, n=10, ago_s=0, code=200, err=None):
         http_status_code=code,
         error_message=err,
         entry_count=n,
+        engine=engine,
     )
 
 
@@ -59,6 +60,29 @@ def test_degraded_when_one_topic_failing():
         _log("c", ago_s=3),
     ]
     assert compute_health(logs, ACTIVE)[0] == "degraded"
+
+
+def test_topic_served_by_a_second_engine_stays_live():
+    # 'a' fails on google but bing covers it; others fine on google.
+    logs = [
+        _log("a", ok=False, n=0, ago_s=1, code=429, err="blocked", engine="google"),
+        _log("a", ok=True, n=5, ago_s=1, engine="bing"),
+        _log("b", ago_s=2),
+        _log("c", ago_s=3),
+    ]
+    assert compute_health(logs, ACTIVE)[0] == "live"
+
+
+def test_topic_failing_on_all_engines_is_degraded():
+    logs = [
+        _log("a", ok=False, n=0, ago_s=1, code=429, err="x", engine="google"),
+        _log("a", ok=False, n=0, ago_s=1, code=429, err="x", engine="bing"),
+        _log("b", ago_s=2),
+        _log("c", ago_s=3),
+    ]
+    state, _, detail = compute_health(logs, ACTIVE)
+    assert state == "degraded"
+    assert "a" in detail
 
 
 def test_stalled_when_last_scrape_old():

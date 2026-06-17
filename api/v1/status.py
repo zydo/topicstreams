@@ -65,27 +65,33 @@ def compute_health(
     if age > _stale_threshold_s(logs):
         return "stalled", "stalled", f"No scrape in ~{round(age / 60)} min"
 
-    # Latest scrape outcome per active topic.
-    latest: dict[str, ScraperLog] = {}
+    # Latest scrape outcome per (topic, engine). A topic is "served" if any
+    # engine's latest scrape succeeded, so one engine breaking doesn't blank a
+    # feed another engine still covers.
+    latest: dict[tuple[str, str], ScraperLog] = {}
     for log in logs:  # newest first
         if active_names and log.topic not in active_names:
             continue
-        latest.setdefault(log.topic, log)
-    tracked = list(latest.values())
-    if not tracked:
+        latest.setdefault((log.topic, log.engine), log)
+    if not latest:
         return "live", "live", "Scraping cleanly"
 
-    failed = [log for log in tracked if not log.success]
-    if len(failed) == len(tracked):
-        return (
-            "errors",
-            "errors",
-            f"All {len(tracked)} feeds failing — {_fail_reason(failed[0])}",
-        )
+    served: dict[str, bool] = {}
+    a_failure: ScraperLog | None = None
+    for (topic, _engine), log in latest.items():
+        served[topic] = served.get(topic, False) or log.success
+        if not log.success and a_failure is None:
+            a_failure = log
+    failed_topics = [topic for topic, ok in served.items() if not ok]
 
-    # Selector rot: scrapes succeed but parse nothing across the recent window.
+    if failed_topics and len(failed_topics) == len(served):
+        reason = _fail_reason(a_failure) if a_failure else "scrape failed"
+        return "errors", "errors", f"All {len(served)} feeds failing — {reason}"
+
+    # Selector rot: successful scrapes parse nothing across the recent window
+    # (all engines). If any engine is producing entries, the feed flows.
     # Requiring *every* recent success to parse 0 makes a quiet hour (one topic
-    # with no news) safe, while a real markup change (all topics, sustained)
+    # with no news) safe, while a real markup change (sustained, everywhere)
     # trips it.
     successes = [
         log
@@ -96,18 +102,18 @@ def compute_health(
         return (
             "parsing",
             "no items",
-            "Scrapes return 200 but parse 0 items — Google markup may have changed",
+            "Scrapes return 200 but parse 0 items — search markup may have changed",
         )
 
-    if failed:
-        names = ", ".join(log.topic for log in failed)
+    if failed_topics:
+        names = ", ".join(sorted(failed_topics))
         return (
             "degraded",
             "degraded",
-            f"{len(failed)} of {len(tracked)} feeds failing: {names}",
+            f"{len(failed_topics)} of {len(served)} feeds failing: {names}",
         )
 
-    return "live", "live", f"All {len(tracked)} feeds scraping cleanly"
+    return "live", "live", f"All {len(served)} feeds scraping cleanly"
 
 
 @router.get("")

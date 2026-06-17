@@ -89,6 +89,9 @@ class ScraperLog(BaseModel):
     entry_count: int = Field(
         0, description="Number of news entries parsed from this scrape"
     )
+    engine: str = Field(
+        "google", description="Search engine this scrape used (e.g. 'google')"
+    )
 
     @classmethod
     def create_new(
@@ -99,6 +102,7 @@ class ScraperLog(BaseModel):
         http_status_code: int | None = None,
         error_message: str | None = None,
         entry_count: int = 0,
+        engine: str = "google",
     ) -> "ScraperLog":
         """Create a new ScraperLog for insertion (without id)"""
         return cls(
@@ -109,6 +113,7 @@ class ScraperLog(BaseModel):
             http_status_code=http_status_code,
             error_message=error_message,
             entry_count=entry_count,
+            engine=engine,
         )
 
     @classmethod

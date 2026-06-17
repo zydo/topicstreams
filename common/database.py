@@ -327,7 +327,7 @@ def insert_scraper_logs(logs: list[ScraperLog]) -> int:
     with _Connection() as conn:
         dml = """
             INSERT INTO scraper_logs
-                (topic, scraped_at, success, http_status_code, error_message, entry_count)
+                (topic, scraped_at, success, http_status_code, error_message, entry_count, engine)
             VALUES %s
         """
 
@@ -339,6 +339,7 @@ def insert_scraper_logs(logs: list[ScraperLog]) -> int:
                 log.http_status_code,
                 log.error_message,
                 log.entry_count,
+                log.engine,
             )
             for log in logs
         ]
@@ -393,7 +394,7 @@ def get_scraper_logs(limit: int = 10) -> list[ScraperLog]:
     """
     with _Connection() as conn:
         sql = """
-            SELECT id, topic, scraped_at, success, http_status_code, error_message, entry_count
+            SELECT id, topic, scraped_at, success, http_status_code, error_message, entry_count, engine
             FROM scraper_logs
             ORDER BY scraped_at DESC
             LIMIT %s
