@@ -35,14 +35,13 @@ from playwright.sync_api import BrowserContext, Page, sync_playwright
 
 from common import database as db
 from common.config import FingerprintProfile, anti_detection_config, scraper_config
+from common.logging_config import configure_logging
 from common.settings import settings
 from .scraper import scrape_news
 
 atexit.register(db.close_pool)
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+configure_logging(settings.log_format)
 logger = logging.getLogger(__name__)
 
 # Persistent browser profile directory (mounted as a Docker volume in production).

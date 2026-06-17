@@ -415,3 +415,18 @@ def get_active_feed_count() -> int:
         )
         result = cursor.fetchone()
         return result["count"] if result else 0
+
+
+@retry_on_transient_error()
+def get_feed_freshness_seconds() -> float | None:
+    """Seconds since the newest feed event across active topics, or None if empty."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(tn.matched_at))) AS age "
+            "FROM topic_news tn JOIN topics t ON t.name = tn.topic "
+            "WHERE t.is_active = TRUE"
+        )
+        result = cursor.fetchone()
+        age = result["age"] if result else None
+        return float(age) if age is not None else None

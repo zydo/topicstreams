@@ -20,15 +20,24 @@ from pathlib import Path
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from common.database import close_pool
+from common.logging_config import configure_logging
 from common.settings import settings
 from .exceptions import TopicStreamsException
 from .v1.router import router as v1_router
 from .v1.websocket.manager import manager as websocket_manager
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+configure_logging(settings.log_format)
 logger = logging.getLogger(__name__)
+
+
+class TimingMiddleware(BaseHTTPMiddleware):
+    """Add an X-Process-Time-Ms header with the request duration."""
+
+    async def dispatch(self, request: Request, call_next):
+        start = time()
+        response = await call_next(request)
+        response.headers["X-Process-Time-Ms"] = f"{(time() - start) * 1000:.1f}"
+        return response
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -137,6 +146,10 @@ app.add_middleware(
     period=60,
     trusted_proxies=settings.trusted_proxy_count,
 )
+
+# Added last so it's outermost — measures the full request, including the
+# rate-limiter short-circuit.
+app.add_middleware(TimingMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

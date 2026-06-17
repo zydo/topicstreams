@@ -184,6 +184,35 @@ curl "http://localhost:5000/api/v1/news/artificial+intelligence?limit=20&before_
 curl "http://localhost:5000/api/v1/news?limit=5"
 ```
 
+### Status & Metrics
+
+#### Health Status
+
+```http
+GET /api/v1/status
+```
+
+The scrape-health signal, computed server-side from recent scraper logs.
+
+**Response:** `{ state, label, detail, active_topics, total_news }`, where `state` is one of `live | degraded | errors | parsing | stalled | idle`. `parsing` means scrapes return HTTP 200 but parse 0 items (Google markup may have changed).
+
+#### Metrics
+
+```http
+GET /api/v1/metrics
+```
+
+Operational counters as JSON:
+
+| Field                    | Type          | Description                               |
+| ------------------------ | ------------- | ----------------------------------------- |
+| `active_topics`          | integer       | Watched (active) topics                   |
+| `total_news`             | integer       | Feed events across active topics          |
+| `scrape_success_rate`    | float \| null | Fraction of recent scrapes that succeeded |
+| `feed_freshness_seconds` | float \| null | Age of the newest feed event, in seconds  |
+
+> Every API response also carries an `X-Process-Time-Ms` header with the request's processing time.
+
 ### Logs
 
 #### Get Scraper Logs

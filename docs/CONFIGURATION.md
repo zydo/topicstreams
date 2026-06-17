@@ -50,8 +50,9 @@ vim config/anti_detection.yml
 
 | Variable    | Default | Description                                                      |
 | ----------- | ------- | ---------------------------------------------------------------- |
-| `API_PORT`  | `5000`  | Port inside the container where FastAPI listens                  |
-| `HOST_PORT` | `5000`  | Port exposed on the host (set to `80` for production deployment) |
+| `API_PORT`   | `5000`  | Port inside the container where FastAPI listens                  |
+| `HOST_PORT`  | `5000`  | Port exposed on the host (set to `80` for production deployment) |
+| `LOG_FORMAT` | `text`  | `text` (human-readable) or `json` (structured logs, one object per line) |
 
 > **Note:** The `HOST_PORT` is mapped to `API_PORT` (e.g., `HOST_PORT=80` and `API_PORT=5000` means the app listens on container port 5000 but is accessible via host port 80). For production deployments, set `HOST_PORT=80` to use the standard HTTP port.
 

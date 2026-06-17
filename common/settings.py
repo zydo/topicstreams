@@ -51,6 +51,9 @@ class Settings(BaseSettings):
         default=0, ge=0, description="Trusted reverse proxies in front of the app"
     )
 
+    # 'text' (human-readable) or 'json' (structured, one object per line).
+    log_format: str = Field(default="text", description="Log format: text or json")
+
     # ========== Database Pool ========== #
 
     db_pool_min_conn: int = Field(

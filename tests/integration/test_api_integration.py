@@ -110,3 +110,19 @@ def test_ws_rejects_soft_deleted_topic(client, db):
         with client.websocket_connect("/api/v1/ws/news/alpha"):
             pass
     assert exc.value.code == 1008
+
+
+def test_metrics_endpoint(client, db):
+    _seed(db, "alpha", 3)
+
+    body = client.get("/api/v1/metrics").json()
+    assert body["active_topics"] == 1
+    assert body["total_news"] == 3
+    assert body["feed_freshness_seconds"] is not None
+    assert body["feed_freshness_seconds"] >= 0
+    assert body["scrape_success_rate"] is None  # no scraper logs inserted
+
+
+def test_response_has_timing_header(client):
+    r = client.get("/api/v1/topics")
+    assert "x-process-time-ms" in {k.lower() for k in r.headers}
