@@ -13,6 +13,10 @@ CREATE TABLE IF NOT EXISTS news (
     title TEXT NOT NULL,
     domain VARCHAR(255) NOT NULL,
     source VARCHAR(255),
+    -- Short excerpt/blurb under the headline, for display only. Descriptive,
+    -- never part of identity. Engines (and re-scrapes) excerpt differently; we
+    -- keep the longest seen (see insert_news_entries).
+    snippet TEXT,
     first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

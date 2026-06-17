@@ -34,6 +34,11 @@ class NewsEntry(BaseModel):
         ..., description="Domain of the news article (extracted from URL)"
     )
     source: str | None = Field(None, description="Source of the news article")
+    snippet: str | None = Field(
+        None,
+        description="Short excerpt/blurb shown under the headline (descriptive "
+        "only — never part of the article identity)",
+    )
     scraped_at: datetime | None = Field(
         None, description="Timestamp when entry was scraped"
     )
@@ -57,6 +62,7 @@ class NewsEntry(BaseModel):
         url: str,
         source: str | None = None,
         engine: str | None = None,
+        snippet: str | None = None,
     ) -> "NewsEntry":
         """Create a new NewsEntry for insertion (without id and scraped_at)"""
 
@@ -69,6 +75,7 @@ class NewsEntry(BaseModel):
             source=source,
             scraped_at=None,
             engine=engine,
+            snippet=snippet,
         )
 
     @classmethod

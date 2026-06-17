@@ -58,8 +58,15 @@ class YahooSource(SearchSource):
             # e.g. "BeInCrypto·  via Yahoo Finance" -> "BeInCrypto".
             source = source.split("·")[0].strip() or None
 
+        desc_el = item.select_one("p.s-desc")
+        snippet = desc_el.get_text(" ", strip=True) if desc_el else None
+
         return NewsEntry.create_new(
-            topic=topic, title=title, url=url.strip(), source=source
+            topic=topic,
+            title=title,
+            url=url.strip(),
+            source=source,
+            snippet=snippet or None,
         )
 
     def detect_block(self, final_url: str, html: str) -> str | None:

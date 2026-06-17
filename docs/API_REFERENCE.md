@@ -167,6 +167,7 @@ GET /api/v1/news/{topic_name}
       "url": "https://example.com/article",
       "domain": "example.com",
       "source": "Tech News",
+      "snippet": "A short excerpt of the article shown under the headline.",
       "scraped_at": "2025-12-03T10:45:00",
       "engines": ["bing", "google"]
     }
@@ -184,6 +185,7 @@ GET /api/v1/news/{topic_name}
 - `next_before_id` is the cursor for the next (older) page, or `null` when the earliest entry has been reached.
 - `topic` and `total` are populated only by the single-topic endpoint; the all-topics endpoint returns `null` for both.
 - `engines` lists every search engine that surfaced the entry (deduped across engines). The `engine` filter restricts which entries are returned, but each returned entry still shows its full `engines` list. `total` reflects the active `engine` filter.
+- `snippet` is a short excerpt/blurb for display only (may be `null`). It is **not** part of the article identity; when several engines or re-scrapes excerpt the same article differently, the longest is kept. The same `snippet` field is included in the WebSocket payload (see [Real-Time News Updates](#real-time-news-updates)).
 
 **Example:**
 
@@ -297,7 +299,8 @@ websocat ws://localhost:5000/api/v1/ws/news/{topic_name}
 - Pushes JSON messages when new news entries are scraped
 - Connection stays open until client disconnects
 
-**Message Format:**
+**Message Format:** the same `NewsEntry` shape the REST feed returns (including
+`snippet` and `engines`), one JSON object per new feed event.
 
 ```json
 {
@@ -307,7 +310,9 @@ websocat ws://localhost:5000/api/v1/ws/news/{topic_name}
   "url": "https://example.com/breaking-news",
   "domain": "example.com",
   "source": "Tech Times",
-  "scraped_at": "2025-12-03T10:55:00"
+  "snippet": "A short excerpt of the article shown under the headline.",
+  "scraped_at": "2025-12-03T10:55:00",
+  "engines": ["google"]
 }
 ```
 

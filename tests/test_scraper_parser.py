@@ -28,6 +28,7 @@ _FIXTURE = """
       <div role="heading">Starship clears static-fire test</div>
     </a>
     <div class="MgUUmf">SpaceNews</div>
+    <div class="UqSP2b">Starship aced its eighth static-fire test ahead of the orbital attempt.</div>
   </div>
   <div class="WCv1we">
     <a href="https://coindesk.com/story-2">
@@ -59,6 +60,15 @@ def test_parse_unwraps_google_redirect_and_extracts_fields():
     assert entry.domain == "spacenews.com"  # www stripped
     assert entry.source == "SpaceNews"
     assert entry.topic == "spacex"
+    # Snippet is the longest leaf text that isn't the title or source.
+    assert entry.snippet == (
+        "Starship aced its eighth static-fire test ahead of the orbital attempt."
+    )
+
+
+def test_google_snippet_none_when_only_title_and_source():
+    entry = _GOOGLE.parse_item(_items()[1], topic="bitcoin")  # no snippet div
+    assert entry.snippet is None
 
 
 def test_parse_direct_url():
@@ -120,7 +130,9 @@ _BING_FIXTURE = """
        data-url="https://www.thestreet.com/crypto/x"
        data-title="Economist reveals next Bitcoin target"
        data-author="TheStreet"
-       title="Economist reveals next Bitcoin target"></div>
+       title="Economist reveals next Bitcoin target">
+    <div class="snippet">Harry Dent warns a 2026 reset could send Bitcoin to new lows.</div>
+  </div>
   <div class="news-card newsitem cardcommon"
        data-url="https://coindesk.com/story"
        data-title="Bitcoin holds above $69k"
@@ -143,6 +155,9 @@ def test_bing_parse_from_card_attributes():
     assert entry.url == "https://www.thestreet.com/crypto/x"
     assert entry.domain == "thestreet.com"
     assert entry.source == "TheStreet"
+    assert (
+        entry.snippet == "Harry Dent warns a 2026 reset could send Bitcoin to new lows."
+    )
 
 
 def test_bing_parse_returns_none_without_url():
@@ -177,6 +192,7 @@ _YAHOO_FIXTURE = """
     <h4 class="s-title"><a href="https://r.search.yahoo.com/_ylt=abc/RV=2/RE=1/RO=10/RU=https%3a%2f%2fwww.coindesk.com%2fmarkets%2fstory/RK=2/RS=z">Bitcoin bottom signal flashes</a></h4>
     <span class="s-source">Coindesk</span>
     <span class="s-time">1 hour ago ·</span>
+    <p class="s-desc">Live coverage as a bitcoin bottom signal flashes for holders.</p>
   </li>
   <li>
     <h4 class="s-title"><a href="https://r.search.yahoo.com/x/RU=https%3a%2f%2ffinance.yahoo.com%2fnews%2fmusk/RK=2">Elon Musk net worth</a></h4>
@@ -200,6 +216,9 @@ def test_yahoo_unwraps_redirect_and_extracts_fields():
     assert entry.url == "https://www.coindesk.com/markets/story"  # RU= unwrapped
     assert entry.domain == "coindesk.com"
     assert entry.source == "Coindesk"
+    assert (
+        entry.snippet == "Live coverage as a bitcoin bottom signal flashes for holders."
+    )
 
 
 def test_yahoo_cleans_source_suffix():
@@ -224,6 +243,7 @@ _BRAVE_FIXTURE = """
   <a class="l1" href="https://www.coindesk.com/markets/story" rel="noopener">x</a>
   <div class="title">BlackRock launches bitcoin income fund</div>
   <div class="site-name-wrapper"><div class="site-name-content">CoinDesk•18 hours ago</div></div>
+  <div class="generic-snippet">BlackRock's new fund targets income from its bitcoin ETF.</div>
 </div>
 <div class="snippet" data-type="news">
   <a class="l1" href="https://cryptonews.net/story" rel="noopener">y</a>
@@ -247,6 +267,7 @@ def test_brave_extracts_title_url_and_source():
     assert entry.url == "https://www.coindesk.com/markets/story"
     assert entry.domain == "coindesk.com"
     assert entry.source == "CoinDesk"  # "•18 hours ago" stripped
+    assert entry.snippet == "BlackRock's new fund targets income from its bitcoin ETF."
 
 
 def test_brave_returns_none_without_title():

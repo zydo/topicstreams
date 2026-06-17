@@ -67,8 +67,19 @@ class BraveSource(SearchSource):
             # "CoinDesk•18 hours ago" -> "CoinDesk".
             source = source_el.get_text(strip=True).split("•")[0].strip() or None
 
+        snippet_el = (
+            item.select_one(".snippet-description")
+            or item.select_one(".generic-snippet")
+            or item.select_one(".description")
+        )
+        snippet = snippet_el.get_text(" ", strip=True) if snippet_el else None
+
         return NewsEntry.create_new(
-            topic=topic, title=title, url=str(url).strip(), source=source
+            topic=topic,
+            title=title,
+            url=str(url).strip(),
+            source=source,
+            snippet=snippet or None,
         )
 
     def detect_block(self, final_url: str, html: str) -> str | None:

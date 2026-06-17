@@ -75,8 +75,13 @@ class GoogleSource(SearchSource):
         url = self._get_url(item)
         if not url:
             return None
+        source = self._get_source(item)
         return NewsEntry.create_new(
-            topic=topic, title=title, url=url, source=self._get_source(item)
+            topic=topic,
+            title=title,
+            url=url,
+            source=source,
+            snippet=self._get_snippet(item, title, source),
         )
 
     @staticmethod
@@ -106,6 +111,26 @@ class GoogleSource(SearchSource):
         if not elem:
             elem = item.select_one("div[data-n-tid], div.CEMjEf span")
         return elem.get_text(strip=True) if elem else None
+
+    @staticmethod
+    def _get_snippet(item: Tag, title: str, source: str | None) -> str | None:
+        """The description blurb under the headline.
+
+        Google's snippet div uses obfuscated, frequently-rotating class names
+        (e.g. GI74Re, then UqSP2b), so match by structure instead: the longest
+        leaf text block in the card that is neither the title nor the source.
+        """
+        best = ""
+        for div in item.find_all("div"):
+            if div.find("div"):  # only leaf-ish text containers
+                continue
+            text = div.get_text(" ", strip=True)
+            if len(text) <= len(best):
+                continue
+            if text == title or (source and text == source):
+                continue
+            best = text
+        return best or None
 
     def detect_block(self, final_url: str, html: str) -> str | None:
         # The definitive signal is the /sorry/ redirect; keyword matching alone

@@ -69,11 +69,14 @@ class BingSource(SearchSource):
         url = item.get("data-url") or item.get("url")
         if not title or not url:
             return None
+        snippet_el = item.select_one("div.snippet")
+        snippet = snippet_el.get_text(" ", strip=True) if snippet_el else None
         return NewsEntry.create_new(
             topic=topic,
             title=str(title).strip(),
             url=str(url).strip(),
             source=(item.get("data-author") or None),
+            snippet=snippet or None,
         )
 
     def detect_block(self, final_url: str, html: str) -> str | None:

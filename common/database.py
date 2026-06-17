@@ -18,7 +18,7 @@ from common.utils import news_id_for_url
 # `engines` aggregates every engine that surfaced this feed event (LEFT JOIN so
 # events with no engine row still appear, with an empty list).
 _FEED_SELECT = (
-    "SELECT tn.id, tn.topic, n.title, n.url, n.domain, n.source, "
+    "SELECT tn.id, tn.topic, n.title, n.url, n.domain, n.source, n.snippet, "
     "tn.matched_at AS scraped_at, "
     "COALESCE(array_agg(tne.engine ORDER BY tne.engine) "
     "FILTER (WHERE tne.engine IS NOT NULL), '{}') AS engines "
@@ -322,28 +322,42 @@ def insert_news_entries(entries: list[NewsEntry]) -> int:
     if not entries:
         return 0
 
-    news_values = []
-    seen_news: set = set()
+    # First occurrence of each article wins for url/title/domain/source; the
+    # snippet instead keeps the *longest* seen (engines excerpt differently).
+    news_by_id: dict = {}  # news_id -> [url, title, domain, source, snippet]
     match_pairs: set = set()  # distinct (topic, news_id)
     # (topic, news_id, engine) facts to attribute each match to its engine(s).
     engine_facts: set = set()
     for entry in entries:
         news_id = str(news_id_for_url(entry.url))
-        if news_id not in seen_news:
-            seen_news.add(news_id)
-            news_values.append(
-                (news_id, entry.url, entry.title, entry.domain, entry.source)
-            )
+        row = news_by_id.get(news_id)
+        if row is None:
+            news_by_id[news_id] = [
+                entry.url,
+                entry.title,
+                entry.domain,
+                entry.source,
+                entry.snippet,
+            ]
+        elif entry.snippet and (not row[4] or len(entry.snippet) > len(row[4])):
+            row[4] = entry.snippet  # keep the longest snippet within the batch
         match_pairs.add((entry.topic, news_id))
         if entry.engine:
             engine_facts.add((entry.topic, news_id, entry.engine))
+
+    news_values = [(nid, *vals) for nid, vals in news_by_id.items()]
 
     with _Connection() as conn:
         cursor = conn.cursor()
         execute_values(
             cursor,
-            "INSERT INTO news (id, url, title, domain, source) VALUES %s "
-            "ON CONFLICT (id) DO NOTHING",
+            "INSERT INTO news (id, url, title, domain, source, snippet) VALUES %s "
+            # Keep the longest snippet across re-scrapes/engines; identity-bearing
+            # columns are immutable so they stay DO NOTHING in spirit.
+            "ON CONFLICT (id) DO UPDATE SET snippet = EXCLUDED.snippet "
+            "WHERE EXCLUDED.snippet IS NOT NULL AND ("
+            "news.snippet IS NULL "
+            "OR length(EXCLUDED.snippet) > length(news.snippet))",
             news_values,
         )
         execute_values(

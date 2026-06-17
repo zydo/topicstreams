@@ -3,9 +3,14 @@
 from common.model import NewsEntry
 
 
-def _article(topic, title, url, source="Wire", engine=None):
+def _article(topic, title, url, source="Wire", engine=None, snippet=None):
     return NewsEntry.create_new(
-        topic=topic, title=title, url=url, source=source, engine=engine
+        topic=topic,
+        title=title,
+        url=url,
+        source=source,
+        engine=engine,
+        snippet=snippet,
     )
 
 
@@ -162,6 +167,33 @@ def test_engine_filter_restricts_feed_but_keeps_all_badges(db):
     assert db.get_news_count("alpha", engine="google") == 1
     assert db.get_news_count("alpha", engine="bing") == 2
     assert db.get_news_count("alpha") == 2
+
+
+def test_snippet_keeps_the_longest_across_engines_and_rescrapes(db):
+    db.add_topic("alpha")
+    url = "https://example.com/story"
+    short = "Short blurb."
+    longer = "A considerably longer and more descriptive excerpt of the story."
+
+    # Same article from two engines in one batch (short first, longer second).
+    db.insert_news_entries(
+        [
+            _article("alpha", "T", url, engine="google", snippet=short),
+            _article("alpha", "T", url, engine="bing", snippet=longer),
+        ]
+    )
+    assert db.get_news_entries("alpha", limit=1)[0].snippet == longer
+
+    # A re-scrape with an even shorter snippet must NOT shrink it.
+    db.insert_news_entries([_article("alpha", "T", url, engine="google", snippet="x")])
+    assert db.get_news_entries("alpha", limit=1)[0].snippet == longer
+
+    # A re-scrape with a longer snippet updates it.
+    longest = longer + " With extra trailing context appended later."
+    db.insert_news_entries(
+        [_article("alpha", "T", url, engine="yahoo", snippet=longest)]
+    )
+    assert db.get_news_entries("alpha", limit=1)[0].snippet == longest
 
 
 def test_all_feed_excludes_inactive_topics(db):
