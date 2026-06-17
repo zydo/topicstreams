@@ -208,7 +208,7 @@ GET /api/v1/status
 
 The scrape-health signal, computed server-side from recent scraper logs.
 
-**Response:** `{ state, label, detail, active_topics, total_news }`, where `state` is one of `live | degraded | errors | parsing | stalled | idle`. `parsing` means scrapes return HTTP 200 but parse 0 items (Google markup may have changed).
+**Response:** `{ state, label, detail, active_topics, total_news }`, where `state` is one of `live | degraded | errors | parsing | stalled | idle`. `parsing` means scrapes return HTTP 200 but parse 0 items (a search engine's markup may have changed, or a silent block).
 
 #### Metrics
 
