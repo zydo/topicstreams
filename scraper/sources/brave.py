@@ -70,4 +70,13 @@ class BraveSource(SearchSource):
         )
 
     def detect_block(self, final_url: str, html: str) -> str | None:
+        # When Brave flags/rate-limits traffic it serves a CAPTCHA interstitial.
+        # Observed 2026-06-17 (docs/BLOCK_SIGNAL_FINDINGS.md) it comes with HTTP
+        # 429 — already caught by the monitored-codes net — served in place (no
+        # redirect). Key on the body too, in case it's ever served with a 200.
+        # Real results pages carry page:"/search", never this copy or
+        # page:"/captcha".
+        lowered = html.lower()
+        if "decided to schedule a captcha" in lowered or '"/captcha"' in lowered:
+            return "Brave captcha interstitial"
         return None

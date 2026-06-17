@@ -261,3 +261,24 @@ def test_brave_build_url_recency_and_offset():
     assert "q=us+iran" in url
     assert "tf=pw" in url  # week
     assert "offset=1" in url
+
+
+def test_brave_detect_block_flags_captcha_interstitial():
+    # Grounded in the 2026-06-17 block characterization (captcha copy + the
+    # page:"/captcha" JS state); served with HTTP 429, sometimes a 200 body.
+    assert _BRAVE.detect_block(
+        "https://search.brave.com/news?q=x",
+        "<p>Brave Search decided to schedule a captcha for you.</p>",
+    )
+    assert _BRAVE.detect_block(
+        "https://search.brave.com/news?q=x", 'window.state={page:"/captcha"}'
+    )
+
+
+def test_brave_detect_block_passes_real_results():
+    assert (
+        _BRAVE.detect_block(
+            "https://search.brave.com/news?q=x", 'window.state={page:"/search"}'
+        )
+        is None
+    )
