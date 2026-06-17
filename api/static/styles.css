@@ -215,6 +215,7 @@ a { color: inherit; }
   font-size: 13px; letter-spacing: 0.26em; text-transform: uppercase;
   color: var(--ink-soft); font-weight: 600;
 }
+.filters { display: inline-flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
 .filter {
   display: inline-flex; align-items: center; gap: 8px;
   font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
@@ -275,6 +276,15 @@ a { color: inherit; }
   text-transform: uppercase; color: var(--signal); display: none;
 }
 .news-item--live .news-new { display: inline; }
+
+/* Engine badges: which search engine(s) surfaced this entry. */
+.news-engines { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.engine-badge {
+  font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-soft);
+  border: 1px solid var(--rule); border-radius: 999px;
+  padding: 1px 7px; line-height: 1.5;
+}
 
 .news-link { text-decoration: none; display: block; }
 .news-title {

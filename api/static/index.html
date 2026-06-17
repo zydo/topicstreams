@@ -61,11 +61,18 @@
         <section class="wire">
             <div class="wire__head">
                 <h2>The Wire</h2>
-                <label class="filter">Filter
-                    <select id="topic-filter">
-                        <option value="">All topics</option>
-                    </select>
-                </label>
+                <div class="filters">
+                    <label class="filter">Filter
+                        <select id="topic-filter">
+                            <option value="">All topics</option>
+                        </select>
+                    </label>
+                    <label class="filter">Engine
+                        <select id="engine-filter">
+                            <option value="">All engines</option>
+                        </select>
+                    </label>
+                </div>
             </div>
             <div class="news-container" id="news-container">
                 <div class="news-list" id="news-list"></div>
@@ -85,6 +92,7 @@
                 <div class="news-item__dateline">
                     <span class="news-topic"></span>
                     <span class="news-snippet"></span>
+                    <span class="news-engines"></span>
                     <span class="news-new">● new</span>
                 </div>
                 <a class="news-link" href="" target="_blank" rel="noopener noreferrer">
