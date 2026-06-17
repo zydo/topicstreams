@@ -196,6 +196,27 @@ def test_snippet_keeps_the_longest_across_engines_and_rescrapes(db):
     assert db.get_news_entries("alpha", limit=1)[0].snippet == longest
 
 
+def test_feed_engines_age_out_when_not_seen_recently(db):
+    db.add_topic("alpha")
+    db.insert_news_entries(
+        [
+            _article("alpha", "A", "https://example.com/a", engine="google"),
+            _article("alpha", "B", "https://example.com/b", engine="bing"),
+        ]
+    )
+    assert db.get_feed_engines() == ["bing", "google"]
+
+    # Bing stops producing: backdate its sighting past the recency window.
+    with db._Connection() as conn:
+        conn.cursor().execute(
+            "UPDATE topic_news_engines SET seen_at = NOW() - make_interval(days => %s) "
+            "WHERE engine = 'bing'",
+            (db.FEED_ENGINES_WINDOW_DAYS + 1,),
+        )
+
+    assert db.get_feed_engines() == ["google"]  # bing aged out
+
+
 def test_all_feed_excludes_inactive_topics(db):
     db.add_topic("alpha")
     db.add_topic("beta")

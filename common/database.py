@@ -294,15 +294,25 @@ def get_news_count(topic: str, engine: str | None = None) -> int:
         return result["count"] if result else 0
 
 
+# The engine filter only offers engines seen within this window, so one that
+# stops producing (disabled, or long rate-limited) ages out of the dropdown on
+# its own instead of lingering until retention purges its rows.
+FEED_ENGINES_WINDOW_DAYS = 7
+
+
 @retry_on_transient_error()
 def get_feed_engines() -> list[str]:
-    """Distinct engines that have surfaced at least one feed event, sorted.
+    """Engines that have surfaced a feed event within the recency window, sorted.
 
-    Powers the UI engine filter so it only offers engines with data.
+    Powers the UI engine filter so it offers only engines with *recent* data.
     """
     with _Connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT engine FROM topic_news_engines ORDER BY engine")
+        cursor.execute(
+            "SELECT DISTINCT engine FROM topic_news_engines "
+            "WHERE seen_at > NOW() - make_interval(days => %s) ORDER BY engine",
+            (FEED_ENGINES_WINDOW_DAYS,),
+        )
         return [row["engine"] for row in cursor.fetchall()]
 
 

@@ -131,9 +131,10 @@ Entries from soft-deleted (inactive) topics are excluded.
 GET /api/v1/news/engines
 ```
 
-Returns the distinct engines that have surfaced at least one feed event, sorted
-— e.g. `["bing", "google"]`. Powers the UI engine filter so it only offers
-engines that actually have data.
+Returns the distinct engines that have surfaced a feed event **within the last 7
+days**, sorted — e.g. `["bing", "google"]`. Powers the UI engine filter so it
+offers only engines with recent data; an engine that stops producing (disabled
+or long rate-limited) ages out of the list on its own.
 
 #### Get News for Topic
 
