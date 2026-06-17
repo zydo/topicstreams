@@ -7,7 +7,7 @@ Scraping is **pluggable across search engines**. Each engine implements the
 find result items, parse an item, and detect a block — so the runner
 (`scraper/scraper.py`) stays engine-agnostic.
 
-All four live-validated engines are enabled by default (`engine_strategy: all`).
+All four supported engines are enabled by default (`engine_strategy: all`).
 
 | Engine       | Name (config) | Status                                                                       |
 | ------------ | ------------- | ---------------------------------------------------------------------------- |
@@ -15,7 +15,10 @@ All four live-validated engines are enabled by default (`engine_strategy: all`).
 | Bing News    | `bing`        | On by default. Date sort + freshness via `qft` filters.                      |
 | Yahoo News   | `yahoo`       | On by default. Links unwrapped from Yahoo's redirector.                      |
 | Brave News   | `brave`       | On by default. Freshness via `tf`; relevance-ranked.                         |
-| DuckDuckGo   | `duckduckgo`  | Wired but **off by default** — DDG gates automated access (see below).       |
+
+**DuckDuckGo is not supported** — it hard-blocks automated access, so it cannot
+be scraped reliably. See [DUCKDUCKGO_UNSUPPORTED.md](DUCKDUCKGO_UNSUPPORTED.md)
+for the investigation and decision.
 
 Cross-engine duplicates are free: a news row's id is derived from its
 normalized URL, so the same article seen on two engines collapses to one feed
@@ -39,15 +42,6 @@ When more than one engine is enabled (the `scraper.engines` list), the
 
 Per-engine scrape health is recorded (`engine` column on `scraper_logs`), so a
 topic served by a second engine stays "live" even if its primary engine breaks.
-
-### DuckDuckGo caveat
-
-DDG's news vertical renders client-side after a token handshake and serves an
-"anomaly" challenge to datacenter clients, so its results don't appear in the
-scraped HTML from our infrastructure. The source targets the DDG **news page**
-(`iar=news&ia=news`), not web search, and ships disabled by default; enable it
-in an environment where the fingerprinted browser clears the challenge. The
-parse-0 health signal flags it if the markup drifts.
 
 ## Sequential Execution
 

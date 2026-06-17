@@ -6,16 +6,14 @@ scraper:
   max_pages: 1  # Maximum pages to scrape per topic
   description: "Basic scraper configuration"
   # Search engines to scrape, in priority order. Add or remove list entries to
-  # enable/disable engines. All live-validated engines are on by default.
-  #   - duckduckgo is implemented but gates automated access (its news SPA
-  #     returns nothing to datacenter clients), so it ships off; enable it only
-  #     where the browser can clear the challenge.
+  # enable/disable engines. All supported engines are on by default.
+  # (DuckDuckGo is not supported — it hard-blocks scraping; see
+  # docs/DUCKDUCKGO_UNSUPPORTED.md.)
   engines:
     - google
     - bing
     - yahoo
     - brave
-    # - duckduckgo
   # How the enabled engines combine each cycle:
   #   all      - scrape every enabled engine every cycle (max coverage, ~Nx requests)
   #   fallback - try in priority order, stop at the first that returns items (backup chain)

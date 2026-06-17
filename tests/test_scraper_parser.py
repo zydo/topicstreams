@@ -1,4 +1,4 @@
-"""Tests for the per-engine HTML parsers (Google, Bing, Yahoo, Brave, DDG).
+"""Tests for the per-engine HTML parsers (Google, Bing, Yahoo, Brave).
 
 Each engine has a synthetic fixture mirroring its real result markup. These
 guard our parsing logic against regressions; the *runtime* selector-rot
@@ -10,7 +10,6 @@ from bs4 import BeautifulSoup
 from scraper.sources import (
     BingSource,
     BraveSource,
-    DuckDuckGoSource,
     GoogleSource,
     Ordering,
     Recency,
@@ -21,7 +20,6 @@ _GOOGLE = GoogleSource()
 _BING = BingSource()
 _YAHOO = YahooSource()
 _BRAVE = BraveSource()
-_DDG = DuckDuckGoSource()
 
 _FIXTURE = """
 <html><body>
@@ -263,37 +261,3 @@ def test_brave_build_url_recency_and_offset():
     assert "q=us+iran" in url
     assert "tf=pw" in url  # week
     assert "offset=1" in url
-
-
-# --- DuckDuckGo -----------------------------------------------------------
-
-_DDG_FIXTURE = """
-<article data-testid="result">
-  <a data-testid="result-title-a" href="https://www.coindesk.com/story">Bitcoin hits new high</a>
-  <a data-testid="result-extras-url-link" href="https://www.coindesk.com/story">coindesk.com</a>
-</article>
-"""
-
-
-def _ddg_items(html=_DDG_FIXTURE):
-    return _DDG.find_items(_soup(html))
-
-
-def test_ddg_find_items_and_parse():
-    entry = _DDG.parse_item(_ddg_items()[0], topic="bitcoin")
-    assert entry.title == "Bitcoin hits new high"
-    assert entry.url == "https://www.coindesk.com/story"
-    assert entry.domain == "coindesk.com"
-    assert entry.source == "coindesk.com"
-
-
-def test_ddg_build_url_targets_news_vertical():
-    url = _DDG.build_url("us iran", ordering=Ordering.DATE, recency=Recency.DAY, page=1)
-    assert "q=us+iran" in url
-    assert "iar=news" in url and "ia=news" in url
-    assert "df=d" in url
-
-
-def test_ddg_detect_block_flags_challenge_page():
-    assert _DDG.detect_block("https://duckduckgo.com", "<h1>Anomaly detected</h1>")
-    assert _DDG.detect_block("https://duckduckgo.com", "<div>results</div>") is None

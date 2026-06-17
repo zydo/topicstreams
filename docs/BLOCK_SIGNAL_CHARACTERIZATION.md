@@ -8,15 +8,19 @@
 
 Learn how Bing, Yahoo, and Brave respond when they bot-/DDoS-block a scraper,
 and encode those signals into each source's `detect_block`, the way Google's
-`/sorry/` redirect already is. Also fix DuckDuckGo's block detection (it
-currently misses its real block page).
+`/sorry/` redirect already is.
+
+(DuckDuckGo is **not** a supported engine — it hard-blocks scraping; see
+[DUCKDUCKGO_UNSUPPORTED.md](DUCKDUCKGO_UNSUPPORTED.md). The `static-pages/418`
+redirect documented there is a useful reference example of a soft-block
+signal.)
 
 ## Background: how block detection works today
 
 The scraper is engine-pluggable. Each engine implements `SearchSource` in
-`scraper/sources/` (`google.py`, `bing.py`, `yahoo.py`, `brave.py`,
-`duckduckgo.py`). The generic runner `scraper/scraper.py` navigates to the
-results URL, then asks the source two things relevant here:
+`scraper/sources/` (`google.py`, `bing.py`, `yahoo.py`, `brave.py`). The generic
+runner `scraper/scraper.py` navigates to the results URL, then asks the source
+two things relevant here:
 
 - `detect_block(final_url, html) -> str | None` — return a reason string if the
   response is a block/CAPTCHA page rather than results.
@@ -43,29 +47,14 @@ block/challenge/redirect page. Those need a per-engine (or generic-redirect)
 | **Bing** | `return None` (stub) | ❌ No — never observed a block |
 | **Yahoo** | `return None` (stub) | ❌ No |
 | **Brave** | `return None` (stub) | ❌ No |
-| **DuckDuckGo** | matches body text `"anomaly"` / `"if this error persists"` | ⚠️ Guess — and it **misses** the real block (see below) |
 
 Bing/Yahoo/Brave were deliberately left as `None`: we'd only ever seen their
 *success* pages, and hardcoding a guessed pattern risks false-positiving on real
 results (the same trap Google's keyword matching warns about).
 
-### DuckDuckGo finding (observed 2026-06-17)
-
-Requesting DDG's news vertical
-(`https://duckduckgo.com/?q=...&iar=news&ia=news`) from a headless/datacenter
-browser returns HTTP `200` but **redirects to a block page**:
-
-```
-final URL: https://duckduckgo.com/static-pages/418.html?bno=...&is_tor=0&...
-page title: DuckDuckGo - Protection. Privacy. Peace of mind.
-items found: 0
-```
-
-DDG's news results are JS-rendered behind a `vqd` token handshake and it
-fingerprints automated access. The current `detect_block` does **not** catch
-this (no `static-pages/418` check), so an enabled DDG would log as
-"success, 0 items" and falsely trip the parse-0 selector-rot signal. DDG ships
-disabled by default for this reason.
+For a worked example of a soft-block signal, see DuckDuckGo's `static-pages/418`
+redirect in [DUCKDUCKGO_UNSUPPORTED.md](DUCKDUCKGO_UNSUPPORTED.md) (DDG itself is
+not a supported engine).
 
 ## The plan
 
@@ -85,13 +74,11 @@ IP.
 3. **Encode it.** Wire each engine's signal into its `detect_block`
    (`scraper/sources/{bing,yahoo,brave}.py`), analogous to Google's `/sorry/`.
    Add a parser/`detect_block` test with the captured fixture.
-4. **Fix DuckDuckGo** while here: detect the `duckduckgo.com/static-pages/418`
-   redirect (and an `iar=news` request landing on a non-news URL).
-5. **Consider a generic heuristic** in the runner/base: flag a block when the
+4. **Consider a generic heuristic** in the runner/base: flag a block when the
    final URL navigated *off the engine's results page* (host/path no longer
-   matches the expected results URL). This would catch Google `/sorry/`, DDG
-   `418`, and most redirect-style blocks without per-engine guesses.
-6. **Self-documenting fallback:** log the final URL + a body snippet on
+   matches the expected results URL). This would catch Google `/sorry/` and
+   most redirect-style blocks without per-engine guesses.
+5. **Self-documenting fallback:** log the final URL + a body snippet on
    parse-0 scrapes so that, in normal operation, engines reveal their block
    pages over time without a deliberate flood.
 

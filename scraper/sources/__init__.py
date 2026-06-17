@@ -7,16 +7,17 @@ registering it in ``_SOURCES``.
 from .base import Ordering, Recency, SearchSource
 from .bing import BingSource
 from .brave import BraveSource
-from .duckduckgo import DuckDuckGoSource
 from .google import GoogleSource
 from .yahoo import YahooSource
 
+# DuckDuckGo is intentionally not supported: it hard-blocks automated access
+# (the news vertical redirects to a static block page and the token-gated
+# news.js is unreachable). See docs/DUCKDUCKGO_UNSUPPORTED.md.
 _SOURCES: dict[str, type[SearchSource]] = {
     GoogleSource.name: GoogleSource,
     BingSource.name: BingSource,
     YahooSource.name: YahooSource,
     BraveSource.name: BraveSource,
-    DuckDuckGoSource.name: DuckDuckGoSource,
 }
 
 
@@ -36,7 +37,6 @@ __all__ = [
     "BingSource",
     "YahooSource",
     "BraveSource",
-    "DuckDuckGoSource",
     "Ordering",
     "Recency",
     "get_source",
