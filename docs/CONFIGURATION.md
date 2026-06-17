@@ -66,6 +66,12 @@ vim config/anti_detection.yml
 
 > **Behind a reverse proxy:** set `TRUSTED_PROXY_COUNT` to the number of proxies between the client and the app (usually `1`). Lock the origin so it only accepts traffic from those proxies — otherwise `X-Forwarded-For` can be spoofed by hitting the app directly.
 
+### Data Retention
+
+| Variable              | Default | Description                                                                                                  |
+| --------------------- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| `NEWS_RETENTION_DAYS` | `30`    | Each scrape cycle purges news (feed events + orphaned articles) **and** scraper logs older than this window. |
+
 ## YAML Configuration Files
 
 Scraper and anti-detection settings are configured via YAML files in the `config/` directory. These files are mounted into the containers at runtime and can be edited without rebuilding.

@@ -174,7 +174,7 @@ http://localhost:5000
 <em>TopicStreams Web UI — "the wire": a live, time-indexed news transmission feed</em>
 </p>
 
-> **Scrape-health is frontend-derived.** The status indicator refreshes every 30s and reflects only what the scraper records in `scraper_logs`. One known gap: if Google changes its News-tab markup, a page can return HTTP 200 but parse to **0 entries**, which the scraper currently logs as a *success* — so the feed can go quiet while the indicator still reads `live`. Watch the feed's freshness, not just the badge. (Tracked as a scraper-side TODO: emit a distinct log state when a 200 response yields 0 parsed items.)
+> **Scrape-health is server-computed** (`GET /api/v1/status`) from recent `scraper_logs`, refreshed every 30s. It detects selector rot: if Google changes its News-tab markup so scrapes return HTTP 200 but parse **0 entries** across the board, the masthead shows `no items` (state `parsing`) instead of silently reading `live`. A single topic with genuinely no news this hour is safe — it only trips when *every* recent scrape parses nothing.
 
 ## Quick Start
 
