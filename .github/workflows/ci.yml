@@ -25,3 +25,30 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Create .env from template
+        run: cp .env.example .env
+
+      - name: Build images
+        run: docker compose build
+
+      - name: Start postgres + api
+        run: docker compose up -d postgres api
+
+      - name: Smoke test /api/v1/status
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/api/v1/status || true)
+            if [ "$code" = "200" ]; then echo "status 200 (attempt $i)"; exit 0; fi
+            sleep 3
+          done
+          echo "API never returned 200"; docker compose logs; exit 1
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
