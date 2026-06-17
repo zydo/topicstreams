@@ -227,6 +227,15 @@ def main():
                             f"{settings.news_retention_days} days"
                         )
 
+                    deleted_logs = db.purge_old_scraper_logs(
+                        settings.news_retention_days
+                    )
+                    if deleted_logs:
+                        logger.info(
+                            f"Purged {deleted_logs} scraper logs older than "
+                            f"{settings.news_retention_days} days"
+                        )
+
                     topics = [topic.name for topic in db.get_topics()]
 
                     if anti_detection_config.randomized_order_enabled:

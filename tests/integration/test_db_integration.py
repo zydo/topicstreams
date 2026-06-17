@@ -92,6 +92,23 @@ def test_topic_lifecycle_soft_delete_and_reactivate(db):
     assert db.topic_exists("alpha")
 
 
+def test_purge_old_scraper_logs(db):
+    db.add_topic("alpha")
+    with db._Connection() as conn:
+        conn.cursor().execute(
+            "INSERT INTO scraper_logs (topic, scraped_at, success, entry_count) VALUES "
+            "('alpha', NOW() - INTERVAL '40 days', TRUE, 0), "
+            "('alpha', NOW(), TRUE, 5)"
+        )
+
+    deleted = db.purge_old_scraper_logs(30)
+
+    assert deleted == 1
+    remaining = db.get_scraper_logs(10)
+    assert len(remaining) == 1
+    assert remaining[0].entry_count == 5
+
+
 def test_all_feed_excludes_inactive_topics(db):
     db.add_topic("alpha")
     db.add_topic("beta")

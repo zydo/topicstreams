@@ -367,6 +367,21 @@ def purge_old_news_entries(days: int) -> int:
 
 
 @retry_on_transient_error()
+def purge_old_scraper_logs(days: int) -> int:
+    """Delete scraper logs older than `days` days. Returns the count deleted.
+
+    Unlike news, scraper_logs has no other retention, so without this it grows
+    monotonically (one row per topic per scrape cycle)."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM scraper_logs WHERE scraped_at < NOW() - %s * INTERVAL '1 day'",
+            (days,),
+        )
+        return cursor.rowcount
+
+
+@retry_on_transient_error()
 def get_scraper_logs(limit: int = 10) -> list[ScraperLog]:
     """Get recent scraper log entries ordered by scraped_at DESC.
 
