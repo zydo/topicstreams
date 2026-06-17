@@ -14,10 +14,17 @@ from common.model import NewsEntry
 
 from .base import Ordering, Recency, SearchSource
 
-# Bing News "interval" freshness codes (qft). Bing has no 1-hour news filter, so
-# HOUR maps to the closest available window (past 24h).
+# Bing News freshness codes for the qft `interval` filter, verified 2026-06-17
+# against bing.com/news/search?...&qft=interval%3d"<N>":
+#   "4" -> past hour
+#   "7" -> past 24 hours
+#   "8" -> past day (Bing's label for its broader "recent" window)
+#   "9" -> past 30 days
+# We scrape the past hour to match the rest of the pipeline (Google's qdr:h), so
+# only HOUR is exercised today. The DAY/WEEK/MONTH rows are wired for when we
+# expose other windows; revisit "8" if a dedicated 7-day code turns up.
 _RECENCY_INTERVAL = {
-    Recency.HOUR: "7",
+    Recency.HOUR: "4",
     Recency.DAY: "7",
     Recency.WEEK: "8",
     Recency.MONTH: "9",

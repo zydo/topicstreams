@@ -159,7 +159,14 @@ def test_bing_build_url_date_and_recency():
     assert "q=us+iran" in url
     assert 'sortbydate%3d"1"' in url  # date sort as a qft token
     assert "first=11" in url  # page 2 -> offset 11
-    assert "interval" in url
+    assert 'interval%3d"7"' in url  # DAY -> past 24 hours
+
+
+def test_bing_build_url_hour_is_past_hour_interval():
+    # Past hour is interval "4" (not "7" = past 24h); this is the window the
+    # live pipeline actually uses.
+    url = _BING.build_url("x", ordering=Ordering.DATE, recency=Recency.HOUR, page=1)
+    assert 'interval%3d"4"' in url
 
 
 # --- Yahoo ----------------------------------------------------------------
