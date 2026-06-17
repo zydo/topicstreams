@@ -38,6 +38,7 @@ from common.config import FingerprintProfile, anti_detection_config, scraper_con
 from common.logging_config import configure_logging
 from common.settings import settings
 from .scraper import scrape_news
+from .sources import GoogleSource
 
 atexit.register(db.close_pool)
 
@@ -245,6 +246,8 @@ def main():
                     else:
                         logger.info(f"Scraping for {len(topics)} topics")
 
+                    # TODO(multi-source): drive this from configured engines.
+                    source = GoogleSource()
                     all_entries, all_logs = [], []
                     for i, topic in enumerate(topics):
                         if i > 0 and anti_detection_config.random_delays_enabled:
@@ -253,7 +256,10 @@ def main():
                         page: Page = context.new_page()
                         try:
                             entries, scraper_logs = scrape_news(
-                                page, topic, scraper_config.max_pages
+                                page,
+                                source,
+                                topic,
+                                max_result_pages=scraper_config.max_pages,
                             )
                             all_entries.extend(entries)
                             all_logs.extend(scraper_logs)

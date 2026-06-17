@@ -8,7 +8,9 @@ detection covers Google changing its markup.
 
 from bs4 import BeautifulSoup
 
-from scraper.scraper import _find_news_items, _parse_item
+from scraper.sources import GoogleSource, Ordering, Recency
+
+_GOOGLE = GoogleSource()
 
 _FIXTURE = """
 <html><body>
@@ -33,7 +35,7 @@ def _soup(html):
 
 
 def _items(html=_FIXTURE):
-    return _find_news_items(_soup(html))
+    return _GOOGLE.find_items(_soup(html))
 
 
 def test_find_news_items_finds_all():
@@ -41,7 +43,7 @@ def test_find_news_items_finds_all():
 
 
 def test_parse_unwraps_google_redirect_and_extracts_fields():
-    entry = _parse_item(_items()[0], topic="spacex")
+    entry = _GOOGLE.parse_item(_items()[0], topic="spacex")
     assert entry is not None
     assert entry.title == "Starship clears static-fire test"
     assert entry.url == "https://www.spacenews.com/article-1"  # /url?q= unwrapped
@@ -51,7 +53,7 @@ def test_parse_unwraps_google_redirect_and_extracts_fields():
 
 
 def test_parse_direct_url():
-    entry = _parse_item(_items()[1], topic="bitcoin")
+    entry = _GOOGLE.parse_item(_items()[1], topic="bitcoin")
     assert entry.url == "https://coindesk.com/story-2"
     assert entry.domain == "coindesk.com"
 
@@ -60,15 +62,39 @@ def test_parse_resolves_relative_url():
     html = (
         '<div class="WCv1we"><a href="/foo/bar"><div role="heading">T</div></a></div>'
     )
-    entry = _parse_item(_items(html)[0], topic="t")
+    entry = _GOOGLE.parse_item(_items(html)[0], topic="t")
     assert entry.url == "https://www.google.com/foo/bar"
 
 
 def test_parse_returns_none_without_title():
     html = '<div class="WCv1we"><a href="https://x.com/a"></a></div>'
-    assert _parse_item(_items(html)[0], topic="t") is None
+    assert _GOOGLE.parse_item(_items(html)[0], topic="t") is None
 
 
 def test_parse_returns_none_without_url():
     html = '<div class="WCv1we"><div role="heading">Title only</div></div>'
-    assert _parse_item(_items(html)[0], topic="t") is None
+    assert _GOOGLE.parse_item(_items(html)[0], topic="t") is None
+
+
+def test_build_url_default_is_date_past_hour():
+    url = _GOOGLE.build_url(
+        "us iran", ordering=Ordering.DATE, recency=Recency.HOUR, page=1
+    )
+    assert "tbm=nws" in url
+    assert "sbd:1" in url and "qdr:h" in url and "nsd:1" in url
+    assert "start=0" in url
+    assert "q=us+iran" in url
+
+
+def test_build_url_relevance_drops_sort_by_date():
+    url = _GOOGLE.build_url(
+        "x", ordering=Ordering.RELEVANCE, recency=Recency.DAY, page=2
+    )
+    assert "sbd:1" not in url
+    assert "qdr:d" in url
+    assert "start=10" in url  # page 2 -> offset 10
+
+
+def test_build_url_any_recency_drops_date_range():
+    url = _GOOGLE.build_url("x", ordering=Ordering.DATE, recency=Recency.ANY, page=1)
+    assert "qdr:" not in url

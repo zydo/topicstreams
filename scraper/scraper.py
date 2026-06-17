@@ -1,127 +1,80 @@
-"""Google Search News tab scraping module.
+"""Generic scraper runner.
 
-This module scrapes news articles from Google Search's News tab
-(https://google.com/search?tbm=nws), NOT the Google News site (https://news.google.com).
-
-It retrieves multiple pages of results sorted by recency (newest first)
-for specified topics using Playwright and BeautifulSoup. Results are
-filtered to the past hour and paginated (approximately 10 results per page).
-
-Main Features:
-    - Multi-page scraping with configurable page limit
-    - Automatic pagination handling (start parameter)
-    - Robust error handling and logging
-    - Multiple fallback CSS selectors for resilience
-    - URL normalization (handles Google redirect wrappers)
-    - Results naturally limited by 1-hour time filter
+Drives a ``SearchSource`` (one per search engine, see ``scraper/sources/``)
+with Playwright: builds the results URL, navigates, simulates human behaviour,
+detects blocking, and parses results. The engine-specific parts — URL params,
+selectors, block signals — live in the sources, so this runner is the same for
+Google, Bing, etc.
 """
 
 import logging
 import random
-import re
 import traceback
 
 from bs4 import BeautifulSoup
-from bs4.element import Tag, ResultSet
 from playwright.sync_api import Page, Response
 
 from common.config import anti_detection_config
 from common.model import NewsEntry, ScraperLog
 
+from .sources import Ordering, Recency, SearchSource
+
 logger = logging.getLogger(__name__)
 
 
 def scrape_news(
-    page: Page, topic: str, max_result_pages: int | None = None
+    page: Page,
+    source: SearchSource,
+    topic: str,
+    *,
+    ordering: Ordering = Ordering.DATE,
+    recency: Recency = Recency.HOUR,
+    max_result_pages: int | None = None,
 ) -> tuple[list[NewsEntry], list[ScraperLog]]:
-    """Scrape news entries from Google Search News tab across multiple result pages.
+    """Scrape news entries for a topic from one engine, across result pages.
 
-    This function scrapes news articles from the recent 1 hour for a given topic
-    by iterating through multiple pages of Google Search results (News tab).
-    It continues scraping until one of the following conditions is met:
-    - No more entries are found (end of results)
-    - An error occurs during scraping
-    - Maximum page limit is reached (if specified)
+    Iterates pages until no entries remain, an error occurs, or
+    ``max_result_pages`` is reached. Defaults reproduce the original behaviour
+    (newest-first, past hour).
 
-    Args:
-        page: Playwright Page object for browser automation
-        topic: News topic to search for (e.g., "artificial intelligence")
-        max_result_pages: Maximum number of result pages to scrape (default: None)
-                          None means scrape all available pages
-
-    Returns:
-        Tuple containing:
-        - list[NewsEntry]: All scraped news entries across all pages, in chronological
-                           order (oldest to newest)
-        - list[ScraperLog]: Log entries for each page scrape attempt
-
-    Note:
-        - Results are filtered to the recent 1 hour only (qdr:h parameter)
-        - The function stops immediately if any page scrape fails
-        - Due to the 1-hour time filter, total results are naturally limited
-        - Each page except for the last contains exactly 10 results (set by Google)
+    Returns (entries oldest-to-newest, one ScraperLog per page attempt).
     """
     result_page_number = 1
-    all_entries, scraper_logs = [], []
+    all_entries: list[NewsEntry] = []
+    scraper_logs: list[ScraperLog] = []
 
     while True:
         if max_result_pages is not None and result_page_number > max_result_pages:
             break
 
-        entries, scraper_log = _scrape_one_page(page, topic, result_page_number)
-
+        entries, scraper_log = _scrape_one_page(
+            page, source, topic, result_page_number, ordering, recency
+        )
         scraper_logs.append(scraper_log)
-        # Stop if no entries found (end of results) or error occurred
         if len(entries) == 0 or not scraper_log.success:
             break
 
         all_entries.extend(entries)
         result_page_number += 1
 
-    # Reverse to get chronological order (oldest to newest)
+    # Reverse to chronological order (oldest to newest).
     all_entries.reverse()
     scraper_logs.reverse()
     return all_entries, scraper_logs
 
 
 def _scrape_one_page(
-    page: Page, topic: str, result_page_number: int
+    page: Page,
+    source: SearchSource,
+    topic: str,
+    result_page_number: int,
+    ordering: Ordering,
+    recency: Recency,
 ) -> tuple[list[NewsEntry], ScraperLog]:
-    """Scrape news entries from a single Google Search News results page.
-
-    Constructs a Google Search URL with News tab filters and pagination,
-    navigates to the page, waits for content to load, parses the HTML,
-    and extracts news entries from the recent 1 hour.
-
-    Args:
-        page: Playwright Page object for browser automation
-        topic: News topic to search for (will be URL-encoded)
-        result_page_number: 1-based page number for pagination
-                           (page 1 = start 0, page 2 = start 10, etc.)
-
-    Returns:
-        Tuple containing:
-        - list[NewsEntry]: Parsed news entries from this page (may be empty)
-        - ScraperLog: Log entry for this scrape attempt (success or failure)
-    """
-
-    # Replace one or more consecutive spaces with a single '+'
-    formatted_topic = re.sub(r"\s+", "+", topic.strip())
-
-    # 1-based page offset, 10 results per Google result page
-    start = (result_page_number - 1) * 10
-
-    # - tbm=nws: "To Be Matched" = news (search in Google Search News tab)
-    # - tbs=sbd:1,qdr:h: "To Be Sorted"
-    #       sbd:1 - sort by date : 1 (newest first)
-    #       qdr:h - query date range : h (past hour)
-    #       nsd:1 - news show duplicate : 1 (show same news from different sources)
-    url = (
-        "https://www.google.com/search?tbm=nws"
-        f"&tbs=sbd:1,qdr:h,nsd:1&start={start}&q={formatted_topic}"
+    url = source.build_url(
+        topic, ordering=ordering, recency=recency, page=result_page_number
     )
-
-    logger.info(f"Scraping news for topic: {topic}")
+    logger.info(f"Scraping {source.name} for topic: {topic}")
 
     try:
         response: Response | None = page.goto(
@@ -144,7 +97,6 @@ def _scrape_one_page(
 
         response_status: int = response.status
 
-        # Check for HTTP errors if enabled
         if anti_detection_config.http_error_handling_enabled:
             if response_status in anti_detection_config.monitored_http_codes:
                 logger.error(
@@ -160,32 +112,26 @@ def _scrape_one_page(
                 return (
                     [],
                     ScraperLog.create_new(
-                        topic=topic,
-                        success=False,
-                        http_status_code=response_status,
+                        topic=topic, success=False, http_status_code=response_status
                     ),
                 )
         elif _is_http_error(response_status):
-            # Fallback to basic error checking if HTTP error handling is disabled
             logger.error(
                 f"HTTP ERROR {response_status} for topic '{topic}' - Request failed"
             )
             return (
                 [],
                 ScraperLog.create_new(
-                    topic=topic,
-                    success=False,
-                    http_status_code=response_status,
+                    topic=topic, success=False, http_status_code=response_status
                 ),
             )
 
-        # Add a delay to let dynamic content load
+        # Let dynamic content load.
         page.wait_for_timeout(1500 + random.randint(0, 1500))
 
-        # Simulate human-like reading behavior
+        # Simulate human-like reading behaviour.
         try:
-            scroll_steps = random.randint(2, 4)
-            for _ in range(scroll_steps):
+            for _ in range(random.randint(2, 4)):
                 page.evaluate(f"window.scrollBy(0, {random.randint(80, 250)})")
                 page.wait_for_timeout(random.randint(300, 800))
             page.mouse.move(
@@ -199,51 +145,36 @@ def _scrape_one_page(
         except Exception:
             pass
 
-        # Try to wait for common selectors, but don't fail if not found
+        # Wait for the engine's results container, but don't fail if missing.
         try:
-            page.wait_for_selector(
-                "#search, #rso, div[data-sokoban-container]", timeout=5000
-            )
+            page.wait_for_selector(source.ready_selector, timeout=5000)
         except Exception as e:
             logger.warning(f"Selector wait timeout, proceeding anyway: {e}")
 
         content: str = page.content()
 
-        # Check for CAPTCHA or blocking if enabled. The definitive signal is
-        # the redirect to /sorry/; keyword matching alone false-positives
-        # because real results pages mention "captcha" in Google's inline JS.
-        if anti_detection_config.captcha_detection_enabled:
-            blocked_reason = None
-            if "/sorry/" in page.url:
-                blocked_reason = "redirected to /sorry/ block page"
-            else:
-                content_lower = content.lower()
-                for keyword in anti_detection_config.captcha_keywords:
-                    if keyword.lower() in content_lower:
-                        blocked_reason = f"'{keyword}' found"
-                        break
-            if blocked_reason:
-                logger.error(f"Google detected unusual traffic - {blocked_reason}")
-                logger.error(f"Response preview (first 500 chars): {content[:500]}")
-                return (
-                    [],
-                    ScraperLog.create_new(
-                        topic=topic,
-                        success=False,
-                        http_status_code=response_status,
-                        error_message=f"Google CAPTCHA/blocking detected ({blocked_reason})",
-                    ),
-                )
+        blocked_reason = source.detect_block(page.url, content)
+        if blocked_reason:
+            logger.error(f"{source.name} blocked the request - {blocked_reason}")
+            logger.error(f"Response preview (first 500 chars): {content[:500]}")
+            return (
+                [],
+                ScraperLog.create_new(
+                    topic=topic,
+                    success=False,
+                    http_status_code=response_status,
+                    error_message=f"{source.name} blocked: {blocked_reason}",
+                ),
+            )
 
-        soup: BeautifulSoup = BeautifulSoup(content, "lxml")
-
-        news_items: ResultSet = _find_news_items(soup)
-        logger.info(f"Found {len(news_items)} potential news items")
+        soup = BeautifulSoup(content, "lxml")
+        items = source.find_items(soup)
+        logger.info(f"Found {len(items)} potential news items")
 
         entries: list[NewsEntry] = []
-        for item in news_items:
+        for item in items:
             try:
-                entry: NewsEntry | None = _parse_item(item, topic)
+                entry = source.parse_item(item, topic)
                 if entry:
                     entries.append(entry)
             except Exception as e:
@@ -275,75 +206,6 @@ def _scrape_one_page(
         )
 
 
-def _find_news_items(soup: BeautifulSoup) -> ResultSet:
-    # Selectors ordered newest layout first; Google rotates markup over time.
-    news_items: ResultSet = soup.select("div.WCv1we")
-    if not news_items:
-        news_items = soup.select("div.SoaBEf")
-    if not news_items:
-        news_items = soup.select("div.Gx5Zad")
-    if not news_items:
-        news_items = soup.select("div[data-sokoban-container] > div")
-    if not news_items:
-        news_items = soup.select("#rso div.g, #search div.g")
-    return news_items
-
-
-def _parse_item(item: Tag, topic: str) -> NewsEntry | None:
-
-    def _get_title(item: Tag) -> str | None:
-        title_elem: Tag | None = item.select_one(
-            'div[role="heading"], a[role="heading"]'
-        )
-        if not title_elem:
-            title_elem = item.select_one("h3, h4")
-        return title_elem.get_text(strip=True) if title_elem else None
-
-    title: str | None = _get_title(item)
-    if not title:
-        return None
-
-    def _get_url(item: Tag) -> str | None:
-        link_elem: Tag | None = item.select_one("a[href]")
-        if not link_elem:
-            return None
-
-        href = link_elem.get("href")
-        if not href:
-            return None
-
-        url: str = str(href).strip()
-        if url.startswith("/url?q="):
-            url = (url.split("/url?q=")[1]).split("&")[0]
-        elif url.startswith("/"):
-            url = "https://www.google.com" + url
-
-        return url
-
-    url: str | None = _get_url(item)
-    if not url:
-        return None
-
-    def _get_source(item: Tag) -> str | None:
-        source_elem: Tag | None = item.select_one("div.MgUUmf, span.MgUUmf")
-        if not source_elem:
-            source_elem = item.select_one("div[data-n-tid], div.CEMjEf span")
-        return source_elem.get_text(strip=True) if source_elem else None
-
-    source: str | None = _get_source(item)
-
-    return NewsEntry.create_new(
-        topic=topic,
-        title=title,
-        url=url,
-        source=source,
-    )
-
-
 def _is_http_error(response_status: int) -> bool:
-    """Check if HTTP response indicates an error (non-2xx status code).
-
-    Returns True for any status code >= 400 (client/server errors).
-    Returns False for 2xx (success) and 3xx (redirects).
-    """
+    """True for any status code >= 400 (client/server errors)."""
     return response_status >= 400
