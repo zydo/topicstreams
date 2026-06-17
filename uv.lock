@@ -676,13 +676,18 @@ common = [
     { name = "pydantic-settings" },
 ]
 dev = [
+    { name = "beautifulsoup4" },
     { name = "black" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "lxml" },
+    { name = "playwright" },
+    { name = "playwright-stealth" },
     { name = "psycopg2-binary" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pytest" },
+    { name = "pyyaml" },
     { name = "testcontainers" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -713,13 +718,18 @@ common = [
     { name = "pydantic-settings", specifier = ">=2.0.0,<3" },
 ]
 dev = [
+    { name = "beautifulsoup4", specifier = ">=4.12.3,<5" },
     { name = "black", specifier = ">=24.0,<26" },
     { name = "fastapi", specifier = ">=0.115.0,<1" },
     { name = "httpx", specifier = ">=0.27,<1" },
+    { name = "lxml", specifier = ">=5.3.0,<7" },
+    { name = "playwright", specifier = ">=1.49.1,<2" },
+    { name = "playwright-stealth", specifier = ">=2.0.3,<3" },
     { name = "psycopg2-binary", specifier = ">=2.9.10,<3" },
     { name = "pydantic", specifier = ">=2.0.0,<3" },
     { name = "pydantic-settings", specifier = ">=2.0.0,<3" },
     { name = "pytest", specifier = ">=8.0,<9" },
+    { name = "pyyaml", specifier = ">=6.0.0,<7" },
     { name = "testcontainers", specifier = ">=4,<5" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0,<1" },
 ]

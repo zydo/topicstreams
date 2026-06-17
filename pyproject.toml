@@ -31,8 +31,10 @@ scraper = [
     "pyyaml>=6.0.0,<7",
 ]
 dev = [
-    # Includes the api runtime deps so tests can import the app modules.
+    # Include both service groups so tests can import any app module
+    # (the scraper group is needed for the parser tests).
     { include-group = "api" },
+    { include-group = "scraper" },
     "black>=24.0,<26",
     "pytest>=8.0,<9",
     "httpx>=0.27,<1",          # FastAPI TestClient
