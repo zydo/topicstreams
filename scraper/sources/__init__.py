@@ -5,10 +5,12 @@ registering it in ``_SOURCES``.
 """
 
 from .base import Ordering, Recency, SearchSource
+from .bing import BingSource
 from .google import GoogleSource
 
 _SOURCES: dict[str, type[SearchSource]] = {
     GoogleSource.name: GoogleSource,
+    BingSource.name: BingSource,
 }
 
 
@@ -22,4 +24,11 @@ def get_source(name: str) -> SearchSource:
         )
 
 
-__all__ = ["SearchSource", "GoogleSource", "Ordering", "Recency", "get_source"]
+__all__ = [
+    "SearchSource",
+    "GoogleSource",
+    "BingSource",
+    "Ordering",
+    "Recency",
+    "get_source",
+]

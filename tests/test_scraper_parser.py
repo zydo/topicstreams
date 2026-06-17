@@ -8,9 +8,10 @@ detection covers Google changing its markup.
 
 from bs4 import BeautifulSoup
 
-from scraper.sources import GoogleSource, Ordering, Recency
+from scraper.sources import BingSource, GoogleSource, Ordering, Recency
 
 _GOOGLE = GoogleSource()
+_BING = BingSource()
 
 _FIXTURE = """
 <html><body>
@@ -98,3 +99,54 @@ def test_build_url_relevance_drops_sort_by_date():
 def test_build_url_any_recency_drops_date_range():
     url = _GOOGLE.build_url("x", ordering=Ordering.DATE, recency=Recency.ANY, page=1)
     assert "qdr:" not in url
+
+
+# --- Bing -----------------------------------------------------------------
+
+# Mirrors Bing's real markup: the card div carries the article url, title, and
+# source as attributes.
+_BING_FIXTURE = """
+<html><body>
+  <div class="news-card newsitem cardcommon"
+       url="https://www.thestreet.com/crypto/x"
+       data-url="https://www.thestreet.com/crypto/x"
+       data-title="Economist reveals next Bitcoin target"
+       data-author="TheStreet"
+       title="Economist reveals next Bitcoin target"></div>
+  <div class="news-card newsitem cardcommon"
+       data-url="https://coindesk.com/story"
+       data-title="Bitcoin holds above $69k"
+       data-author="CoinDesk"></div>
+</body></html>
+"""
+
+
+def _bing_items(html=_BING_FIXTURE):
+    return _BING.find_items(_soup(html))
+
+
+def test_bing_find_items():
+    assert len(_bing_items()) == 2
+
+
+def test_bing_parse_from_card_attributes():
+    entry = _BING.parse_item(_bing_items()[0], topic="bitcoin")
+    assert entry.title == "Economist reveals next Bitcoin target"
+    assert entry.url == "https://www.thestreet.com/crypto/x"
+    assert entry.domain == "thestreet.com"
+    assert entry.source == "TheStreet"
+
+
+def test_bing_parse_returns_none_without_url():
+    html = '<div class="newsitem" data-title="No url"></div>'
+    assert _BING.parse_item(_bing_items(html)[0], topic="t") is None
+
+
+def test_bing_build_url_date_and_recency():
+    url = _BING.build_url(
+        "us iran", ordering=Ordering.DATE, recency=Recency.DAY, page=2
+    )
+    assert "q=us+iran" in url
+    assert "sortbydate=1" in url
+    assert "first=11" in url  # page 2 -> offset 11
+    assert "interval" in url

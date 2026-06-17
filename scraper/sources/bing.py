@@ -1,0 +1,68 @@
+"""Bing News search source.
+
+Bing's news cards carry the article URL, title, and source as attributes on the
+card element (``data-url`` / ``data-title`` / ``data-author``), so extraction is
+attribute-based — more robust than nested text selectors.
+"""
+
+import re
+
+from bs4 import BeautifulSoup
+from bs4.element import Tag
+
+from common.model import NewsEntry
+
+from .base import Ordering, Recency, SearchSource
+
+# Bing News "interval" freshness codes (qft). Bing has no 1-hour news filter, so
+# HOUR maps to the closest available window (past 24h).
+_RECENCY_INTERVAL = {
+    Recency.HOUR: "7",
+    Recency.DAY: "7",
+    Recency.WEEK: "8",
+    Recency.MONTH: "9",
+}
+
+_ITEM_SELECTORS = ("div.news-card.newsitem", "div.newsitem")
+
+
+class BingSource(SearchSource):
+    name = "bing"
+    ready_selector = "div.newsitem, #algocore"
+
+    def build_url(
+        self, topic: str, *, ordering: Ordering, recency: Recency, page: int
+    ) -> str:
+        q = re.sub(r"\s+", "+", topic.strip())
+        first = (page - 1) * 10 + 1  # Bing paginates by 1-based result offset
+        params = [f"q={q}", f"first={first}"]
+        if ordering is Ordering.DATE:
+            params.append("sortbydate=1")
+        interval = _RECENCY_INTERVAL.get(recency)
+        if interval:
+            params.append(f'qft=interval%3d"{interval}"')
+        return "https://www.bing.com/news/search?" + "&".join(params)
+
+    def find_items(self, soup: BeautifulSoup) -> list[Tag]:
+        for selector in _ITEM_SELECTORS:
+            items = soup.select(selector)
+            if items:
+                return items
+        return []
+
+    def parse_item(self, item: Tag, topic: str) -> NewsEntry | None:
+        title = item.get("data-title") or item.get("title")
+        url = item.get("data-url") or item.get("url")
+        if not title or not url:
+            return None
+        return NewsEntry.create_new(
+            topic=topic,
+            title=str(title).strip(),
+            url=str(url).strip(),
+            source=(item.get("data-author") or None),
+        )
+
+    def detect_block(self, final_url: str, html: str) -> str | None:
+        # Bing news search has no clear block signal; rely on HTTP status codes
+        # and the parse-0 health signal. Refine if blocks are observed.
+        return None
