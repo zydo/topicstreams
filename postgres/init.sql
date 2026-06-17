@@ -32,6 +32,21 @@ CREATE TABLE IF NOT EXISTS topic_news (
 CREATE INDEX IF NOT EXISTS idx_topic_news_topic_id ON topic_news(topic, id DESC);
 CREATE INDEX IF NOT EXISTS idx_topic_news_id ON topic_news(id DESC);
 
+-- Which search engines surfaced each feed event, and when each first scraped
+-- it. The article is still stored once in `news`; this many-to-many lets a
+-- single feed event (topic_news row) be attributed to several engines (e.g.
+-- both Google and Bing found the same article for a topic). Cascades with the
+-- feed event, so retention purges clean these up automatically.
+CREATE TABLE IF NOT EXISTS topic_news_engines (
+    topic_news_id BIGINT NOT NULL,
+    engine VARCHAR(32) NOT NULL,
+    seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (topic_news_id, engine),
+    FOREIGN KEY (topic_news_id) REFERENCES topic_news(id) ON DELETE CASCADE
+);
+-- Filtering the feed by a single engine (EXISTS over this table).
+CREATE INDEX IF NOT EXISTS idx_tne_engine ON topic_news_engines(engine);
+
 CREATE TABLE IF NOT EXISTS scraper_logs (
     id SERIAL PRIMARY KEY,
     topic VARCHAR(255) NOT NULL,

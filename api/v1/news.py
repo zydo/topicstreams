@@ -38,8 +38,9 @@ def _next_cursor(entries: list[NewsEntry], limit: int) -> int | None:
 async def list_all_news(
     limit: int = Query(20, ge=1, le=100),
     before_id: int | None = Query(None, ge=1),
+    engine: str | None = Query(None, description="Filter to one search engine"),
 ) -> NewsListResponse:
-    entries = await run_in_threadpool(db.get_news_entries_all, limit, before_id)
+    entries = await run_in_threadpool(db.get_news_entries_all, limit, before_id, engine)
     return NewsListResponse(
         entries=entries,
         limit=limit,
@@ -47,11 +48,19 @@ async def list_all_news(
     )
 
 
+# Declared before /{topic_name} so "engines" isn't captured as a topic name.
+@router.get("/engines")
+async def list_feed_engines() -> list[str]:
+    """Distinct engines that have surfaced feed events (for the UI filter)."""
+    return await run_in_threadpool(db.get_feed_engines)
+
+
 @router.get("/{topic_name}")
 async def get_news(
     topic_name: str = Path(..., min_length=1, max_length=100),
     limit: int = Query(20, ge=1, le=100),
     before_id: int | None = Query(None, ge=1),
+    engine: str | None = Query(None, description="Filter to one search engine"),
 ) -> NewsListResponse:
     normalized_name = normalize_topic(topic_name)
 
@@ -61,9 +70,9 @@ async def get_news(
         )
 
     entries = await run_in_threadpool(
-        db.get_news_entries, normalized_name, limit, before_id
+        db.get_news_entries, normalized_name, limit, before_id, engine
     )
-    total = await run_in_threadpool(db.get_news_count, normalized_name)
+    total = await run_in_threadpool(db.get_news_count, normalized_name, engine)
 
     return NewsListResponse(
         entries=entries,

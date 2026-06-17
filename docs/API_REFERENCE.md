@@ -123,6 +123,17 @@ Entries from soft-deleted (inactive) topics are excluded.
 | ----------- | ------- | ------- | ----- | ------------------------------------------------- |
 | `limit`     | integer | `20`    | 1-100 | Number of entries per page                        |
 | `before_id` | integer | —       | ≥1    | Return only entries older than this id (cursor)   |
+| `engine`    | string  | —       | —     | Show only entries surfaced by this engine (e.g. `bing`). Orthogonal to the topic filter. |
+
+#### List Feed Engines
+
+```http
+GET /api/v1/news/engines
+```
+
+Returns the distinct engines that have surfaced at least one feed event, sorted
+— e.g. `["bing", "google"]`. Powers the UI engine filter so it only offers
+engines that actually have data.
 
 #### Get News for Topic
 
@@ -142,6 +153,7 @@ GET /api/v1/news/{topic_name}
 | ----------- | ------- | ------- | ----- | ------------------------------------------------- |
 | `limit`     | integer | `20`    | 1-100 | Number of entries per page                        |
 | `before_id` | integer | —       | ≥1    | Return only entries older than this id (cursor)   |
+| `engine`    | string  | —       | —     | Show only entries surfaced by this engine (e.g. `bing`). |
 
 **Response:**
 
@@ -155,7 +167,8 @@ GET /api/v1/news/{topic_name}
       "url": "https://example.com/article",
       "domain": "example.com",
       "source": "Tech News",
-      "scraped_at": "2025-12-03T10:45:00"
+      "scraped_at": "2025-12-03T10:45:00",
+      "engines": ["bing", "google"]
     }
   ],
   "limit": 20,
@@ -170,6 +183,7 @@ GET /api/v1/news/{topic_name}
 - Results ordered by `id DESC` (newest first).
 - `next_before_id` is the cursor for the next (older) page, or `null` when the earliest entry has been reached.
 - `topic` and `total` are populated only by the single-topic endpoint; the all-topics endpoint returns `null` for both.
+- `engines` lists every search engine that surfaced the entry (deduped across engines). The `engine` filter restricts which entries are returned, but each returned entry still shows its full `engines` list. `total` reflects the active `engine` filter.
 
 **Example:**
 

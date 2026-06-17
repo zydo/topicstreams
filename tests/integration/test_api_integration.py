@@ -77,6 +77,39 @@ def test_all_topics_feed(client, db):
     assert len(body["entries"]) == 3
 
 
+def test_engines_endpoint_lists_engines_with_data(client, db):
+    db.add_topic("alpha")
+    url = "https://example.com/a"
+    db.insert_news_entries(
+        [
+            NewsEntry.create_new("alpha", "A", url, engine="google"),
+            NewsEntry.create_new("alpha", "A", url, engine="bing"),
+        ]
+    )
+
+    assert client.get("/api/v1/news/engines").json() == ["bing", "google"]
+
+
+def test_feed_engine_filter(client, db):
+    db.add_topic("alpha")
+    db.insert_news_entries(
+        [
+            NewsEntry.create_new(
+                "alpha", "A", "https://example.com/a", engine="google"
+            ),
+            NewsEntry.create_new("alpha", "B", "https://example.com/b", engine="bing"),
+        ]
+    )
+
+    google = client.get("/api/v1/news/alpha?engine=google").json()
+    assert google["total"] == 1
+    assert {e["title"] for e in google["entries"]} == {"A"}
+    assert google["entries"][0]["engines"] == ["google"]
+
+    all_feed = client.get("/api/v1/news?engine=bing").json()
+    assert {e["title"] for e in all_feed["entries"]} == {"B"}
+
+
 def test_status_endpoint_shape_and_idle(client, db):
     db.add_topic("alpha")
 

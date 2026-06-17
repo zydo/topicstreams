@@ -3,8 +3,10 @@
 from common.model import NewsEntry
 
 
-def _article(topic, title, url, source="Wire"):
-    return NewsEntry.create_new(topic=topic, title=title, url=url, source=source)
+def _article(topic, title, url, source="Wire", engine=None):
+    return NewsEntry.create_new(
+        topic=topic, title=title, url=url, source=source, engine=engine
+    )
 
 
 def _news_row_count(db):
@@ -107,6 +109,59 @@ def test_purge_old_scraper_logs(db):
     remaining = db.get_scraper_logs(10)
     assert len(remaining) == 1
     assert remaining[0].entry_count == 5
+
+
+def test_engine_attribution_correlates_multiple_engines_to_one_article(db):
+    db.add_topic("alpha")
+    url = "https://example.com/shared"
+    # Same (topic, article) found by two engines in one cycle.
+    new_events = db.insert_news_entries(
+        [
+            _article("alpha", "Shared", url, engine="google"),
+            _article("alpha", "Shared", url, engine="bing"),
+        ]
+    )
+
+    assert new_events == 1  # one feed event despite two engines
+    assert _news_row_count(db) == 1  # article stored once
+    entry = db.get_news_entries("alpha", limit=1)[0]
+    assert entry.engines == ["bing", "google"]  # both engines, sorted
+    assert db.get_feed_engines() == ["bing", "google"]
+
+
+def test_engine_attribution_accumulates_across_cycles(db):
+    db.add_topic("alpha")
+    url = "https://example.com/x"
+    assert db.insert_news_entries([_article("alpha", "X", url, engine="google")]) == 1
+    # A later cycle: another engine surfaces the already-known article.
+    assert db.insert_news_entries([_article("alpha", "X", url, engine="bing")]) == 0
+
+    entry = db.get_news_entries("alpha", limit=1)[0]
+    assert entry.engines == ["bing", "google"]
+
+
+def test_engine_filter_restricts_feed_but_keeps_all_badges(db):
+    db.add_topic("alpha")
+    a = "https://example.com/a"
+    b = "https://example.com/b"
+    db.insert_news_entries(
+        [
+            _article("alpha", "A", a, engine="google"),
+            _article("alpha", "A", a, engine="bing"),
+            _article("alpha", "B", b, engine="bing"),
+        ]
+    )
+
+    google = db.get_news_entries("alpha", engine="google")
+    bing = db.get_news_entries("alpha", engine="bing")
+
+    assert {e.title for e in google} == {"A"}  # B not surfaced by google
+    assert {e.title for e in bing} == {"A", "B"}
+    # Filtering by google still shows A's full engine list (not just google).
+    assert google[0].engines == ["bing", "google"]
+    assert db.get_news_count("alpha", engine="google") == 1
+    assert db.get_news_count("alpha", engine="bing") == 2
+    assert db.get_news_count("alpha") == 2
 
 
 def test_all_feed_excludes_inactive_topics(db):

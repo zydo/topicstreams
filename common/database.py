@@ -15,10 +15,25 @@ from common.utils import news_id_for_url
 
 # A feed entry is a topic_news (match) row joined to its news content. The
 # exposed id is the topic_news id (the feed cursor); scraped_at is matched_at.
+# `engines` aggregates every engine that surfaced this feed event (LEFT JOIN so
+# events with no engine row still appear, with an empty list).
 _FEED_SELECT = (
     "SELECT tn.id, tn.topic, n.title, n.url, n.domain, n.source, "
-    "tn.matched_at AS scraped_at "
-    "FROM topic_news tn JOIN news n ON n.id = tn.news_id"
+    "tn.matched_at AS scraped_at, "
+    "COALESCE(array_agg(tne.engine ORDER BY tne.engine) "
+    "FILTER (WHERE tne.engine IS NOT NULL), '{}') AS engines "
+    "FROM topic_news tn JOIN news n ON n.id = tn.news_id "
+    "LEFT JOIN topic_news_engines tne ON tne.topic_news_id = tn.id"
+)
+
+# Grouped by both PKs so every selected news column is functionally dependent.
+_FEED_GROUP_BY = " GROUP BY tn.id, n.id"
+
+# Restrict the feed to events a specific engine surfaced, without dropping the
+# other engines from each row's aggregated `engines` list.
+_ENGINE_EXISTS = (
+    " AND EXISTS (SELECT 1 FROM topic_news_engines f "
+    "WHERE f.topic_news_id = tn.id AND f.engine = %s)"
 )
 
 # Package-level connection pool singleton
@@ -185,7 +200,10 @@ def delete_topic(name: str) -> None:
 
 @retry_on_transient_error()
 def get_news_entries(
-    topic: str, limit: int = 20, before_id: int | None = None
+    topic: str,
+    limit: int = 20,
+    before_id: int | None = None,
+    engine: str | None = None,
 ) -> list[NewsEntry]:
     """Get news entries for a topic, newest first, via id-cursor pagination.
 
@@ -195,6 +213,7 @@ def get_news_entries(
         before_id: Return only entries older than this id (exclusive). None
             starts from the newest entry. Cursor pagination is immune to the
             offset drift that live insertions cause at the top of the feed.
+        engine: If set, only entries surfaced by this engine (e.g. 'bing').
 
     Returns:
         List of NewsEntry objects (topic matches) ordered by feed id DESC
@@ -203,10 +222,13 @@ def get_news_entries(
     with _Connection() as conn:
         sql = _FEED_SELECT + " WHERE tn.topic = %s"
         params: list = [topic]
+        if engine:
+            sql += _ENGINE_EXISTS
+            params.append(engine)
         if before_id is not None:
             sql += " AND tn.id < %s"
             params.append(before_id)
-        sql += " ORDER BY tn.id DESC LIMIT %s"
+        sql += _FEED_GROUP_BY + " ORDER BY tn.id DESC LIMIT %s"
         params.append(limit)
 
         cursor = conn.cursor()
@@ -217,7 +239,7 @@ def get_news_entries(
 
 @retry_on_transient_error()
 def get_news_entries_all(
-    limit: int = 20, before_id: int | None = None
+    limit: int = 20, before_id: int | None = None, engine: str | None = None
 ) -> list[NewsEntry]:
     """Get news entries across all active topics, newest first.
 
@@ -225,6 +247,7 @@ def get_news_entries_all(
     "All topics" view is a single chronological stream of topic matches.
     Matches on soft-deleted topics are excluded to track the active set. An
     article matched by several topics appears once per match, by design.
+    ``engine`` optionally restricts to events a given engine surfaced.
     """
     with _Connection() as conn:
         sql = (
@@ -232,10 +255,13 @@ def get_news_entries_all(
             + " JOIN topics t ON t.name = tn.topic WHERE t.is_active = TRUE"
         )
         params: list = []
+        if engine:
+            sql += _ENGINE_EXISTS
+            params.append(engine)
         if before_id is not None:
             sql += " AND tn.id < %s"
             params.append(before_id)
-        sql += " ORDER BY tn.id DESC LIMIT %s"
+        sql += _FEED_GROUP_BY + " ORDER BY tn.id DESC LIMIT %s"
         params.append(limit)
 
         cursor = conn.cursor()
@@ -249,19 +275,35 @@ def get_news_entry(entry_id: str) -> NewsEntry | None:
     """Resolve a single feed entry by its topic_news (feed) id."""
     with _Connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(_FEED_SELECT + " WHERE tn.id = %s", (entry_id,))
+        cursor.execute(_FEED_SELECT + " WHERE tn.id = %s" + _FEED_GROUP_BY, (entry_id,))
         row = cursor.fetchone()
         return NewsEntry.from_db_row(dict(row)) if row else None
 
 
 @retry_on_transient_error()
-def get_news_count(topic: str) -> int:
+def get_news_count(topic: str, engine: str | None = None) -> int:
     with _Connection() as conn:
-        sql = "SELECT COUNT(id) as count FROM topic_news WHERE topic = %s"
+        sql = "SELECT COUNT(*) as count FROM topic_news tn WHERE tn.topic = %s"
+        params: list = [topic]
+        if engine:
+            sql += _ENGINE_EXISTS
+            params.append(engine)
         cursor = conn.cursor()
-        cursor.execute(sql, (topic,))
+        cursor.execute(sql, tuple(params))
         result = cursor.fetchone()
         return result["count"] if result else 0
+
+
+@retry_on_transient_error()
+def get_feed_engines() -> list[str]:
+    """Distinct engines that have surfaced at least one feed event, sorted.
+
+    Powers the UI engine filter so it only offers engines with data.
+    """
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT engine FROM topic_news_engines ORDER BY engine")
+        return [row["engine"] for row in cursor.fetchall()]
 
 
 @retry_on_transient_error()
@@ -282,7 +324,9 @@ def insert_news_entries(entries: list[NewsEntry]) -> int:
 
     news_values = []
     seen_news: set = set()
-    match_values = []
+    match_pairs: set = set()  # distinct (topic, news_id)
+    # (topic, news_id, engine) facts to attribute each match to its engine(s).
+    engine_facts: set = set()
     for entry in entries:
         news_id = str(news_id_for_url(entry.url))
         if news_id not in seen_news:
@@ -290,7 +334,9 @@ def insert_news_entries(entries: list[NewsEntry]) -> int:
             news_values.append(
                 (news_id, entry.url, entry.title, entry.domain, entry.source)
             )
-        match_values.append((entry.topic, news_id))
+        match_pairs.add((entry.topic, news_id))
+        if entry.engine:
+            engine_facts.add((entry.topic, news_id, entry.engine))
 
     with _Connection() as conn:
         cursor = conn.cursor()
@@ -304,9 +350,37 @@ def insert_news_entries(entries: list[NewsEntry]) -> int:
             cursor,
             "INSERT INTO topic_news (topic, news_id) VALUES %s "
             "ON CONFLICT (topic, news_id) DO NOTHING",
-            match_values,
+            list(match_pairs),
         )
-        return cursor.rowcount
+        new_events = cursor.rowcount
+
+        # Attribute matches to the engines that surfaced them. We need the
+        # topic_news id for every (topic, news_id) in this batch — both rows
+        # just inserted and ones from earlier cycles (a new engine can find an
+        # already-known article) — so resolve them all, then upsert the facts.
+        if engine_facts:
+            cursor.execute(
+                "SELECT id, topic, news_id::text AS news_id FROM topic_news "
+                "WHERE (topic, news_id) IN %s",
+                (tuple(match_pairs),),
+            )
+            id_by_pair = {
+                (r["topic"], r["news_id"]): r["id"] for r in cursor.fetchall()
+            }
+            engine_values = [
+                (id_by_pair[(topic, news_id)], engine)
+                for (topic, news_id, engine) in engine_facts
+                if (topic, news_id) in id_by_pair
+            ]
+            if engine_values:
+                execute_values(
+                    cursor,
+                    "INSERT INTO topic_news_engines (topic_news_id, engine) "
+                    "VALUES %s ON CONFLICT (topic_news_id, engine) DO NOTHING",
+                    engine_values,
+                )
+
+        return new_events
 
 
 # No retry: scraper_logs has no unique constraint, so a retry after a commit

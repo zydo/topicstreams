@@ -37,6 +37,17 @@ class NewsEntry(BaseModel):
     scraped_at: datetime | None = Field(
         None, description="Timestamp when entry was scraped"
     )
+    # Scrape-side: which engine produced this parsed entry (stamped by the
+    # runner). Persisted into topic_news_engines on insert.
+    engine: str | None = Field(
+        None, description="Search engine that scraped this entry (insert side)"
+    )
+    # Feed-side: every engine that has surfaced this feed event, populated when
+    # reading the feed (empty on freshly scraped entries).
+    engines: list[str] = Field(
+        default_factory=list,
+        description="Engines that surfaced this feed event (read side)",
+    )
 
     @classmethod
     def create_new(
@@ -45,6 +56,7 @@ class NewsEntry(BaseModel):
         title: str,
         url: str,
         source: str | None = None,
+        engine: str | None = None,
     ) -> "NewsEntry":
         """Create a new NewsEntry for insertion (without id and scraped_at)"""
 
@@ -56,6 +68,7 @@ class NewsEntry(BaseModel):
             domain=cls._extract_domain(url),
             source=source,
             scraped_at=None,
+            engine=engine,
         )
 
     @classmethod

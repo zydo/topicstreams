@@ -236,6 +236,9 @@ def _scrape_one_page(
             try:
                 entry = source.parse_item(item, topic)
                 if entry:
+                    # Stamp the producing engine so the insert can attribute
+                    # this (topic, article) match to it in topic_news_engines.
+                    entry.engine = source.name
                     entries.append(entry)
             except Exception as e:
                 logger.debug(f"Error parsing news item: {e}")

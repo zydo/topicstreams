@@ -51,6 +51,27 @@ ORDER BY scraped_at DESC
 LIMIT 20;
 ```
 
+### Feed events per engine
+
+How many feed events each search engine has surfaced (an article found by
+several engines is counted under each).
+
+```sql
+SELECT engine, COUNT(*) AS feed_events
+FROM topic_news_engines
+GROUP BY engine
+ORDER BY feed_events DESC;
+```
+
+### Articles found by more than one engine
+
+```sql
+SELECT topic_news_id, array_agg(engine ORDER BY engine) AS engines
+FROM topic_news_engines
+GROUP BY topic_news_id
+HAVING COUNT(*) > 1;
+```
+
 ### Database size
 
 ```sql

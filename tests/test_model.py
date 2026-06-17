@@ -19,6 +19,14 @@ class TestNewsEntry:
         assert e.id is None
         assert e.scraped_at is None
         assert e.source is None
+        assert e.engine is None  # scrape-side engine unset until stamped
+        assert e.engines == []  # feed-side aggregate empty off the wire
+
+    def test_create_new_with_engine(self):
+        e = NewsEntry.create_new(
+            topic="t", title="T", url="https://x.com", engine="bing"
+        )
+        assert e.engine == "bing"
 
     def test_from_db_row(self):
         row = {

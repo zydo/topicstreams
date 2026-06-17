@@ -17,7 +17,11 @@ find result items, parse an item, and detect a block — so the runner
 
 Cross-engine duplicates are free: a news row's id is derived from its
 normalized URL, so the same article seen on two engines collapses to one feed
-event via the `topic_news` junction.
+event via the `topic_news` junction. Which engines surfaced each feed event
+(and when each first did) is recorded in `topic_news_engines`, so an article
+found by both Google and Bing is stored once but attributed to both. The feed
+API and UI expose an **engine filter** (orthogonal to the topic filter), and
+each feed entry carries the full list of engines that found it.
 
 ### Combine strategy
 
