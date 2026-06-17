@@ -36,6 +36,10 @@ class TestNormalizeUrl:
     def test_strips_trailing_slash(self):
         assert normalize_url("https://x.com/a/") == "https://x.com/a"
 
+    def test_canonicalizes_scheme_to_https(self):
+        # http/https of the same page are one article.
+        assert normalize_url("http://x.com/a") == "https://x.com/a"
+
     def test_strips_utm_and_known_trackers(self):
         assert (
             normalize_url("https://x.com/a?utm_source=g&gclid=1&id=5")
@@ -55,6 +59,9 @@ class TestNewsIdForUrl:
         a = news_id_for_url("https://x.com/a?utm_source=g#frag")
         b = news_id_for_url("https://X.com/a/?gclid=1")
         assert a == b
+
+    def test_scheme_does_not_split_identity(self):
+        assert news_id_for_url("http://x.com/a") == news_id_for_url("https://x.com/a")
 
     def test_is_uuid5(self):
         nid = news_id_for_url("https://x.com/a")

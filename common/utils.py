@@ -26,9 +26,16 @@ _TRACKING_PARAMS = frozenset(
 def normalize_url(url: str) -> str:
     """Canonicalize a URL for use as article identity.
 
-    Drops the fragment, lowercases the host, strips a trailing slash, and
+    Forces the scheme to https (http/https of the same page are one article),
+    lowercases the host, drops the fragment, strips a trailing slash, and
     removes utm_* plus the known tracking params above. Everything else is
     preserved.
+
+    We only strip *cross-platform* tracking params (utm_*, ad-click ids).
+    Site-specific tracking tags (e.g. a single publisher's own query param)
+    are left in place: they don't follow a public convention, so chasing them
+    means a brittle per-site denylist, and the occasional duplicate they cause
+    is an acceptable trade vs. wrongly merging distinct articles.
     """
     parts = urlsplit(url.strip())
     path = parts.path.rstrip("/") or "/"
@@ -39,7 +46,7 @@ def normalize_url(url: str) -> str:
             if not (k.lower().startswith("utm_") or k.lower() in _TRACKING_PARAMS)
         ]
     )
-    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, query, ""))
+    return urlunsplit(("https", parts.netloc.lower(), path, query, ""))
 
 
 def news_id_for_url(url: str) -> uuid.UUID:
