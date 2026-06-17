@@ -1,8 +1,10 @@
 # Search-Engine Block Signal Characterization (Plan)
 
-> Status: **planned, not started.** To be run in a dedicated, isolated,
-> different-IP environment — **not** production or a personal IP. This file is
-> self-contained so it can be picked up without the original chat context.
+> Status: **run 2026-06-17** at the scraper's sequential ~1 req/s — results in
+> [BLOCK_SIGNAL_FINDINGS.md](BLOCK_SIGNAL_FINDINGS.md). Brave's signal is now
+> implemented; Google's was already grounded; Bing/Yahoo did not block at that
+> rate (tripping them would need concurrency, still open). This file is the plan
+> /background, kept self-contained for re-runs.
 
 ## Goal
 
@@ -43,14 +45,16 @@ block/challenge/redirect page. Those need a per-engine (or generic-redirect)
 
 | Engine     | `detect_block` today                                                                                                                | Grounded in a real observation?    |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| **Google** | `/sorry/` redirect (definitive) + captcha keywords (`captcha`, `unusual traffic`, from `anti_detection.captcha_detection.keywords`) | ✅ Yes (CAPTCHA work 2026-06-11/12) |
-| **Bing**   | `return None` (stub)                                                                                                                | ❌ No — never observed a block      |
-| **Yahoo**  | `return None` (stub)                                                                                                                | ❌ No                               |
-| **Brave**  | `return None` (stub)                                                                                                                | ❌ No                               |
+| **Google** | `/sorry/` redirect (definitive) + captcha keywords (`captcha`, `unusual traffic`, from `anti_detection.captcha_detection.keywords`) | ✅ Yes (CAPTCHA work 2026-06-11/12; reconfirmed 2026-06-17) |
+| **Brave**  | captcha-interstitial body markers (`decided to schedule a captcha`, `page:"/captcha"`)                                              | ✅ Yes (blocked ~250 reqs in; 2026-06-17) |
+| **Bing**   | `return None` (stub)                                                                                                                | ⏳ No block at ~1 req/s (~440 reqs) |
+| **Yahoo**  | `return None` (stub)                                                                                                                | ⏳ No block at ~1 req/s (~900 reqs) |
 
-Bing/Yahoo/Brave were deliberately left as `None`: we'd only ever seen their
-*success* pages, and hardcoding a guessed pattern risks false-positiving on real
-results (the same trap Google's keyword matching warns about).
+For both real blockers (Google, Brave) the HTTP `429` net fires first; the
+per-engine `detect_block` is the backup for a `200`-served challenge. Bing and
+Yahoo stay `None` on purpose — they didn't block at the sequential rate, and a
+guessed pattern risks false-positiving on real results. Tripping Bing/Yahoo
+needs concurrency well beyond ~1 req/s (see findings).
 
 For a worked example of a soft-block signal, see DuckDuckGo's `static-pages/418`
 redirect in [DUCKDUCKGO_UNSUPPORTED.md](DUCKDUCKGO_UNSUPPORTED.md) (DDG itself is

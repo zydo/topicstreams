@@ -244,7 +244,20 @@ def _scrape_one_page(
                 logger.debug(f"Error parsing news item: {e}")
                 continue
 
-        logger.info(f"Successfully parsed {len(entries)} news entries")
+        if entries:
+            logger.info(f"Successfully parsed {len(entries)} news entries")
+        else:
+            # HTTP 200 and detect_block clear, yet nothing parsed: a possible
+            # silent block or selector rot. Log enough (final URL + title) to
+            # characterize it later without a deliberate flood — this
+            # self-documenting log is what surfaced Brave's/Google's block
+            # pages during the 2026-06-17 run (docs/BLOCK_SIGNAL_FINDINGS.md). A
+            # sustained run of these flips server-side health to "parsing".
+            title = soup.title.get_text(strip=True) if soup.title else ""
+            logger.warning(
+                f"{source.name}/{topic}: HTTP {response_status} but 0 items parsed "
+                f"({len(items)} candidates); final_url={page.url} title={title!r}"
+            )
         return (
             entries,
             _log(
