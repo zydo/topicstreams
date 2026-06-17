@@ -41,12 +41,12 @@ block/challenge/redirect page. Those need a per-engine (or generic-redirect)
 
 ## Current per-engine state (as of 2026-06-17)
 
-| Engine | `detect_block` today | Grounded in a real observation? |
-| ------ | -------------------- | ------------------------------- |
+| Engine     | `detect_block` today                                                                                                                | Grounded in a real observation?    |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
 | **Google** | `/sorry/` redirect (definitive) + captcha keywords (`captcha`, `unusual traffic`, from `anti_detection.captcha_detection.keywords`) | ✅ Yes (CAPTCHA work 2026-06-11/12) |
-| **Bing** | `return None` (stub) | ❌ No — never observed a block |
-| **Yahoo** | `return None` (stub) | ❌ No |
-| **Brave** | `return None` (stub) | ❌ No |
+| **Bing**   | `return None` (stub)                                                                                                                | ❌ No — never observed a block      |
+| **Yahoo**  | `return None` (stub)                                                                                                                | ❌ No                               |
+| **Brave**  | `return None` (stub)                                                                                                                | ❌ No                               |
 
 Bing/Yahoo/Brave were deliberately left as `None`: we'd only ever seen their
 *success* pages, and hardcoding a guessed pattern risks false-positiving on real

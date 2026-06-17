@@ -133,12 +133,12 @@ change needed.
 Two of four engines block at the scraper's sequential ~1 req/s rate; two do
 not. Aggressiveness order: **Google ≫ Brave ≫ (Bing, Yahoo: no block)**.
 
-| Engine | Requests to block | HTTP status | Redirect | Distinctive body markers | `detect_block` action |
-| ------ | ----------------- | ----------- | -------- | ------------------------ | --------------------- |
-| Google | ~54 (~80 s)       | 429         | → `/sorry/index?continue=…` | "detected unusual traffic", captcha-form | already grounded (/sorry/ + keywords); 429 net fires first — keep as-is |
-| Brave  | ~250 (~8 min)     | 429         | none (same URL) | "decided to schedule a captcha for you", `page:"/captcha"` | add body-marker check (429 net already catches it) |
-| Bing   | none (~440 req)   | 200         | none     | n/a — full results throughout | keep `None` until a block is seen |
-| Yahoo  | none (~900 req)   | 200         | none     | n/a — full results throughout | keep `None` until a block is seen |
+| Engine | Requests to block | HTTP status | Redirect                    | Distinctive body markers                                   | `detect_block` action                                                   |
+| ------ | ----------------- | ----------- | --------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Google | ~54 (~80 s)       | 429         | → `/sorry/index?continue=…` | "detected unusual traffic", captcha-form                   | already grounded (/sorry/ + keywords); 429 net fires first — keep as-is |
+| Brave  | ~250 (~8 min)     | 429         | none (same URL)             | "decided to schedule a captcha for you", `page:"/captcha"` | add body-marker check (429 net already catches it)                      |
+| Bing   | none (~440 req)   | 200         | none                        | n/a — full results throughout                              | keep `None` until a block is seen                                       |
+| Yahoo  | none (~900 req)   | 200         | none                        | n/a — full results throughout                              | keep `None` until a block is seen                                       |
 
 ## Throughput observed (peak queries/minute)
 
@@ -147,12 +147,12 @@ page-load-bound, not set by `scrape_interval` — at `scrape_interval: 1` the
 limiter is each request's navigation + 300 ms settle, giving roughly 1 req/s.
 Peak = the busiest single 60 s window.
 
-| Engine | Peak req/min | ~req/s | Source of number | Cumulative reqs before block |
-| ------ | ------------ | ------ | ---------------- | ---------------------------- |
-| Yahoo  | **57**       | ~0.95  | measured (capture log, minute 09:09) | no block (~900+) |
-| Bing   | **~50**      | ~0.8   | derived (~1.0–1.3 s cycles; clean log lost) | no block (~440) |
-| Google | **47**       | ~0.78  | measured (current container, minute 09:50) | **~54 (~80 s)** |
-| Brave  | **~33**      | ~0.55  | derived (250 reqs over ~457 s; ~1.7–2.1 s cycles) | **~250 (~8 min)** |
+| Engine | Peak req/min | ~req/s | Source of number                                  | Cumulative reqs before block |
+| ------ | ------------ | ------ | ------------------------------------------------- | ---------------------------- |
+| Yahoo  | **57**       | ~0.95  | measured (capture log, minute 09:09)              | no block (~900+)             |
+| Bing   | **~50**      | ~0.8   | derived (~1.0–1.3 s cycles; clean log lost)       | no block (~440)              |
+| Google | **47**       | ~0.78  | measured (current container, minute 09:50)        | **~54 (~80 s)**              |
+| Brave  | **~33**      | ~0.55  | derived (250 reqs over ~457 s; ~1.7–2.1 s cycles) | **~250 (~8 min)**            |
 
 Notes:
 - Brave/Bing peaks are estimates: Brave's and Bing's containers were

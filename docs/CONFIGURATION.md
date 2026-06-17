@@ -48,20 +48,20 @@ vim config/anti_detection.yml
 
 ### API Settings
 
-| Variable    | Default | Description                                                      |
-| ----------- | ------- | ---------------------------------------------------------------- |
-| `API_PORT`   | `5000`  | Port inside the container where FastAPI listens                  |
-| `HOST_PORT`  | `5000`  | Port exposed on the host (set to `80` for production deployment) |
+| Variable     | Default | Description                                                              |
+| ------------ | ------- | ------------------------------------------------------------------------ |
+| `API_PORT`   | `5000`  | Port inside the container where FastAPI listens                          |
+| `HOST_PORT`  | `5000`  | Port exposed on the host (set to `80` for production deployment)         |
 | `LOG_FORMAT` | `text`  | `text` (human-readable) or `json` (structured logs, one object per line) |
 
 > **Note:** The `HOST_PORT` is mapped to `API_PORT` (e.g., `HOST_PORT=80` and `API_PORT=5000` means the app listens on container port 5000 but is accessible via host port 80). For production deployments, set `HOST_PORT=80` to use the standard HTTP port.
 
 ### Security Settings
 
-| Variable              | Default | Description                                                                                                                                              |
-| --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `API_KEY`             | (unset) | When set, `POST`/`DELETE /api/v1/topics` require a matching `X-API-Key` header. Unset = writes are open (dev mode).                                      |
-| `CORS_ORIGINS`        | `*`     | Comma-separated allowed origins for browser requests.                                                                                                   |
+| Variable              | Default | Description                                                                                                                                                                                                                              |
+| --------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `API_KEY`             | (unset) | When set, `POST`/`DELETE /api/v1/topics` require a matching `X-API-Key` header. Unset = writes are open (dev mode).                                                                                                                      |
+| `CORS_ORIGINS`        | `*`     | Comma-separated allowed origins for browser requests.                                                                                                                                                                                    |
 | `TRUSTED_PROXY_COUNT` | `0`     | Reverse proxies in front of the app. `>0` makes the rate limiter read the client IP from `X-Forwarded-For` (Nth entry from the right); `0` = direct, header ignored. Set this to match your proxy chain, or one IP rate-limits everyone. |
 
 > **Behind a reverse proxy:** set `TRUSTED_PROXY_COUNT` to the number of proxies between the client and the app (usually `1`). Lock the origin so it only accepts traffic from those proxies — otherwise `X-Forwarded-For` can be spoofed by hitting the app directly.
@@ -69,7 +69,7 @@ vim config/anti_detection.yml
 ### Data Retention
 
 | Variable              | Default | Description                                                                                                  |
-| --------------------- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| --------------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
 | `NEWS_RETENTION_DAYS` | `30`    | Each scrape cycle purges news (feed events + orphaned articles) **and** scraper logs older than this window. |
 
 ## YAML Configuration Files
@@ -91,12 +91,12 @@ scraper:
   engine_strategy: all  # How enabled engines combine: all | fallback | rotate
 ```
 
-| Setting            | Default                          | Description                                                                                                                                                                                                            |
-| ------------------ | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scrape_interval`  | `60`                             | Interval in seconds between scrape cycles (measured from start to start). Set to `0` or negative for continuous scraping with no delay. See [Scrape Interval Behavior](SCRAPING_BEHAVIOR.md#scrape-interval-behavior). |
-| `max_pages`        | `1`                              | Number of result pages to scrape. Increase if you have high-volume topics or longer intervals.                                                                                                                         |
-| `engines`          | `[google, bing, yahoo, brave]`   | Search engines to scrape, as a list in priority order. Available: `google`, `bing`, `yahoo`, `brave`. (DuckDuckGo is not supported — it hard-blocks scraping; see [docs/DUCKDUCKGO_UNSUPPORTED.md](DUCKDUCKGO_UNSUPPORTED.md).) See [Search Engines](SCRAPING_BEHAVIOR.md#search-engines). |
-| `engine_strategy`  | `all`                            | How enabled engines combine per cycle: `all` (scrape every engine each cycle), `fallback` (try in order, stop at the first that returns items), or `rotate` (one engine per cycle, rotating).                          |
+| Setting           | Default                        | Description                                                                                                                                                                                                                                                                                |
+| ----------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `scrape_interval` | `60`                           | Interval in seconds between scrape cycles (measured from start to start). Set to `0` or negative for continuous scraping with no delay. See [Scrape Interval Behavior](SCRAPING_BEHAVIOR.md#scrape-interval-behavior).                                                                     |
+| `max_pages`       | `1`                            | Number of result pages to scrape. Increase if you have high-volume topics or longer intervals.                                                                                                                                                                                             |
+| `engines`         | `[google, bing, yahoo, brave]` | Search engines to scrape, as a list in priority order. Available: `google`, `bing`, `yahoo`, `brave`. (DuckDuckGo is not supported — it hard-blocks scraping; see [docs/DUCKDUCKGO_UNSUPPORTED.md](DUCKDUCKGO_UNSUPPORTED.md).) See [Search Engines](SCRAPING_BEHAVIOR.md#search-engines). |
+| `engine_strategy` | `all`                          | How enabled engines combine per cycle: `all` (scrape every engine each cycle), `fallback` (try in order, stop at the first that returns items), or `rotate` (one engine per cycle, rotating).                                                                                              |
 
 ### Anti-Detection Settings (`config/anti_detection.yml`)
 
@@ -282,11 +282,11 @@ anti_detection:
       - "socks5://user:pass@gateway.provider.com:1080"
 ```
 
-| Setting          | Default | Description                                                                 |
-| ---------------- | ------- | --------------------------------------------------------------------------- |
-| `enabled`        | `false` | Enable proxying. Implicitly `true` when `SCRAPER_PROXY` is set.             |
-| `proxies`        | `[]`    | Proxy URLs `scheme://[user:pass@]host:port` (http/https/socks5). One is chosen per browser launch. |
-| `SCRAPER_PROXY`  | unset   | Single proxy URL (env var). Overrides `proxies` and enables proxying.       |
+| Setting         | Default | Description                                                                                        |
+| --------------- | ------- | -------------------------------------------------------------------------------------------------- |
+| `enabled`       | `false` | Enable proxying. Implicitly `true` when `SCRAPER_PROXY` is set.                                    |
+| `proxies`       | `[]`    | Proxy URLs `scheme://[user:pass@]host:port` (http/https/socks5). One is chosen per browser launch. |
+| `SCRAPER_PROXY` | unset   | Single proxy URL (env var). Overrides `proxies` and enables proxying.                              |
 
 > **Match the location.** Set `timezone_id` and `geolocation` (above in
 > `anti_detection.yml`) to the proxy's exit country — a mismatch is itself a

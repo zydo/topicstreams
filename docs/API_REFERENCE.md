@@ -119,10 +119,10 @@ Entries from soft-deleted (inactive) topics are excluded.
 
 **Query Parameters:**
 
-| Parameter   | Type    | Default | Range | Description                                       |
-| ----------- | ------- | ------- | ----- | ------------------------------------------------- |
-| `limit`     | integer | `20`    | 1-100 | Number of entries per page                        |
-| `before_id` | integer | —       | ≥1    | Return only entries older than this id (cursor)   |
+| Parameter   | Type    | Default | Range | Description                                                                              |
+| ----------- | ------- | ------- | ----- | ---------------------------------------------------------------------------------------- |
+| `limit`     | integer | `20`    | 1-100 | Number of entries per page                                                               |
+| `before_id` | integer | —       | ≥1    | Return only entries older than this id (cursor)                                          |
 | `engine`    | string  | —       | —     | Show only entries surfaced by this engine (e.g. `bing`). Orthogonal to the topic filter. |
 
 #### List Feed Engines
@@ -149,10 +149,10 @@ GET /api/v1/news/{topic_name}
 
 **Query Parameters:**
 
-| Parameter   | Type    | Default | Range | Description                                       |
-| ----------- | ------- | ------- | ----- | ------------------------------------------------- |
-| `limit`     | integer | `20`    | 1-100 | Number of entries per page                        |
-| `before_id` | integer | —       | ≥1    | Return only entries older than this id (cursor)   |
+| Parameter   | Type    | Default | Range | Description                                              |
+| ----------- | ------- | ------- | ----- | -------------------------------------------------------- |
+| `limit`     | integer | `20`    | 1-100 | Number of entries per page                               |
+| `before_id` | integer | —       | ≥1    | Return only entries older than this id (cursor)          |
 | `engine`    | string  | —       | —     | Show only entries surfaced by this engine (e.g. `bing`). |
 
 **Response:**

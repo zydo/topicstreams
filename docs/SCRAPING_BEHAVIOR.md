@@ -9,12 +9,12 @@ find result items, parse an item, and detect a block — so the runner
 
 All four supported engines are enabled by default (`engine_strategy: all`).
 
-| Engine       | Name (config) | Status                                                                       |
-| ------------ | ------------- | ---------------------------------------------------------------------------- |
-| Google News  | `google`      | On by default; News tab, newest-first, past hour.                            |
-| Bing News    | `bing`        | On by default. Date sort + freshness via `qft` filters.                      |
-| Yahoo News   | `yahoo`       | On by default. Links unwrapped from Yahoo's redirector.                      |
-| Brave News   | `brave`       | On by default. Freshness via `tf`; relevance-ranked.                         |
+| Engine      | Name (config) | Status                                                  |
+| ----------- | ------------- | ------------------------------------------------------- |
+| Google News | `google`      | On by default; News tab, newest-first, past hour.       |
+| Bing News   | `bing`        | On by default. Date sort + freshness via `qft` filters. |
+| Yahoo News  | `yahoo`       | On by default. Links unwrapped from Yahoo's redirector. |
+| Brave News  | `brave`       | On by default. Freshness via `tf`; relevance-ranked.    |
 
 **DuckDuckGo is not supported** — it hard-blocks automated access, so it cannot
 be scraped reliably. See [DUCKDUCKGO_UNSUPPORTED.md](DUCKDUCKGO_UNSUPPORTED.md)

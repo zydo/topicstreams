@@ -109,9 +109,9 @@ playwright-stealth support exists in the code (configurable via `playwright_stea
 
 The signals stealth used to mask are covered without JS patching:
 
-| Detection Vector      | Covered by                                        |
-| --------------------- | ------------------------------------------------- |
-| `navigator.webdriver` | `--disable-blink-features=AutomationControlled`   |
+| Detection Vector      | Covered by                                          |
+| --------------------- | --------------------------------------------------- |
+| `navigator.webdriver` | `--disable-blink-features=AutomationControlled`     |
 | User agent / brands   | Runtime-derived fingerprint (`_detect_fingerprint`) |
 
 ### 4. Memory Management & Additional Strategies

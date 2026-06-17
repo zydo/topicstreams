@@ -20,13 +20,13 @@ scraping DDG's **news** vertical (not web search) and parsing the results into
 DuckDuckGo aggressively fingerprints automated access. Every surface that would
 yield **news** is blocked, and the surfaces that respond don't return news:
 
-| Surface | Result |
-| ------- | ------ |
-| `duckduckgo.com/` (homepage) | 200 — reachable |
-| `duckduckgo.com/?q=…&iar=news&ia=news` (news vertical) | 200 but **redirects to a static block page**, `duckduckgo.com/static-pages/418.html` ("I'm a teapot"). No results. |
+| Surface                                                     | Result                                                                                                             |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `duckduckgo.com/` (homepage)                                | 200 — reachable                                                                                                    |
+| `duckduckgo.com/?q=…&iar=news&ia=news` (news vertical)      | 200 but **redirects to a static block page**, `duckduckgo.com/static-pages/418.html` ("I'm a teapot"). No results. |
 | `news.js` JSON API (what DDG's own frontend calls for news) | Unusable — it requires a `vqd` token, and the only page that carries the token is the news SERP, which is blocked. |
-| `lite.duckduckgo.com/lite/?q=…` | Returns results **once**, then `403` under light load. Also: **web** results, not a news vertical. |
-| `html.duckduckgo.com/html/?q=…` | Same — 200 once, then `403` / "If this persists…" error. **Web** results, not news. |
+| `lite.duckduckgo.com/lite/?q=…`                             | Returns results **once**, then `403` under light load. Also: **web** results, not a news vertical.                 |
+| `html.duckduckgo.com/html/?q=…`                             | Same — 200 once, then `403` / "If this persists…" error. **Web** results, not news.                                |
 
 So:
 
