@@ -1,20 +1,62 @@
 # Scraping Behavior
 
+## Search Engines
+
+Scraping is **pluggable across search engines**. Each engine implements the
+`SearchSource` contract (`scraper/sources/`) — how to build its results URL,
+find result items, parse an item, and detect a block — so the runner
+(`scraper/scraper.py`) stays engine-agnostic.
+
+| Engine       | Name (config) | Status                                                                       |
+| ------------ | ------------- | ---------------------------------------------------------------------------- |
+| Google News  | `google`      | Default; News tab, newest-first, past hour.                                  |
+| Bing News    | `bing`        | Live-validated. Date sort + freshness via `qft` filters.                     |
+| Yahoo News   | `yahoo`       | Live-validated. Links unwrapped from Yahoo's redirector.                     |
+| Brave News   | `brave`       | Live-validated. Freshness via `tf`; relevance-ranked.                        |
+| DuckDuckGo   | `duckduckgo`  | Wired but **disabled by default** — DDG gates automated access (see below).  |
+
+Cross-engine duplicates are free: a news row's id is derived from its
+normalized URL, so the same article seen on two engines collapses to one feed
+event via the `topic_news` junction.
+
+### Combine strategy
+
+When more than one engine is enabled (`scraper.engines.enabled`), the
+`scraper.engines.strategy` setting controls how they combine per cycle:
+
+- **`fallback`** (default): try engines in priority order, stop at the first
+  that returns items — a resilient backup chain if one engine is blocked.
+- **`all`**: scrape every enabled engine each cycle for maximum coverage.
+- **`rotate`**: use one engine per cycle, rotating through the list, to spread
+  per-engine request volume.
+
+Per-engine scrape health is recorded (`engine` column on `scraper_logs`), so a
+topic served by a second engine stays "live" even if its primary engine breaks.
+
+### DuckDuckGo caveat
+
+DDG's news vertical renders client-side after a token handshake and serves an
+"anomaly" challenge to datacenter clients, so its results don't appear in the
+scraped HTML from our infrastructure. The source targets the DDG **news page**
+(`iar=news&ia=news`), not web search, and ships disabled by default; enable it
+in an environment where the fingerprinted browser clears the challenge. The
+parse-0 health signal flags it if the markup drifts.
+
 ## Sequential Execution
 
 Topics are scraped **one after another sequentially**, not concurrently:
 
 ```python
 for topic in topics:
-    scrape_news(page, topic)
+    scrape_topic(context.new_page, sources, topic, strategy=strategy, cycle=cycle)
     # Next topic starts after previous completes
 ```
 
 ### Why Sequential?
 
-- Avoids unusually high QPS (queries per second) that could trigger Google's rate limiting
+- Avoids unusually high QPS (queries per second) that could trigger search-engine rate limiting
 - Reduces the chance of being blocked
-- Simulates natural browsing behavior (humans don't open 10 Google searches simultaneously)
+- Simulates natural browsing behavior (humans don't open 10 searches simultaneously)
 
 ### Topic Order
 

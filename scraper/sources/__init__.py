@@ -6,11 +6,17 @@ registering it in ``_SOURCES``.
 
 from .base import Ordering, Recency, SearchSource
 from .bing import BingSource
+from .brave import BraveSource
+from .duckduckgo import DuckDuckGoSource
 from .google import GoogleSource
+from .yahoo import YahooSource
 
 _SOURCES: dict[str, type[SearchSource]] = {
     GoogleSource.name: GoogleSource,
     BingSource.name: BingSource,
+    YahooSource.name: YahooSource,
+    BraveSource.name: BraveSource,
+    DuckDuckGoSource.name: DuckDuckGoSource,
 }
 
 
@@ -28,6 +34,9 @@ __all__ = [
     "SearchSource",
     "GoogleSource",
     "BingSource",
+    "YahooSource",
+    "BraveSource",
+    "DuckDuckGoSource",
     "Ordering",
     "Recency",
     "get_source",

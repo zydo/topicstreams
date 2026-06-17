@@ -1,6 +1,6 @@
 # TopicStreams
 
-Real-time news aggregation system that continuously scrapes Google (not Google News) for any topics (search keywords) and streams updates via WebSocket.
+Real-time news aggregation system that continuously scrapes search engines (Google by default, with pluggable Bing/Yahoo/Brave backups) — the News tab, not Google News — for any topics (search keywords) and streams updates via WebSocket.
 
 ## Why TopicStreams?
 
@@ -30,6 +30,7 @@ TopicStreams scrapes **Google Search → News Tab** with time filters, giving yo
 - **Unfiltered access** - No curation, you decide what's relevant
 - **Near-instant updates** - Scrape frequently enough and catch news as it breaks
 - **Full control** - Customize topics (search keywords) and scrape intervals
+- **Multiple engines** - Pluggable search sources (Google, Bing, Yahoo, Brave) with fallback/all/rotate strategies; see [Search Engines](docs/SCRAPING_BEHAVIOR.md#search-engines)
 
 <p align="center">
 <img src="docs/pic/google_search_news_page_example.png" alt="Google Search News Tab - Latest, Unfiltered Results" width="600"/><br/>

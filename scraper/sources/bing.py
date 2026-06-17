@@ -36,11 +36,16 @@ class BingSource(SearchSource):
         q = re.sub(r"\s+", "+", topic.strip())
         first = (page - 1) * 10 + 1  # Bing paginates by 1-based result offset
         params = [f"q={q}", f"first={first}"]
-        if ordering is Ordering.DATE:
-            params.append("sortbydate=1")
+        # Date sorting and freshness are both expressed as qft filter tokens
+        # (e.g. qft=interval%3d"7"+sortbydate%3d"1").
+        qft: list[str] = []
         interval = _RECENCY_INTERVAL.get(recency)
         if interval:
-            params.append(f'qft=interval%3d"{interval}"')
+            qft.append(f'interval%3d"{interval}"')
+        if ordering is Ordering.DATE:
+            qft.append('sortbydate%3d"1"')
+        if qft:
+            params.append("qft=" + "+".join(qft))
         return "https://www.bing.com/news/search?" + "&".join(params)
 
     def find_items(self, soup: BeautifulSoup) -> list[Tag]:
