@@ -7,13 +7,15 @@ Scraping is **pluggable across search engines**. Each engine implements the
 find result items, parse an item, and detect a block — so the runner
 (`scraper/scraper.py`) stays engine-agnostic.
 
+All four live-validated engines are enabled by default (`engine_strategy: all`).
+
 | Engine       | Name (config) | Status                                                                       |
 | ------------ | ------------- | ---------------------------------------------------------------------------- |
-| Google News  | `google`      | Default; News tab, newest-first, past hour.                                  |
-| Bing News    | `bing`        | Live-validated. Date sort + freshness via `qft` filters.                     |
-| Yahoo News   | `yahoo`       | Live-validated. Links unwrapped from Yahoo's redirector.                     |
-| Brave News   | `brave`       | Live-validated. Freshness via `tf`; relevance-ranked.                        |
-| DuckDuckGo   | `duckduckgo`  | Wired but **disabled by default** — DDG gates automated access (see below).  |
+| Google News  | `google`      | On by default; News tab, newest-first, past hour.                            |
+| Bing News    | `bing`        | On by default. Date sort + freshness via `qft` filters.                      |
+| Yahoo News   | `yahoo`       | On by default. Links unwrapped from Yahoo's redirector.                      |
+| Brave News   | `brave`       | On by default. Freshness via `tf`; relevance-ranked.                         |
+| DuckDuckGo   | `duckduckgo`  | Wired but **off by default** — DDG gates automated access (see below).       |
 
 Cross-engine duplicates are free: a news row's id is derived from its
 normalized URL, so the same article seen on two engines collapses to one feed
@@ -25,12 +27,13 @@ each feed entry carries the full list of engines that found it.
 
 ### Combine strategy
 
-When more than one engine is enabled (`scraper.engines.enabled`), the
-`scraper.engines.strategy` setting controls how they combine per cycle:
+When more than one engine is enabled (the `scraper.engines` list), the
+`scraper.engine_strategy` setting controls how they combine per cycle:
 
-- **`fallback`** (default): try engines in priority order, stop at the first
-  that returns items — a resilient backup chain if one engine is blocked.
-- **`all`**: scrape every enabled engine each cycle for maximum coverage.
+- **`all`** (default): scrape every enabled engine each cycle for maximum
+  coverage (and to populate the per-engine feed filter).
+- **`fallback`**: try engines in priority order, stop at the first that returns
+  items — a resilient backup chain if one engine is blocked.
 - **`rotate`**: use one engine per cycle, rotating through the list, to spread
   per-engine request volume.
 

@@ -5,11 +5,19 @@ scraper:
   scrape_interval: 60  # Seconds between scrape cycles
   max_pages: 1  # Maximum pages to scrape per topic
   description: "Basic scraper configuration"
+  # Search engines to scrape, in priority order. Add or remove list entries to
+  # enable/disable engines. All live-validated engines are on by default.
+  #   - duckduckgo is implemented but gates automated access (its news SPA
+  #     returns nothing to datacenter clients), so it ships off; enable it only
+  #     where the browser can clear the challenge.
   engines:
-    # Search engines to scrape, in priority order. Available: google, bing.
-    enabled: [google]
-    # How enabled engines are combined per cycle:
-    #   fallback - try in order, stop at the first engine that returns items
-    #   all      - scrape every enabled engine every cycle (max coverage)
-    #   rotate   - use one engine per cycle, rotating through the list
-    strategy: fallback
+    - google
+    - bing
+    - yahoo
+    - brave
+    # - duckduckgo
+  # How the enabled engines combine each cycle:
+  #   all      - scrape every enabled engine every cycle (max coverage, ~Nx requests)
+  #   fallback - try in priority order, stop at the first that returns items (backup chain)
+  #   rotate   - use one engine per cycle, rotating through the list (spreads load)
+  engine_strategy: all

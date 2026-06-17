@@ -91,13 +91,17 @@ class ScraperConfig(_BaseConfig):
 
     @property
     def engines(self) -> list[str]:
-        """Enabled search-engine names, in priority order (e.g. ['google'])."""
-        return self._get("scraper", "engines", "enabled", default=["google"])
+        """Search-engine names to scrape, as a YAML list under ``engines``.
+
+        In priority order (used by the ``fallback`` strategy). Defaults to
+        ``['google']`` if unset.
+        """
+        return self._get("scraper", "engines", default=["google"])
 
     @property
     def engine_strategy(self) -> str:
-        """How enabled engines are combined: 'fallback', 'all', or 'rotate'."""
-        return self._get("scraper", "engines", "strategy", default="fallback")
+        """How enabled engines are combined: 'all', 'fallback', or 'rotate'."""
+        return self._get("scraper", "engine_strategy", default="fallback")
 
 
 class AntiDetectionConfig(_BaseConfig):

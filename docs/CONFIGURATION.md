@@ -82,17 +82,21 @@ Scraper and anti-detection settings are configured via YAML files in the `config
 scraper:
   scrape_interval: 60  # Seconds between scrape cycles
   max_pages: 1         # Maximum pages to scrape per topic
+  # Search engines to scrape, in priority order (a YAML list).
   engines:
-    enabled: [google]  # Search engines to scrape, in priority order
-    strategy: fallback # How enabled engines are combined: fallback | all | rotate
+    - google
+    - bing
+    - yahoo
+    - brave
+  engine_strategy: all  # How enabled engines combine: all | fallback | rotate
 ```
 
-| Setting             | Default      | Description                                                                                                                                                                                                            |
-| ------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scrape_interval`   | `60`         | Interval in seconds between scrape cycles (measured from start to start). Set to `0` or negative for continuous scraping with no delay. See [Scrape Interval Behavior](SCRAPING_BEHAVIOR.md#scrape-interval-behavior). |
-| `max_pages`         | `1`          | Number of result pages to scrape. Increase if you have high-volume topics or longer intervals.                                                                                                                         |
-| `engines.enabled`   | `[google]`   | Search engines to scrape, in priority order. Available: `google`, `bing`, `yahoo`, `brave`, `duckduckgo`. See [Search Engines](SCRAPING_BEHAVIOR.md#search-engines).                                                  |
-| `engines.strategy`  | `fallback`   | How enabled engines are combined per cycle: `fallback` (try in order, stop at the first that returns items), `all` (scrape every engine each cycle), or `rotate` (one engine per cycle, rotating).                     |
+| Setting            | Default                          | Description                                                                                                                                                                                                            |
+| ------------------ | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scrape_interval`  | `60`                             | Interval in seconds between scrape cycles (measured from start to start). Set to `0` or negative for continuous scraping with no delay. See [Scrape Interval Behavior](SCRAPING_BEHAVIOR.md#scrape-interval-behavior). |
+| `max_pages`        | `1`                              | Number of result pages to scrape. Increase if you have high-volume topics or longer intervals.                                                                                                                         |
+| `engines`          | `[google, bing, yahoo, brave]`   | Search engines to scrape, as a list in priority order. Available: `google`, `bing`, `yahoo`, `brave`, `duckduckgo` (duckduckgo gates scraping; left off by default). See [Search Engines](SCRAPING_BEHAVIOR.md#search-engines). |
+| `engine_strategy`  | `all`                            | How enabled engines combine per cycle: `all` (scrape every engine each cycle), `fallback` (try in order, stop at the first that returns items), or `rotate` (one engine per cycle, rotating).                          |
 
 ### Anti-Detection Settings (`config/anti_detection.yml`)
 
