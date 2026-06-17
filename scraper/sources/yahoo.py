@@ -22,6 +22,8 @@ _REDIRECT_RE = re.compile(r"/RU=([^/]+)/")
 class YahooSource(SearchSource):
     name = "yahoo"
     ready_selector = "ol.searchCenterMiddle, #web"
+    results_host = "yahoo.com"  # news.search.yahoo.com
+    results_path_prefix = "/search"
 
     def build_url(
         self, topic: str, *, ordering: Ordering, recency: Recency, page: int

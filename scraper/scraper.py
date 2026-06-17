@@ -214,7 +214,12 @@ def _scrape_one_page(
 
         content: str = page.content()
 
-        blocked_reason = source.detect_block(page.url, content)
+        # Engine-specific signal first, then the generic "redirected off the
+        # results page" backup (catches /sorry/-style block redirects for any
+        # engine that declares its results location).
+        blocked_reason = source.detect_block(
+            page.url, content
+        ) or source.redirected_off_results(page.url)
         if blocked_reason:
             logger.error(f"{source.name} blocked the request - {blocked_reason}")
             logger.error(f"Response preview (first 500 chars): {content[:500]}")

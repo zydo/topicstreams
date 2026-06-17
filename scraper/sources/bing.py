@@ -36,6 +36,8 @@ _ITEM_SELECTORS = ("div.news-card.newsitem", "div.newsitem")
 class BingSource(SearchSource):
     name = "bing"
     ready_selector = "div.newsitem, #algocore"
+    results_host = "bing.com"
+    results_path_prefix = "/news"
 
     def build_url(
         self, topic: str, *, ordering: Ordering, recency: Recency, page: int

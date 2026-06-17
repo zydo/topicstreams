@@ -282,3 +282,35 @@ def test_brave_detect_block_passes_real_results():
         )
         is None
     )
+
+
+# --- Generic "redirected off the results page" block check ----------------
+
+
+def test_redirect_check_flags_google_sorry():
+    # A block redirects Google off /search to /sorry/.
+    assert _GOOGLE.redirected_off_results(
+        "https://www.google.com/sorry/index?continue=x"
+    )
+    assert (
+        _GOOGLE.redirected_off_results("https://www.google.com/search?q=x&tbm=nws")
+        is None
+    )
+
+
+def test_redirect_check_allows_results_subdomain():
+    # Yahoo's results live on a subdomain of the registrable host.
+    assert (
+        _YAHOO.redirected_off_results("https://news.search.yahoo.com/search?p=x")
+        is None
+    )
+    assert (
+        _BRAVE.redirected_off_results("https://search.brave.com/news?q=x&tf=pd") is None
+    )
+
+
+def test_redirect_check_flags_off_path_and_foreign_host():
+    # Same host, wrong path (e.g. an account/notice page).
+    assert _YAHOO.redirected_off_results("https://login.yahoo.com/account")
+    # Entirely different host.
+    assert _BRAVE.redirected_off_results("https://challenge.example.com/news?q=x")

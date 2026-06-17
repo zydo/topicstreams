@@ -35,6 +35,8 @@ _ITEM_SELECTORS = (
 class GoogleSource(SearchSource):
     name = "google"
     ready_selector = "#search, #rso, div[data-sokoban-container]"
+    results_host = "google.com"
+    results_path_prefix = "/search"  # a block redirects to /sorry/
 
     def build_url(
         self, topic: str, *, ordering: Ordering, recency: Recency, page: int

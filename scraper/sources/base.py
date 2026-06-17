@@ -8,6 +8,7 @@ live in the implementations.
 
 from abc import ABC, abstractmethod
 from enum import Enum
+from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
@@ -35,6 +36,29 @@ class SearchSource(ABC):
     name: str
     #: CSS selector to wait for before reading the rendered page.
     ready_selector: str
+    #: Registrable host suffix and path prefix of this engine's results page.
+    #: When both are set, the runner treats a navigation that lands off them as
+    #: a block (a generic backup to ``detect_block`` — catches /sorry/-style
+    #: redirects). Leave ``results_host`` None to opt out.
+    results_host: str | None = None
+    results_path_prefix: str = "/"
+
+    def redirected_off_results(self, final_url: str) -> str | None:
+        """Generic block signal: the final URL isn't this engine's results page.
+
+        A blocked request is often redirected to a challenge/notice page (e.g.
+        Google's ``/sorry/``). If, after navigation, the host or path no longer
+        matches the configured results location, that's a block — and we'd parse
+        0 items anyway, so flagging it is strictly more informative.
+        """
+        if not self.results_host:
+            return None
+        parts = urlsplit(final_url)
+        host = parts.netloc.lower()
+        host_ok = host == self.results_host or host.endswith("." + self.results_host)
+        if host_ok and parts.path.startswith(self.results_path_prefix):
+            return None
+        return f"redirected off results page to {host}{parts.path}"
 
     @abstractmethod
     def build_url(

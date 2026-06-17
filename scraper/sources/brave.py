@@ -27,6 +27,8 @@ _RECENCY_TF = {
 class BraveSource(SearchSource):
     name = "brave"
     ready_selector = "div.snippet[data-type='news'], #news-results"
+    results_host = "brave.com"  # search.brave.com
+    results_path_prefix = "/news"
 
     def build_url(
         self, topic: str, *, ordering: Ordering, recency: Recency, page: int
