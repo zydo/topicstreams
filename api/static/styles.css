@@ -269,8 +269,15 @@ a { color: inherit; }
   font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
   text-transform: uppercase; color: var(--ink);
 }
-.news-snippet { font-size: 11.5px; color: var(--ink-soft); }
-.news-snippet::before { content: "·"; margin-right: 10px; color: var(--ink-faint); }
+.news-source { font-size: 11.5px; color: var(--ink-soft); }
+.news-source::before { content: "·"; margin-right: 10px; color: var(--ink-faint); }
+/* Excerpt/blurb under the headline; clamped to a couple of lines. */
+.news-excerpt {
+  margin: 6px 0 0; max-width: 64ch;
+  font-size: 13.5px; line-height: 1.5; color: var(--ink-soft);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden;
+}
 .news-new {
   margin-left: auto; font-size: 10px; font-weight: 600; letter-spacing: 0.14em;
   text-transform: uppercase; color: var(--signal); display: none;
