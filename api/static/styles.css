@@ -184,17 +184,56 @@ a { color: inherit; }
   text-transform: uppercase; margin-right: 2px;
 }
 .topic-cards { display: contents; }
+
+/* Each slug is a wire channel you can tune to. Click the name to filter the
+   feed to that topic; click again (or its ×) to release it. */
 .topic-card {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 5px 9px; border: 1px solid var(--rule);
-  background: var(--paper-raise); font-size: 12.5px; color: var(--ink);
+  display: inline-flex; align-items: center; position: relative;
+  border: 1px solid var(--rule); background: var(--paper-raise);
+  color: var(--ink);
+  transition: opacity .15s ease, background .15s ease,
+              border-color .15s ease, color .15s ease;
 }
-.topic-name { font-size: 12.5px; }
+.topic-card:hover { border-color: var(--ink-soft); }
+
+.topic-name {
+  font-family: var(--mono); font-size: 12.5px; color: inherit;
+  background: none; border: 0; cursor: pointer;
+  padding: 5px 9px; line-height: 1.2; letter-spacing: inherit;
+}
+
+/* The × is held back until you reach for a slug — hover, keyboard focus, or
+   when the slug is the channel you're already tuned to. Width animates so
+   revealing it doesn't shove the row around. */
 .delete-btn {
   border: 0; background: none; color: var(--ink-faint); cursor: pointer;
-  font-family: var(--mono); font-size: 14px; line-height: 1; padding: 0;
+  font-family: var(--mono); font-size: 14px; line-height: 1;
+  max-width: 0; padding: 0; overflow: hidden; opacity: 0;
+  transition: max-width .18s ease, opacity .15s ease, padding .18s ease;
 }
-.topic-card:hover .delete-btn { color: var(--signal); }
+.topic-card:hover .delete-btn,
+.topic-card:focus-within .delete-btn,
+.topic-card.is-active .delete-btn {
+  max-width: 2em; opacity: 1; padding: 0 9px 0 0;
+}
+.delete-btn:hover,
+.topic-card.is-active .delete-btn:hover { color: var(--signal); }
+
+/* Tuned-in: the slug inverts to an ink stamp — the on-air channel. */
+.topic-card.is-active {
+  background: var(--ink); border-color: var(--ink); color: var(--paper);
+}
+.topic-card.is-active .delete-btn { color: var(--paper); }
+
+/* While one channel is live, the rest recede; they brighten on hover so they
+   stay reachable. */
+.topic-cards.is-filtering .topic-card:not(.is-active) { opacity: 0.38; }
+.topic-cards.is-filtering .topic-card:not(.is-active):hover { opacity: 0.8; }
+
+.topic-name:focus-visible,
+.delete-btn:focus-visible {
+  outline: 2px solid var(--signal); outline-offset: 1px;
+}
 
 .track-add { display: inline-flex; align-items: stretch; }
 #topic-input {
@@ -400,6 +439,7 @@ a { color: inherit; }
 }
 @media (prefers-reduced-motion: reduce) {
   .onair[data-state="live"] .dot, .news-item--live .news-item__body::before { animation: none; }
+  .topic-card, .delete-btn { transition: none; }
 }
 
 /* ── Responsive ────────────────────────────────────────── */

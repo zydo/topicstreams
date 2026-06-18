@@ -63,11 +63,6 @@
             <div class="wire__head">
                 <h2>The Wire</h2>
                 <div class="filters">
-                    <label class="filter">Filter
-                        <select id="topic-filter">
-                            <option value="">All topics</option>
-                        </select>
-                    </label>
                     <label class="filter">Engine
                         <select id="engine-filter">
                             <option value="">All engines</option>
@@ -107,7 +102,7 @@
     <!-- Topic slug template -->
     <template id="topic-card-template">
         <span class="topic-card">
-            <span class="topic-name"></span>
+            <button class="topic-name" type="button" aria-pressed="false"></button>
             <button class="delete-btn" type="button" title="Stop tracking">×</button>
         </span>
     </template>
