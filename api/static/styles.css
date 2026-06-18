@@ -507,13 +507,20 @@ a { color: inherit; }
 .edot[data-health="healthy"] { background: var(--good); }
 .edot[data-health="degraded"] { background: var(--warn); }
 .edot[data-health="blocked"], .edot[data-health="parsing"] { background: var(--signal); }
+.edot[data-health="cooldown"] { background: var(--warn); }
 .edot[data-health="idle"] { background: var(--ink-faint); }
 
 .ehealth { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; }
 .ehealth[data-health="healthy"] { color: var(--good); }
 .ehealth[data-health="degraded"] { color: var(--warn); }
 .ehealth[data-health="blocked"], .ehealth[data-health="parsing"] { color: var(--signal); }
+.ehealth[data-health="cooldown"] { color: var(--warn); }
 .ehealth[data-health="idle"] { color: var(--ink-faint); }
+
+/* Probe countdown shown beside a "cooldown" label, e.g. "~286s". Not uppercased
+   (it's data, not a status word) and de-emphasized vs. the label. */
+.ecooldown { margin-left: 6px; font-size: 10.5px; color: var(--ink-soft);
+  font-variant-numeric: tabular-nums; }
 
 td.hot { color: var(--signal); font-weight: 600; }
 td.warm { color: var(--warn); font-weight: 600; }

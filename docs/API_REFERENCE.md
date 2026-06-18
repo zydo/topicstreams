@@ -249,8 +249,10 @@ Each `engines[*]` entry carries `scrapes`, `successes`, `success_rate`,
 `entries_parsed`, `zero_parse` (successful scrapes that parsed 0 items — a
 selector-rot signal), `failures`, `blocked` (failures with HTTP 429/403/503),
 `avg_latency_ms` / `p50_latency_ms` / `p95_latency_ms`, `last_scrape_at`,
-`last_success`, `last_http_status`, `http_status_breakdown`, and a heuristic
-`health` label: `healthy | degraded | blocked | parsing | idle` (see
+`last_success`, `last_http_status`, `http_status_breakdown`,
+`cooldown_seconds_remaining` (seconds until the scraper next probes a benched
+engine, else null) / `cooldown_failures`, and a heuristic `health` label:
+`healthy | degraded | blocked | parsing | cooldown | idle` (see
 [docs/OBSERVABILITY.md](OBSERVABILITY.md)). Each `recent_cycles[*]` carries
 `started_at`, `finished_at`, `duration_seconds`, `topics_count`,
 `entries_parsed`, `new_events`, `success`, `error`.

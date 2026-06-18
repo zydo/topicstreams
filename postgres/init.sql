@@ -91,6 +91,20 @@ CREATE TABLE IF NOT EXISTS scraper_cycles (
 );
 CREATE INDEX IF NOT EXISTS idx_scraper_cycles_started_at ON scraper_cycles(started_at DESC);
 
+-- Current adaptive cooldown state per engine, one row per engine. The scraper
+-- owns this table (it holds the live EngineCooldownTracker in-process, see
+-- scraper/cooldown.py) and overwrites a snapshot each cycle; the API only reads
+-- it to surface a "cooling down" indicator on the monitor page. next_probe_at is
+-- absolute UTC wall-clock (the tracker's monotonic clock can't cross processes),
+-- so the API derives the remaining seconds freshly. failures = 0 / NULL probe
+-- means the engine is not currently benched.
+CREATE TABLE IF NOT EXISTS engine_cooldowns (
+    engine VARCHAR(32) PRIMARY KEY,
+    failures INTEGER NOT NULL DEFAULT 0,
+    next_probe_at TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- NOTIFY on each new feed event (topic match), not on news-content insert, so
 -- a topic referencing an already-stored article still streams to that topic.
 -- Format: "topic:topic_news_id".

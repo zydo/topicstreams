@@ -59,6 +59,19 @@ def test_classify_other_for_non_block_failure():
     assert classify_logs(logs) == "other"
 
 
+def test_classify_block_from_connection_closed():
+    # Yahoo-style network teardown (no HTTP status) counts as a block, so the
+    # engine gets benched instead of retried every cycle.
+    logs = [
+        _log(
+            "yahoo",
+            ok=False,
+            error="Error: Page.goto: net::ERR_CONNECTION_CLOSED at https://y/search",
+        )
+    ]
+    assert classify_logs(logs) == "block"
+
+
 # --- tracker decide/record ------------------------------------------------
 
 
@@ -119,6 +132,30 @@ def test_transient_failure_during_probe_rearms_without_deepening():
     tracker.record("g", [_log("g", ok=False, error="TimeoutError")])
     assert tracker.decide("g") == "skip"
     assert round(tracker.remaining("g")) == 300
+
+
+# --- snapshot -------------------------------------------------------------
+
+
+def test_snapshot_reports_failures_and_remaining():
+    clock = _Clock()
+    tracker = _tracker(clock, base=300)
+    tracker.record("yahoo", [_log("yahoo", ok=False, status=503)])
+    tracker.record("google", [_log("google", ok=True, n=2)])
+
+    snap = {s.engine: s for s in tracker.snapshot()}
+    assert set(snap) == {"yahoo", "google"}
+
+    assert snap["yahoo"].failures == 1
+    assert 0 < snap["yahoo"].remaining_seconds <= 300
+
+    # A healthy engine is still reported, but not cooling.
+    assert snap["google"].failures == 0
+    assert snap["google"].remaining_seconds == 0.0
+
+
+def test_snapshot_empty_before_any_activity():
+    assert _tracker(_Clock()).snapshot() == []
 
 
 # --- scrape_topic integration ---------------------------------------------

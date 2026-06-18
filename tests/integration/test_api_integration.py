@@ -212,6 +212,41 @@ def test_metrics_with_scraper_activity(client, db):
     assert body["recent_failures"][0]["engine"] == "bing"
 
 
+def test_metrics_blocked_on_connection_closed(client, db):
+    # A connection-level teardown (no HTTP status) is classified as blocked.
+    db.add_topic("alpha")
+    with db._Connection() as conn:
+        conn.cursor().execute(
+            "INSERT INTO scraper_logs "
+            "(topic, scraped_at, success, http_status_code, error_message, engine) "
+            "VALUES ('alpha', NOW(), FALSE, NULL, "
+            "'Error: Page.goto: net::ERR_CONNECTION_CLOSED at https://y/s', 'yahoo')"
+        )
+
+    body = client.get("/api/v1/metrics?window=3600").json()
+    yahoo = {e["engine"]: e for e in body["engines"]}["yahoo"]
+    assert yahoo["health"] == "blocked"
+
+
+def test_metrics_surfaces_cooldown(client, db):
+    # An engine that is benched but produced no logs in the window still appears,
+    # labeled "cooldown" with a countdown to the next probe.
+    db.add_topic("alpha")
+    db.upsert_engine_cooldowns([("brave", 2, 286.0), ("google", 0, 0.0)])
+
+    body = client.get("/api/v1/metrics?window=3600").json()
+    by_engine = {e["engine"]: e for e in body["engines"]}
+
+    # brave: synthesized row (no scrapes), shown as cooling down.
+    assert by_engine["brave"]["health"] == "cooldown"
+    assert by_engine["brave"]["cooldown_failures"] == 2
+    assert 0 < by_engine["brave"]["cooldown_seconds_remaining"] <= 286
+    assert by_engine["brave"]["scrapes"] == 0
+
+    # google: failures == 0 → not cooling, so it isn't surfaced from an empty row.
+    assert "google" not in by_engine
+
+
 def test_response_has_timing_header(client):
     r = client.get("/api/v1/topics")
     assert "x-process-time-ms" in {k.lower() for k in r.headers}

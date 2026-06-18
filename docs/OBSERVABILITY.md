@@ -38,15 +38,24 @@ alongside it, so the label isn't the whole story.
 | Label      | Meaning                                                                           |
 | ---------- | --------------------------------------------------------------------------------- |
 | `idle`     | No scrapes for this engine in the window.                                         |
-| `blocked`  | The most recent scrape was a throttle/block (HTTP 429 / 403 / 503).               |
+| `blocked`  | The most recent scrape was a throttle/block: HTTP 429 / 403 / 503, or a connection-level teardown with no HTTP status (e.g. `ERR_CONNECTION_CLOSED`). |
+| `cooldown` | The scraper currently has the engine benched; shows a countdown to the next probe. |
 | `parsing`  | Sustained selector rot: ≥3 scrapes, ≥1 success, and every success parsed 0 items. |
 | `degraded` | Success rate below 0.75 (includes a total failure: 0%).                           |
 | `healthy`  | Otherwise.                                                                        |
 
 `blocked` keys off the **latest** scrape so an engine that recovered shows
 healthy, and one currently throttled shows blocked — even if its long-run
-success rate is high. `parsing` requires a sustained run (≥3 scrapes) so a
-single quiet hour for one topic doesn't trip it.
+success rate is high. A network-level block (no HTTP status) is recognized via
+`common/block_signals.is_network_block`. `parsing` requires a sustained run (≥3
+scrapes) so a single quiet hour for one topic doesn't trip it.
+
+`cooldown` is sourced differently from the others: it comes from the scraper's
+in-process `EngineCooldownTracker`, which the scraper snapshots to the
+`engine_cooldowns` table each cycle (the API can't see the live tracker across
+the process boundary). It overrides the log-derived label while an engine is
+benched — including engines that have produced no logs in the window and would
+otherwise drop off the table. A stale snapshot (scraper down) is ignored.
 
 ## What gets captured, and what `duration_ms` means
 

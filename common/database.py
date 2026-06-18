@@ -176,6 +176,16 @@ def ensure_schema() -> None:
                 "CREATE INDEX IF NOT EXISTS idx_scraper_cycles_started_at "
                 "ON scraper_cycles(started_at DESC)"
             )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS engine_cooldowns (
+                    engine VARCHAR(32) PRIMARY KEY,
+                    failures INTEGER NOT NULL DEFAULT 0,
+                    next_probe_at TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
         _schema_ready = True
 
 
@@ -665,6 +675,61 @@ def get_recent_cycles(limit: int = 24) -> list[dict]:
         return [dict(row) for row in cursor.fetchall()]
 
 
+# ── Engine cooldown snapshot (engine_cooldowns) ──────────────────────────────
+
+
+# Idempotent: each row is a full overwrite keyed by engine, so a retry after a
+# committed write just reapplies the same absolute state — safe.
+@retry_on_transient_error()
+def upsert_engine_cooldowns(
+    states: "list[tuple[str, int, float]]",
+) -> None:
+    """Persist the scraper's per-engine cooldown snapshot for the monitor.
+
+    ``states`` is ``(engine, failures, remaining_seconds)`` per tracked engine.
+    ``next_probe_at`` is stored as absolute UTC (``NOW() + remaining``) using the
+    *DB* clock so the API can derive a fresh countdown without trusting the
+    scraper's wall-clock; a non-cooling engine (failures == 0) stores NULL.
+    """
+    if not states:
+        return
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.executemany(
+            "INSERT INTO engine_cooldowns (engine, failures, next_probe_at, updated_at) "
+            "VALUES (%s, %s, "
+            "        CASE WHEN %s > 0 THEN NOW() + make_interval(secs => %s) END, "
+            "        NOW()) "
+            "ON CONFLICT (engine) DO UPDATE SET "
+            "  failures = EXCLUDED.failures, "
+            "  next_probe_at = EXCLUDED.next_probe_at, "
+            "  updated_at = EXCLUDED.updated_at",
+            [(e, f, f, max(0.0, r)) for (e, f, r) in states],
+        )
+
+
+@retry_on_transient_error()
+def get_engine_cooldowns() -> dict[str, dict]:
+    """Per-engine cooldown state keyed by engine name (for the monitor).
+
+    Returns ``{engine: {failures, next_probe_at, updated_at}}``. The endpoint
+    decides what is still "live" (freshness + remaining); this is a plain read.
+    """
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT engine, failures, next_probe_at, updated_at FROM engine_cooldowns"
+        )
+        return {
+            row["engine"]: {
+                "failures": row["failures"],
+                "next_probe_at": row["next_probe_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in cursor.fetchall()
+        }
+
+
 # ── Scrape metrics aggregation (scraper_logs) ────────────────────────────────
 
 # Shared aggregate columns for the overall + per-engine rollups. duration_ms is
@@ -687,7 +752,8 @@ _METRICS_AGG = """
     percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95_latency_ms,
     MAX(scraped_at) AS last_scrape_at,
     (ARRAY_AGG(success ORDER BY scraped_at DESC))[1] AS last_success,
-    (ARRAY_AGG(http_status_code ORDER BY scraped_at DESC))[1] AS last_http_status
+    (ARRAY_AGG(http_status_code ORDER BY scraped_at DESC))[1] AS last_http_status,
+    (ARRAY_AGG(error_message ORDER BY scraped_at DESC))[1] AS last_error_message
 """
 
 _METRICS_WHERE = "scraped_at >= NOW() - make_interval(secs => %s)"
@@ -717,6 +783,7 @@ def _shape_metrics_row(row: dict) -> dict:
         "last_scrape_at": row["last_scrape_at"],
         "last_success": row["last_success"],
         "last_http_status": row["last_http_status"],
+        "last_error_message": row["last_error_message"],
         "http_status_breakdown": breakdown,
     }
 
