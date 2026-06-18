@@ -55,6 +55,7 @@ def _clean(db):
     """Reset all rows (and serial counters) before each test for isolation."""
     with db._Connection() as conn:
         conn.cursor().execute(
-            "TRUNCATE topic_news, news, scraper_logs, topics RESTART IDENTITY CASCADE"
+            "TRUNCATE scraper_cycles, topic_news, news, scraper_logs, topics "
+            "RESTART IDENTITY CASCADE"
         )
     yield

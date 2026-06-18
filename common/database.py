@@ -2,6 +2,7 @@
 
 import threading
 import time
+from datetime import datetime
 from functools import wraps
 
 import psycopg2
@@ -45,6 +46,10 @@ _pool_lock = threading.Lock()
 # ThreadedConnectionPool.getconn raises "connection pool exhausted" instead
 # of waiting; this caps concurrent checkouts so burst requests queue.
 _conn_slots = threading.BoundedSemaphore(settings.db_pool_max_conn)
+
+# ensure_schema() guard: each process runs the additive DDL once at startup.
+_schema_lock = threading.Lock()
+_schema_ready = False
 
 
 # Transient errors that should trigger retry
@@ -122,6 +127,56 @@ def close_pool() -> None:
         if _pool is not None:
             _pool.closeall()
             _pool = None
+
+
+def ensure_schema() -> None:
+    """Idempotently evolve the schema for an *existing* volume.
+
+    ``init.sql`` only runs when the Postgres data dir is empty (first creation),
+    so additive changes made after a volume already exists must be applied at
+    startup. Both the API and the scraper call this on boot. The statements are
+    all ``IF NOT EXISTS`` and each takes an ``AccessExclusiveLock``, so the two
+    processes racing is safe: the second blocks on the lock, then sees the
+    object exists and no-ops. Guarded so each process runs it once.
+
+    NB: uses ``_Connection`` (which re-enters the pool lock) — so it must never
+    be called from inside ``_get_pool`` (deadlock).
+    """
+    global _schema_ready
+    if _schema_ready:
+        return
+    with _schema_lock:
+        if _schema_ready:
+            return
+        with _Connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "ALTER TABLE scraper_logs ADD COLUMN IF NOT EXISTS duration_ms INTEGER"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_scraper_logs_engine_scraped_at "
+                "ON scraper_logs(engine, scraped_at DESC)"
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scraper_cycles (
+                    id SERIAL PRIMARY KEY,
+                    started_at TIMESTAMP NOT NULL,
+                    finished_at TIMESTAMP NOT NULL,
+                    duration_seconds DOUBLE PRECISION NOT NULL,
+                    topics_count INTEGER NOT NULL,
+                    entries_parsed INTEGER NOT NULL,
+                    new_events INTEGER NOT NULL,
+                    success BOOLEAN NOT NULL DEFAULT TRUE,
+                    error TEXT
+                )
+                """
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_scraper_cycles_started_at "
+                "ON scraper_cycles(started_at DESC)"
+            )
+        _schema_ready = True
 
 
 class _Connection:
@@ -438,7 +493,7 @@ def insert_scraper_logs(logs: list[ScraperLog]) -> int:
     with _Connection() as conn:
         dml = """
             INSERT INTO scraper_logs
-                (topic, scraped_at, success, http_status_code, error_message, entry_count, engine)
+                (topic, scraped_at, success, http_status_code, error_message, entry_count, engine, duration_ms)
             VALUES %s
         """
 
@@ -451,6 +506,7 @@ def insert_scraper_logs(logs: list[ScraperLog]) -> int:
                 log.error_message,
                 log.entry_count,
                 log.engine,
+                log.duration_ms,
             )
             for log in logs
         ]
@@ -505,7 +561,8 @@ def get_scraper_logs(limit: int = 10) -> list[ScraperLog]:
     """
     with _Connection() as conn:
         sql = """
-            SELECT id, topic, scraped_at, success, http_status_code, error_message, entry_count, engine
+            SELECT id, topic, scraped_at, success, http_status_code, error_message,
+                   entry_count, engine, duration_ms
             FROM scraper_logs
             ORDER BY scraped_at DESC
             LIMIT %s
@@ -542,3 +599,171 @@ def get_feed_freshness_seconds() -> float | None:
         result = cursor.fetchone()
         age = result["age"] if result else None
         return float(age) if age is not None else None
+
+
+# ── Per-cycle metrics (scraper_cycles) ───────────────────────────────────────
+
+
+# No retry: scraper_cycles has no unique constraint, so a retry after a commit
+# that landed (e.g. connection dropped on confirmation) would duplicate the
+# cycle row. Losing one cycle's summary on a transient error is fine.
+def insert_cycle(
+    *,
+    started_at: datetime,
+    finished_at: datetime,
+    duration_seconds: float,
+    topics_count: int,
+    entries_parsed: int,
+    new_events: int,
+    success: bool,
+    error: str | None = None,
+) -> None:
+    """Record one scrape cycle (a full pass over all topics)."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO scraper_cycles "
+            "(started_at, finished_at, duration_seconds, topics_count, "
+            " entries_parsed, new_events, success, error) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (
+                started_at,
+                finished_at,
+                duration_seconds,
+                topics_count,
+                entries_parsed,
+                new_events,
+                success,
+                error,
+            ),
+        )
+
+
+@retry_on_transient_error()
+def purge_old_cycles(days: int) -> int:
+    """Delete cycle rows older than ``days`` days. Returns the count deleted."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM scraper_cycles WHERE started_at < NOW() - %s * INTERVAL '1 day'",
+            (days,),
+        )
+        return cursor.rowcount
+
+
+@retry_on_transient_error()
+def get_recent_cycles(limit: int = 24) -> list[dict]:
+    """Newest-first cycle summaries (for the monitor's cycle timeline)."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT started_at, finished_at, duration_seconds, topics_count, "
+            "       entries_parsed, new_events, success, error "
+            "FROM scraper_cycles ORDER BY started_at DESC LIMIT %s",
+            (limit,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+# ── Scrape metrics aggregation (scraper_logs) ────────────────────────────────
+
+# Shared aggregate columns for the overall + per-engine rollups. duration_ms is
+# nullable (legacy / pre-navigation failures); AVG and percentile_cont both
+# ignore NULLs, so the latencies are computed over measured attempts only.
+_METRICS_AGG = """
+    COUNT(*) AS scrapes,
+    COUNT(*) FILTER (WHERE success) AS successes,
+    COALESCE(SUM(entry_count), 0) AS entries_parsed,
+    COUNT(*) FILTER (WHERE success AND entry_count = 0) AS zero_parse,
+    COUNT(*) FILTER (WHERE NOT success) AS failures,
+    COUNT(*) FILTER (WHERE NOT success AND http_status_code IN (429, 403, 503))
+        AS blocked,
+    COUNT(*) FILTER (WHERE http_status_code = 200) AS status_200,
+    COUNT(*) FILTER (WHERE http_status_code = 429) AS status_429,
+    COUNT(*) FILTER (WHERE http_status_code = 403) AS status_403,
+    COUNT(*) FILTER (WHERE http_status_code = 503) AS status_503,
+    AVG(duration_ms) AS avg_latency_ms,
+    percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_ms) AS p50_latency_ms,
+    percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95_latency_ms,
+    MAX(scraped_at) AS last_scrape_at,
+    (ARRAY_AGG(success ORDER BY scraped_at DESC))[1] AS last_success,
+    (ARRAY_AGG(http_status_code ORDER BY scraped_at DESC))[1] AS last_http_status
+"""
+
+_METRICS_WHERE = "scraped_at >= NOW() - make_interval(secs => %s)"
+
+
+def _shape_metrics_row(row: dict) -> dict:
+    """Normalize one aggregate row into JSON-friendly scalars."""
+
+    def _ms(value) -> int | None:
+        return int(round(float(value))) if value is not None else None
+
+    breakdown = {
+        code: row[f"status_{code}"]
+        for code in ("200", "429", "403", "503")
+        if row.get(f"status_{code}")
+    }
+    return {
+        "scrapes": row["scrapes"],
+        "successes": row["successes"],
+        "entries_parsed": row["entries_parsed"],
+        "zero_parse": row["zero_parse"],
+        "failures": row["failures"],
+        "blocked": row["blocked"],
+        "avg_latency_ms": _ms(row["avg_latency_ms"]),
+        "p50_latency_ms": _ms(row["p50_latency_ms"]),
+        "p95_latency_ms": _ms(row["p95_latency_ms"]),
+        "last_scrape_at": row["last_scrape_at"],
+        "last_success": row["last_success"],
+        "last_http_status": row["last_http_status"],
+        "http_status_breakdown": breakdown,
+    }
+
+
+@retry_on_transient_error()
+def get_scrape_metrics(window_seconds: int) -> dict:
+    """Overall + per-engine scrape aggregates over the last ``window_seconds``.
+
+    Two queries on one connection: an ungrouped pass (overall) and a
+    ``GROUP BY engine`` pass. Returns a dict ``{"overall": {...}, "engines":
+    [...]}`` with JSON-friendly values; the endpoint derives rates/health.
+    """
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT {_METRICS_AGG} FROM scraper_logs WHERE {_METRICS_WHERE}",
+            (window_seconds,),
+        )
+        overall_row = cursor.fetchone()
+        cursor.execute(
+            f"SELECT engine, {_METRICS_AGG} FROM scraper_logs "
+            f"WHERE {_METRICS_WHERE} GROUP BY engine ORDER BY engine",
+            (window_seconds,),
+        )
+        engine_rows = cursor.fetchall()
+
+    # An aggregate with no GROUP BY always returns exactly one row (even over an
+    # empty set, COUNT(*) = 0), so overall_row is never None.
+    overall = _shape_metrics_row(dict(overall_row))
+    engines = []
+    for row in engine_rows:
+        shaped = _shape_metrics_row(dict(row))
+        shaped["engine"] = row["engine"]
+        engines.append(shaped)
+    return {"overall": overall, "engines": engines}
+
+
+@retry_on_transient_error()
+def get_recent_scrape_failures(limit: int = 15) -> list[dict]:
+    """Newest-first failed scrapes (for the monitor's error log)."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT topic, engine, scraped_at, http_status_code, error_message, "
+            "       entry_count, duration_ms "
+            "FROM scraper_logs WHERE success = FALSE "
+            "ORDER BY scraped_at DESC LIMIT %s",
+            (limit,),
+        )
+        return [dict(row) for row in cursor.fetchall()]

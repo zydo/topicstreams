@@ -9,6 +9,7 @@ Google, Bing, etc.
 
 import logging
 import random
+import time
 import traceback
 from typing import Callable
 
@@ -139,15 +140,29 @@ def _scrape_one_page(
     )
     logger.info(f"Scraping {source.name} for topic: {topic}")
 
+    # Fetch latency: wall-clock of the navigation itself (page.goto through
+    # domcontentloaded). Deliberately excludes the anti-detection settle/scroll
+    # waits below, so it reflects real results-page load time, not the
+    # intentional human-simulation delay. Read by _log at call time; stays None
+    # if navigation never started.
+    fetch_ms: int | None = None
+
     def _log(**kwargs):
+        # Every log row carries the measured fetch latency unless the caller
+        # explicitly overrides it (e.g. a pre-navigation failure path).
+        kwargs.setdefault("duration_ms", fetch_ms)
         return ScraperLog.create_new(topic=topic, engine=source.name, **kwargs)
 
     try:
-        response: Response | None = page.goto(
-            url,
-            wait_until="domcontentloaded",
-            timeout=anti_detection_config.nav_timeout_ms,
-        )
+        fetch_start = time.perf_counter()
+        try:
+            response: Response | None = page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=anti_detection_config.nav_timeout_ms,
+            )
+        finally:
+            fetch_ms = round((time.perf_counter() - fetch_start) * 1000)
 
         if response is None:
             logger.error(

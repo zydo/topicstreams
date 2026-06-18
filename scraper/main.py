@@ -27,6 +27,7 @@ import random
 import sys
 import time
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from random import shuffle
 from urllib.parse import unquote, urlparse
@@ -211,6 +212,10 @@ def _new_context(p) -> BrowserContext:
 
 
 def main():
+    # Evolve the schema for an existing volume (adds scraper_logs.duration_ms
+    # and the scraper_cycles table). Idempotent; shared with the API process.
+    db.ensure_schema()
+
     with sync_playwright() as p:
         context = _new_context(p)
         cycle_count = 0
@@ -225,7 +230,15 @@ def main():
 
         try:
             while True:
-                cycle_start, cycle_success = time.time(), False
+                started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                cycle_start = time.time()
+                cycle_success = False
+                cycle_error: str | None = None
+                # Initialized outside the try so a partial pass (or an early
+                # failure before these are set) still records a cycle row.
+                topics: list[str] = []
+                all_entries = []
+                new_events = 0
 
                 try:
                     deleted = db.purge_old_news_entries(settings.news_retention_days)
@@ -241,6 +254,13 @@ def main():
                     if deleted_logs:
                         logger.info(
                             f"Purged {deleted_logs} scraper logs older than "
+                            f"{settings.news_retention_days} days"
+                        )
+
+                    deleted_cycles = db.purge_old_cycles(settings.news_retention_days)
+                    if deleted_cycles:
+                        logger.info(
+                            f"Purged {deleted_cycles} cycle rows older than "
                             f"{settings.news_retention_days} days"
                         )
 
@@ -281,10 +301,27 @@ def main():
                     cycle_success = True
 
                 except Exception as e:
+                    cycle_error = f"{type(e).__name__}: {e}"
                     logger.error(f"Error in scraping loop: {e}")
                     logger.error(f"Full traceback:\n{traceback.format_exc()}")
 
                 elapsed = time.time() - cycle_start
+                # Record this pass for the monitor's cycle timeline. A recording
+                # failure must not take down the scraper.
+                try:
+                    db.insert_cycle(
+                        started_at=started_at,
+                        finished_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                        duration_seconds=elapsed,
+                        topics_count=len(topics),
+                        entries_parsed=len(all_entries),
+                        new_events=new_events,
+                        success=cycle_success,
+                        error=cycle_error,
+                    )
+                except Exception:
+                    logger.exception("Failed to record scrape cycle")
+
                 if cycle_success:
                     logger.info(f"{len(topics)} topics took {elapsed:.1f}s")
                 else:

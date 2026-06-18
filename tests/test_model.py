@@ -49,6 +49,7 @@ class TestScraperLog:
         assert log.entry_count == 0
         assert log.success is True
         assert log.http_status_code is None
+        assert log.duration_ms is None
         assert log.scraped_at is not None
         assert log.engine == "google"
 
@@ -58,3 +59,7 @@ class TestScraperLog:
         )
         assert log.entry_count == 10
         assert log.engine == "bing"
+
+    def test_duration_ms_recorded(self):
+        log = ScraperLog.create_new(topic="t", success=True, duration_ms=1234)
+        assert log.duration_ms == 1234

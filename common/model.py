@@ -112,6 +112,12 @@ class ScraperLog(BaseModel):
     engine: str = Field(
         "google", description="Search engine this scrape used (e.g. 'google')"
     )
+    # Wall-clock to fetch+load this results page (ms), excluding the
+    # anti-detection settle/scroll waits. None when unmeasured (legacy rows,
+    # or a failure before navigation completed).
+    duration_ms: int | None = Field(
+        None, description="Results-page fetch+load latency in milliseconds"
+    )
 
     @classmethod
     def create_new(
@@ -123,6 +129,7 @@ class ScraperLog(BaseModel):
         error_message: str | None = None,
         entry_count: int = 0,
         engine: str = "google",
+        duration_ms: int | None = None,
     ) -> "ScraperLog":
         """Create a new ScraperLog for insertion (without id)"""
         return cls(
@@ -134,6 +141,7 @@ class ScraperLog(BaseModel):
             error_message=error_message,
             entry_count=entry_count,
             engine=engine,
+            duration_ms=duration_ms,
         )
 
     @classmethod

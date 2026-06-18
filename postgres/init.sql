@@ -63,10 +63,33 @@ CREATE TABLE IF NOT EXISTS scraper_logs (
     entry_count INTEGER DEFAULT 0,
     -- Which search engine this scrape used, so health can be per-engine.
     engine VARCHAR(32) DEFAULT 'google',
+    -- Wall-clock to fetch+load this results page (page.goto, ms). Deliberately
+    -- excludes the anti-detection settle/scroll waits so it reflects real fetch
+    -- latency. Nullable for legacy rows / unmeasurable attempts.
+    duration_ms INTEGER,
     FOREIGN KEY (topic) REFERENCES topics(name) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_scraper_logs_scraped_at ON scraper_logs(scraped_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scraper_logs_topic_scraped_at ON scraper_logs(topic, scraped_at DESC);
+-- Engine-scoped recency index for the per-engine metrics aggregation.
+CREATE INDEX IF NOT EXISTS idx_scraper_logs_engine_scraped_at ON scraper_logs(engine, scraped_at DESC);
+
+-- One row per scrape cycle (a full pass over all topics). Captures the
+-- wall-clock cycle duration and per-pass counts that scraper_logs (one row per
+-- page-attempt) can't cleanly express. Purged on the same retention window as
+-- news/logs. No unique constraint, so inserts aren't retried (see insert_cycle).
+CREATE TABLE IF NOT EXISTS scraper_cycles (
+    id SERIAL PRIMARY KEY,
+    started_at TIMESTAMP NOT NULL,
+    finished_at TIMESTAMP NOT NULL,
+    duration_seconds DOUBLE PRECISION NOT NULL,
+    topics_count INTEGER NOT NULL,
+    entries_parsed INTEGER NOT NULL,
+    new_events INTEGER NOT NULL,
+    success BOOLEAN NOT NULL DEFAULT TRUE,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_scraper_cycles_started_at ON scraper_cycles(started_at DESC);
 
 -- NOTIFY on each new feed event (topic match), not on news-content insert, so
 -- a topic referencing an already-stored article still streams to that topic.
