@@ -1,9 +1,13 @@
 # Search-Engine Block Signal Characterization (Plan)
 
-> Status: **run 2026-06-17** at the scraper's sequential ~1 req/s — results in
-> [BLOCK_SIGNAL_FINDINGS.md](BLOCK_SIGNAL_FINDINGS.md). Brave's signal is now
-> implemented; Google's was already grounded; Bing/Yahoo did not block at that
-> rate (tripping them would need concurrency, still open). This file is the plan
+> Status: **run 2026-06-17** at the scraper's sequential ~1 req/s, then a
+> **concurrency follow-up 2026-06-18** (async httpx, 60–116 req/s) to trip
+> Bing/Yahoo — results in [BLOCK_SIGNAL_FINDINGS.md](BLOCK_SIGNAL_FINDINGS.md).
+> Brave's and Google's signals are grounded. The concurrency run settled the
+> Bing/Yahoo question: **Bing never hard-blocks** (silent per-IP throughput
+> throttle, ~50k requests served as HTTP 200), and **Yahoo blocks** after ~250
+> rapid requests with a persistent empty **HTTP 500** (no parseable challenge
+> page) — so neither needs a `detect_block` body signal. This file is the plan
 > /background, kept self-contained for re-runs.
 
 ## Goal
@@ -41,20 +45,33 @@ The gap these miss is a **soft block**: an HTTP `200` whose *body* is a
 block/challenge/redirect page. Those need a per-engine (or generic-redirect)
 `detect_block`. This is exactly why `detect_block` exists.
 
-## Current per-engine state (as of 2026-06-17)
+## Current per-engine state (as of 2026-06-18)
 
 | Engine     | `detect_block` today                                                                                                                | Grounded in a real observation?                            |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | **Google** | `/sorry/` redirect (definitive) + captcha keywords (`captcha`, `unusual traffic`, from `anti_detection.captcha_detection.keywords`) | ✅ Yes (CAPTCHA work 2026-06-11/12; reconfirmed 2026-06-17) |
 | **Brave**  | captcha-interstitial body markers (`decided to schedule a captcha`, `page:"/captcha"`)                                              | ✅ Yes (blocked ~250 reqs in; 2026-06-17)                   |
-| **Bing**   | `return None` (stub)                                                                                                                | ⏳ No block at ~1 req/s (~440 reqs)                         |
-| **Yahoo**  | `return None` (stub)                                                                                                                | ⏳ No block at ~1 req/s (~900 reqs)                         |
+| **Bing**   | `return None` (stub)                                                                                                                | ✅ Yes — **never hard-blocks**; silent throttle (2026-06-18, ~50k reqs) |
+| **Yahoo**  | `return None` (stub)                                                                                                                | ✅ Yes — blocks via empty **HTTP 500**, no body (2026-06-18, ~250 reqs) |
 
-For both real blockers (Google, Brave) the HTTP `429` net fires first; the
+For both 429-style blockers (Google, Brave) the HTTP `429` net fires first; the
 per-engine `detect_block` is the backup for a `200`-served challenge. Bing and
-Yahoo stay `None` on purpose — they didn't block at the sequential rate, and a
-guessed pattern risks false-positiving on real results. Tripping Bing/Yahoo
-needs concurrency well beyond ~1 req/s (see findings).
+Yahoo correctly stay `None`, now for grounded reasons rather than absence of
+data (2026-06-18 concurrency run):
+
+- **Bing** never presents a challenge: even at ~75 req/s sustained for 10 min
+  (~45k requests in one run) every response was HTTP 200 with real results. Its
+  only defence is silently slow-rolling the connection to a ~60–76 req/s per-IP
+  ceiling. There is no block page to detect — `detect_block` stays `None`.
+- **Yahoo** *does* block, but not with a parseable page: after ~250 rapid
+  requests it serves an **empty (0-byte) HTTP 500** from its `Server: ATS` edge
+  with `Connection: close`, persisting as an IP cooldown. A real browser nav
+  then fails with `net::ERR_CONNECTION_CLOSED` — caught by the runner's outer
+  exception handler as a failed scrape — *before* any body exists for
+  `detect_block` to inspect. So `detect_block` stays `None`; the honest-failure
+  path is the navigation-error + parse-0 nets, not a body signal. (Optional
+  hardening: add `500` to `monitored_codes` so a non-browser/200-path 500 is
+  flagged too — see findings.)
 
 For a worked example of a soft-block signal, see DuckDuckGo's `static-pages/418`
 redirect in [DUCKDUCKGO_UNSUPPORTED.md](DUCKDUCKGO_UNSUPPORTED.md) (DDG itself is
