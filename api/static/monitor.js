@@ -1,6 +1,18 @@
 // TopicStreams Ops / Monitor — scrapes scrape observability from /api/v1/metrics.
 // Vanilla, mirroring app.js conventions: textContent everywhere (no innerHTML on
 // server values), template clones for repeating rows, polls on /api/v1/config.
+
+// Engines list in operational priority order (matches the feed's engine filter),
+// with any unrecognised engine sorted after, by name.
+const ENGINE_ORDER = ['google', 'bing', 'yahoo', 'brave'];
+function compareEngines(a, b) {
+    const rank = (name) => {
+        const i = ENGINE_ORDER.indexOf(name.toLowerCase());
+        return i === -1 ? ENGINE_ORDER.length : i;
+    };
+    return rank(a) - rank(b) || a.localeCompare(b);
+}
+
 class MonitorApp {
     apiBase = '/api/v1';
     pollIntervalMs = 30000;
@@ -88,7 +100,7 @@ class MonitorApp {
             return;
         }
         const tpl = document.getElementById('engine-row-template');
-        for (const e of engines) {
+        for (const e of [...engines].sort((a, b) => compareEngines(a.engine, b.engine))) {
             const row = tpl.content.firstElementChild.cloneNode(true);
             row.querySelector('.edot').dataset.health = e.health;
             row.querySelector('.ename').textContent = e.engine;
