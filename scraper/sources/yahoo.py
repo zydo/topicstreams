@@ -70,4 +70,12 @@ class YahooSource(SearchSource):
         )
 
     def detect_block(self, final_url: str, html: str) -> str | None:
+        # Yahoo DOES block under load, but not with a parseable page: the
+        # 2026-06-18 concurrency run tripped it after ~250 rapid requests, after
+        # which it served a persistent empty (0-byte) HTTP 500 from its
+        # `Server: ATS` edge with `Connection: close` (an IP cooldown). A real
+        # browser nav then fails with net::ERR_CONNECTION_CLOSED, which the
+        # runner's outer exception handler already records as a failed scrape —
+        # before any body exists for detect_block to inspect. So there is no
+        # body signal to key on; this stays None (see docs/BLOCK_SIGNAL_FINDINGS.md).
         return None

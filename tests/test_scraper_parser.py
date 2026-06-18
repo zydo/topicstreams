@@ -182,6 +182,16 @@ def test_bing_build_url_hour_is_past_hour_interval():
     assert 'interval%3d"4"' in url
 
 
+def test_bing_detect_block_always_none():
+    # Bing never hard-blocks (2026-06-18 concurrency run: ~50k requests, all
+    # HTTP 200); its throttle has no page to detect, so detect_block stays None.
+    assert (
+        _BING.detect_block("https://www.bing.com/news/search?q=x", "<html>x</html>")
+        is None
+    )
+    assert _BING.detect_block("https://www.bing.com/news/search?q=x", "") is None
+
+
 # --- Yahoo ----------------------------------------------------------------
 
 # Yahoo wraps result links in an r.search.yahoo.com redirector; the real target
@@ -234,6 +244,19 @@ def test_yahoo_build_url_query_and_offset():
     )
     assert "p=us+iran" in url
     assert "b=11" in url  # page 2 -> 1-based offset 11
+
+
+def test_yahoo_detect_block_always_none():
+    # Yahoo's block (2026-06-18) is an empty 0-byte HTTP 500, not a parseable
+    # page — a real browser nav sees net::ERR_CONNECTION_CLOSED, already caught
+    # as a nav error. There is no body to key on, so detect_block stays None.
+    assert _YAHOO.detect_block("https://news.search.yahoo.com/search?p=x", "") is None
+    assert (
+        _YAHOO.detect_block(
+            "https://news.search.yahoo.com/search?p=x", "<html>results</html>"
+        )
+        is None
+    )
 
 
 # --- Brave ----------------------------------------------------------------

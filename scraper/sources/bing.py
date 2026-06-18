@@ -80,6 +80,10 @@ class BingSource(SearchSource):
         )
 
     def detect_block(self, final_url: str, html: str) -> str | None:
-        # Bing news search has no clear block signal; rely on HTTP status codes
-        # and the parse-0 health signal. Refine if blocks are observed.
+        # Bing never hard-blocks: the 2026-06-18 concurrency run flooded it with
+        # ~50k requests at up to ~76 req/s and every response was HTTP 200 with
+        # real results — no 429/403/503, no redirect, no challenge page. Bing's
+        # only defence is silently slow-rolling each connection to a per-IP
+        # throughput ceiling, which has no page to key on (see
+        # docs/BLOCK_SIGNAL_FINDINGS.md). So there is nothing to detect here.
         return None
