@@ -56,7 +56,7 @@ implementation approach was: target the news SERP markup
 
 - Deleted `scraper/sources/duckduckgo.py` and unregistered it from
   `scraper/sources/__init__.py` (`get_source("duckduckgo")` now raises).
-- Dropped it from `config/scraper.yml(.example)` and the docs' engine lists.
+- Dropped it from `config.yml(.example)` and the docs' engine lists.
 - Removed its parser/`detect_block` tests.
 
 Block-signal detection for the **supported** engines (Bing/Yahoo/Brave) is

@@ -1,7 +1,61 @@
 """Configuration management for the TopicStreams API."""
 
+from pathlib import Path
+
+import yaml
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
+
+# Unified config file at the repo/container root (same path common.config uses).
+CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yml"
+
+
+class YamlSettingsSource(PydanticBaseSettingsSource):
+    """Optional ``api:`` section of ``config.yml`` for API tuning knobs.
+
+    Precedence (highest → lowest): init args > environment > .env file > this
+    YAML > field defaults. So secrets and Docker-startup vars stay in .env (they
+    win), while this file is the preferred surface for tunable defaults — edit
+    it without rebuilding, or override a single value from the environment.
+
+    The file (and its ``api:`` section) is optional; a missing or malformed file
+    simply falls through to the field defaults.
+    """
+
+    def __init__(self, settings_cls: type[BaseSettings]) -> None:
+        super().__init__(settings_cls)
+        self._yaml_data: dict = self._load_yaml()
+
+    @staticmethod
+    def _load_yaml() -> dict:
+        path = CONFIG_PATH
+        if not path.exists():
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+        except (OSError, yaml.YAMLError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        api = data.get("api")
+        return api if isinstance(api, dict) else {}
+
+    def get_field_value(self, field, field_name: str):
+        return self._yaml_data.get(field_name), field_name, False
+
+    def __call__(self) -> dict:
+        # Keep only keys that map to a declared field (lower-snake, matching the
+        # pydantic field names); unknown YAML keys are ignored, like extra="ignore".
+        return {
+            name: self._yaml_data[name]
+            for name in self.settings_cls.model_fields
+            if name in self._yaml_data
+        }
 
 
 class Settings(BaseSettings):
@@ -13,6 +67,26 @@ class Settings(BaseSettings):
         # vars the app doesn't model (e.g. HOST_PORT); ignore rather than reject.
         extra="ignore",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ):
+        # Order is precedence (first wins); field defaults apply last, after all
+        # sources. env / .env override the YAML so secrets and Docker-startup
+        # vars win, while config/settings.yml is the preferred tuning surface.
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            YamlSettingsSource(settings_cls),
+            file_secret_settings,
+        )
 
     # ========== Database ========== #
 
@@ -54,6 +128,20 @@ class Settings(BaseSettings):
     # 'text' (human-readable) or 'json' (structured, one object per line).
     log_format: str = Field(default="text", description="Log format: text or json")
 
+    # ========== API rate limiting ========== #
+
+    rate_limit_calls: int = Field(
+        default=120, ge=1, description="Max requests per client IP per period"
+    )
+    rate_limit_period: int = Field(
+        default=60, ge=1, description="Rate-limit window in seconds"
+    )
+    rate_limit_max_tracked: int = Field(
+        default=10000,
+        ge=1,
+        description="Max client IPs tracked before the stale-IP eviction sweep",
+    )
+
     # ========== Database Pool ========== #
 
     db_pool_min_conn: int = Field(
@@ -63,10 +151,74 @@ class Settings(BaseSettings):
         default=10, ge=1, description="Maximum DB connections in pool"
     )
 
+    # ========== Database connection tuning ========== #
+
+    db_connect_timeout: int = Field(
+        default=10, ge=1, description="Postgres connect timeout (seconds)"
+    )
+    db_keepalives_idle: int = Field(
+        default=30, ge=1, description="Postgres TCP keepalive idle time (seconds)"
+    )
+    db_keepalives_interval: int = Field(
+        default=10, ge=1, description="Postgres TCP keepalive interval (seconds)"
+    )
+    db_keepalives_count: int = Field(
+        default=5, ge=1, description="Postgres TCP keepalive probes before giving up"
+    )
+
     # ========== Data Retention ========== #
 
     news_retention_days: int = Field(
         default=30, ge=1, description="Days to retain news entries before purging"
+    )
+
+    # ========== Feed ========== #
+
+    feed_engines_window_days: int = Field(
+        default=7,
+        ge=1,
+        description="Engine filter lists engines seen within this many days",
+    )
+    feed_page_size: int = Field(
+        default=20, ge=1, le=100, description="Default feed page size (UI)"
+    )
+
+    # ========== Scrape-health signal (api/v1/status) ========== #
+
+    health_log_window: int = Field(
+        default=30, ge=1, description="Recent scraper logs to read for health"
+    )
+    health_stale_min_seconds: int = Field(
+        default=5 * 60, ge=1, description="Floor for the 'stalled' threshold"
+    )
+    health_stale_max_seconds: int = Field(
+        default=30 * 60, ge=1, description="Ceiling for the 'stalled' threshold"
+    )
+    health_stale_default_seconds: int = Field(
+        default=15 * 60,
+        ge=1,
+        description="'stalled' threshold when cadence can't be inferred (one log)",
+    )
+
+    # ========== DB retry ========== #
+
+    db_retry_max_attempts: int = Field(
+        default=3, ge=1, description="Attempts for transient DB errors"
+    )
+    db_retry_delay_seconds: float = Field(
+        default=0.1, gt=0, description="Initial backoff between DB retries (s)"
+    )
+
+    # ========== Frontend (served via /api/v1/config) ========== #
+
+    status_poll_interval_ms: int = Field(
+        default=30_000, ge=1000, description="UI status-strip refresh interval"
+    )
+    ws_reconnect_base_ms: int = Field(
+        default=5_000, ge=100, description="WebSocket reconnect backoff base"
+    )
+    ws_reconnect_max_ms: int = Field(
+        default=30_000, ge=1000, description="WebSocket reconnect backoff cap"
     )
 
     @property

@@ -47,6 +47,6 @@ Thumbs.db
 .playwright/
 .browser_profiles/
 
-# Configuration (local copies from templates)
-config/*.yml
-!config/*.yml.example
+# Configuration (local runtime copy from the template)
+/config.yml
+

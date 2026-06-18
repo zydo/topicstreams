@@ -14,12 +14,9 @@ from starlette.concurrency import run_in_threadpool
 
 from common import database as db
 from common.model import ScraperLog
+from common.settings import settings
 
 router = APIRouter(prefix="/status", tags=["status"])
-
-_STALE_MIN_S = 5 * 60
-_STALE_MAX_S = 30 * 60
-_LOG_WINDOW = 30
 
 
 class StatusResponse(BaseModel):
@@ -44,8 +41,11 @@ def _stale_threshold_s(logs: list[ScraperLog]) -> float:
         gap = (newer.scraped_at - older.scraped_at).total_seconds()
         max_gap = max(max_gap, gap)
     if max_gap <= 0:
-        return 15 * 60
-    return min(_STALE_MAX_S, max(_STALE_MIN_S, max_gap * 3))
+        return settings.health_stale_default_seconds
+    return min(
+        settings.health_stale_max_seconds,
+        max(settings.health_stale_min_seconds, max_gap * 3),
+    )
 
 
 def _fail_reason(log: ScraperLog) -> str:
@@ -120,7 +120,7 @@ def compute_health(
 async def get_status() -> StatusResponse:
     topics = await run_in_threadpool(db.get_topics)  # active only
     active_names = {t.name for t in topics}
-    logs = await run_in_threadpool(db.get_scraper_logs, _LOG_WINDOW)
+    logs = await run_in_threadpool(db.get_scraper_logs, settings.health_log_window)
     total_news = await run_in_threadpool(db.get_active_feed_count)
 
     state, label, detail = compute_health(logs, active_names)

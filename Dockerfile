@@ -18,6 +18,10 @@ RUN pip install --no-cache-dir --group api
 
 COPY common/ /app/common
 COPY api/ /app/api/
+# config.yml holds the unified config (scraper/anti-detection/api sections).
+# Bake the template and, if present, the local runtime config.yml (gitignored,
+# like the old config/ dir) so the build picks up local customizations.
+COPY config.yml* /app/
 
 CMD ["python", "-m", "api.main"]
 
@@ -38,6 +42,6 @@ RUN pip install --no-cache-dir --group scraper \
 
 COPY common/ /app/common
 COPY scraper/ /app/scraper/
-COPY config/ /app/config/
+COPY config.yml* /app/
 
 CMD ["python", "-u", "-m", "scraper.main"]

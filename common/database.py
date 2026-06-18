@@ -54,25 +54,37 @@ TRANSIENT_ERRORS = (
 )
 
 
-def retry_on_transient_error(max_attempts: int = 3, delay_seconds: float = 0.1):
+def retry_on_transient_error(
+    max_attempts: int | None = None, delay_seconds: float | None = None
+):
     """Decorator to retry database operations on transient failures.
 
     Args:
-        max_attempts: Maximum number of retry attempts (default: 3)
-        delay_seconds: Initial delay between retries in seconds (default: 0.1)
+        max_attempts: Retry attempts; defaults to settings.db_retry_max_attempts.
+        delay_seconds: Initial backoff; defaults to settings.db_retry_delay_seconds.
                       Uses exponential backoff: delay * (2 ** attempt)
     """
 
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            for attempt in range(max_attempts):
+            attempts = (
+                max_attempts
+                if max_attempts is not None
+                else settings.db_retry_max_attempts
+            )
+            delay = (
+                delay_seconds
+                if delay_seconds is not None
+                else settings.db_retry_delay_seconds
+            )
+            for attempt in range(attempts):
                 try:
                     return func(*args, **kwargs)
                 except TRANSIENT_ERRORS:
-                    if attempt < max_attempts - 1:
+                    if attempt < attempts - 1:
                         # Exponential backoff
-                        sleep_time = delay_seconds * (2**attempt)
+                        sleep_time = delay * (2**attempt)
                         time.sleep(sleep_time)
                     else:
                         # Final attempt failed, re-raise
@@ -95,11 +107,11 @@ def _get_pool() -> ThreadedConnectionPool:
                 database=settings.postgres_db,
                 user=settings.postgres_user,
                 password=settings.postgres_password,
-                connect_timeout=10,
+                connect_timeout=settings.db_connect_timeout,
                 keepalives=1,
-                keepalives_idle=30,
-                keepalives_interval=10,
-                keepalives_count=5,
+                keepalives_idle=settings.db_keepalives_idle,
+                keepalives_interval=settings.db_keepalives_interval,
+                keepalives_count=settings.db_keepalives_count,
             )
         return _pool
 
@@ -296,8 +308,9 @@ def get_news_count(topic: str, engine: str | None = None) -> int:
 
 # The engine filter only offers engines seen within this window, so one that
 # stops producing (disabled, or long rate-limited) ages out of the dropdown on
-# its own instead of lingering until retention purges its rows.
-FEED_ENGINES_WINDOW_DAYS = 7
+# its own instead of lingering until retention purges its rows. Configurable via
+# FEED_ENGINES_WINDOW_DAYS in the environment.
+FEED_ENGINES_WINDOW_DAYS = settings.feed_engines_window_days
 
 
 @retry_on_transient_error()

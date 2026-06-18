@@ -64,11 +64,11 @@ for topic in topics:
 - Topics are **randomized** at the start of each cycle (`shuffle(topics)`) to avoid deterministic request pattern
 - Different loop iterations scrape topics in different orders
 - Further mimics human behavior and distributes load
-- Configurable via `randomized_order.enabled` in `config/anti_detection.yml`
+- Configurable via `randomized_order.enabled` in `config.yml`
 
 ## Scrape Interval Behavior
 
-The `scrape_interval` setting in `config/scraper.yml` (default: 60 seconds) controls how often to scrape **all topics**:
+The `scrape_interval` setting in `config.yml` (default: 60 seconds) controls how often to scrape **all topics**:
 
 ### Normal Case (scraping finishes within interval)
 
@@ -116,13 +116,13 @@ topicstreams-scraper  | 2025-12-03 22:49:27,978 - INFO - 5 topics took 8.3s, wai
 ### What to Look For
 
 If cycles consistently exceed the interval, consider:
-- Increasing `scrape_interval` in `config/scraper.yml`
+- Increasing `scrape_interval` in `config.yml`
 - Reducing `max_pages` (scrape fewer pages per topic)
 - Reducing the number of tracked topics
 
 If you see frequent HTTP 429 or 403 errors in logs (check via [scraper logs API](../API_REFERENCE.md#get-scraper-logs)), you're being rate-limited or blocked:
 - For high-volume needs, see [Proxy Rotation](#proxy-rotation) below
-- Review anti-detection settings in `config/anti_detection.yml`
+- Review anti-detection settings in `config.yml`
 
 ---
 
@@ -152,7 +152,7 @@ SCRAPER_PROXY=http://user:pass@gateway.provider.com:7777
 ```
 
 ```yaml
-# config/anti_detection.yml
+# config.yml
 anti_detection:
   proxy:
     enabled: true
@@ -162,7 +162,7 @@ anti_detection:
 ```
 
 `http`, `https`, and `socks5` schemes are supported. **Match `timezone_id` and
-`geolocation`** (also in `anti_detection.yml`) to the proxy's exit country, or
+`geolocation`** (also in `config.yml`) to the proxy's exit country, or
 the mismatch itself becomes a detection signal.
 
 ## Advanced: Different Personas per Proxy

@@ -7,6 +7,7 @@ from starlette.concurrency import run_in_threadpool
 from api.exceptions import TopicStreamsException
 from common import database as db
 from common.model import NewsEntry
+from common.settings import settings
 from common.utils import normalize_topic
 
 router = APIRouter(prefix="/news", tags=["news"])
@@ -36,7 +37,7 @@ def _next_cursor(entries: list[NewsEntry], limit: int) -> int | None:
 
 @router.get("")
 async def list_all_news(
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(settings.feed_page_size, ge=1, le=100),
     before_id: int | None = Query(None, ge=1),
     engine: str | None = Query(None, description="Filter to one search engine"),
 ) -> NewsListResponse:
@@ -58,7 +59,7 @@ async def list_feed_engines() -> list[str]:
 @router.get("/{topic_name}")
 async def get_news(
     topic_name: str = Path(..., min_length=1, max_length=100),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(settings.feed_page_size, ge=1, le=100),
     before_id: int | None = Query(None, ge=1),
     engine: str | None = Query(None, description="Filter to one search engine"),
 ) -> NewsListResponse:

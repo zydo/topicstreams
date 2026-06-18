@@ -142,9 +142,10 @@ app = FastAPI(
 
 app.add_middleware(
     RateLimitMiddleware,
-    calls=120,
-    period=60,
+    calls=settings.rate_limit_calls,
+    period=settings.rate_limit_period,
     trusted_proxies=settings.trusted_proxy_count,
+    max_tracked=settings.rate_limit_max_tracked,
 )
 
 # Added last so it's outermost — measures the full request, including the

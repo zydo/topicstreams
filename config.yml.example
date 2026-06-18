@@ -1,0 +1,226 @@
+# =============================================================================
+# TopicStreams configuration
+# =============================================================================
+# One file, three top-level sections consumed by different processes:
+#
+#   scraper:         scraper process behavior (cadence, engines, recycle)
+#   anti_detection:  scraper process anti-bot fingerprinting / timings
+#   api:             API process tuning (DB, rate limiting, feed, health, UI)
+#
+# Both the scraper and the API read this same file and pull their own section.
+# Every key is optional — omit one to take the default shown. The file itself is
+# optional too: if absent at startup it is created from this template (the
+# scraper logs a warning); the API simply falls back to built-in defaults.
+#
+# Precedence for the `api:` section: init args > environment > .env > this file
+# > built-in default. So secrets and Docker-startup vars (POSTGRES_*, API_PORT,
+# HOST_PORT, API_KEY, SCRAPER_PROXY) stay in .env — they win — while this file is
+# the preferred surface for tunable defaults. Any `api:` key can still be set via
+# the environment to override it for a single deployment.
+
+# -----------------------------------------------------------------------------
+# Scraper
+# -----------------------------------------------------------------------------
+scraper:
+  scrape_interval: 60  # Seconds between scrape cycles (start-to-start)
+  max_pages: 1  # Maximum result pages to scrape per topic
+  # Search engines to scrape, in priority order. Add or remove list entries to
+  # enable/disable engines. All supported engines are on by default.
+  # (DuckDuckGo is not supported — it hard-blocks scraping; see
+  # docs/DUCKDUCKGO_UNSUPPORTED.md.)
+  engines:
+    - google
+    - bing
+    - yahoo
+    - brave
+  # How the enabled engines combine each cycle:
+  #   all      - scrape every enabled engine every cycle (max coverage, ~Nx requests)
+  #   fallback - try in priority order, stop at the first that returns items (backup chain)
+  #   rotate   - use one engine per cycle, rotating through the list (spreads load)
+  engine_strategy: all
+  # Recycle the Chromium context every N cycles to release accumulated memory.
+  # A long-lived context grows unbounded; on a swap-less host this livelocked
+  # the box (postmortem 2026-06-13). The on-disk persistent profile survives it.
+  browser_recycle_cycles: 50
+
+# -----------------------------------------------------------------------------
+# Anti-detection (scraper)
+# -----------------------------------------------------------------------------
+anti_detection:
+  # DISABLED (verified 2026-06-11): Google detects playwright-stealth's JS
+  # patches (fake plugins, monkey-patched natives) and CAPTCHAs /search when
+  # they are applied — the identical setup passes with stealth off. The two
+  # signals stealth used to mask are covered without JS patching:
+  # navigator.webdriver via --disable-blink-features=AutomationControlled,
+  # and the UA via the runtime-detected fingerprint. Do not re-enable.
+  playwright_stealth:
+    enabled: false
+    description: "Applies playwright-stealth to each context to mask automation"
+
+  # Minimal arg set, verified to pass Google /search from a residential IP
+  # (2026-06-11). --disable-blink-features=AutomationControlled is the one
+  # anti-detection essential (keeps navigator.webdriver false; true = instant
+  # CAPTCHA). The rest are container-operational flags. Avoid piling on extra
+  # feature-disable switches — they make the browser LESS like stock Chrome.
+  browser_args:
+    enabled: true
+    args:
+      - "--no-sandbox"
+      - "--disable-setuid-sandbox"
+      - "--disable-dev-shm-usage"
+      - "--disable-gpu"
+      - "--window-size=1920,1080"
+      - "--disable-blink-features=AutomationControlled"
+
+  random_delays:
+    enabled: true
+    min_seconds: 2
+    max_seconds: 5
+    description: "Random delay between topics"
+
+  randomized_order:
+    enabled: true
+    description: "Shuffle topics each scrape cycle"
+
+  # Page-interaction timings — the speed vs. block-risk trade-off. All keys are
+  # optional; any omitted value falls back to the default shown.
+  page_interaction:
+    nav_timeout_ms: 30000       # page.goto navigation timeout
+    selector_timeout_ms: 5000   # wait for the results container (non-fatal)
+    settle_min_ms: 1500         # post-load settle wait range (random within [min,max])
+    settle_max_ms: 3000
+    # Human-simulation jitter applied after the page settles (scroll + mouse
+    # motion so the session looks less robotic). Each pair is one random range;
+    # scroll_back_chance is the probability (0..1) of the small upward scroll.
+    human_simulation:
+      scroll_steps_min: 2
+      scroll_steps_max: 4
+      scroll_distance_min: 80
+      scroll_distance_max: 250
+      scroll_wait_min: 300
+      scroll_wait_max: 800
+      mouse_x_min: 200
+      mouse_x_max: 1700
+      mouse_y_min: 200
+      mouse_y_max: 800
+      mouse_steps_min: 5
+      mouse_steps_max: 15
+      scroll_back_chance: 0.5
+      scroll_back_distance_min: 30
+      scroll_back_distance_max: 100
+      scroll_back_wait_min: 200
+      scroll_back_wait_max: 500
+
+  # NOTE: the UA and Sec-CH-UA are derived at runtime from the installed
+  # Chrome version (scraper/main.py:_detect_fingerprint). A hardcoded UA goes
+  # stale as Chrome updates, and Google CAPTCHAs any /search request whose
+  # claimed UA version doesn't match the real browser (verified 2026-06-11).
+  browser_fingerprint:
+    viewport_width: 1920
+    viewport_height: 1080
+    locale: "en-US"
+    timezone_id: "America/Los_Angeles"
+    geolocation_latitude: 37.3273
+    geolocation_longitude: -121.954
+    color_scheme: "light"
+    permissions:
+      - "geolocation"
+
+  # The primary block signal is the redirect to google.com/sorry/ (checked in
+  # code). Keywords are a fallback and must be SPECIFIC to the block page:
+  # bare "captcha" false-positives because real results pages mention it in
+  # Google's own inline JS.
+  captcha_detection:
+    enabled: true
+    keywords:
+      - "unusual traffic from your computer network"
+      - "our systems have detected unusual traffic"
+    description: "Detects CAPTCHA or blocking in response HTML"
+
+  http_error_handling:
+    enabled: true
+    monitored_codes:
+      - 429 # Rate limiting
+      - 403 # Forbidden/blocked
+      - 503 # Service unavailable
+    description: "Detects and logs HTTP errors"
+
+  # Extra headers are applied to EVERY request (documents, XHR, images), so
+  # forcing per-navigation headers here (Accept, Sec-Fetch-*, Upgrade-*) is a
+  # detection signal: real browsers vary them per request type. Verified
+  # 2026-06-11 that dropping them (Sec-CH-UA comes from the runtime-detected
+  # fingerprint in scraper/main.py) passes Google /search. Keep this empty
+  # unless you have a specific reason.
+  http_headers:
+    enabled: true
+    headers: {}
+
+  # Proxy support (optional fallback). With a version-matched fingerprint
+  # (see browser_fingerprint note above) Google /search works from a clean
+  # residential IP without a proxy. Use a residential/mobile proxy if your IP
+  # gets rate-limited or flagged. Datacenter proxies are detected and blocked
+  # just like a flagged direct connection.
+  proxy:
+    enabled: false
+    # Proxy URLs (scheme://[user:pass@]host:port); http, https, and socks5 are
+    # supported. One endpoint is chosen per browser launch — residential
+    # gateways rotate exit IPs server-side, so a single sticky endpoint is the
+    # common case; a longer list varies the identity across restarts.
+    #
+    # Prefer the SCRAPER_PROXY env var (in .env) for credentials: this file is
+    # baked into the images at build time, so .env avoids a rebuild and keeps
+    # secrets out of the image. SCRAPER_PROXY overrides this list.
+    #
+    # IMPORTANT: set timezone_id / geolocation above to match the proxy's exit
+    # country, or the mismatch itself becomes a detection signal.
+    proxies: []
+    # - "http://user:pass@gateway.provider.com:7777"
+    # - "socks5://user:pass@gateway.provider.com:1080"
+
+# -----------------------------------------------------------------------------
+# API tuning
+# -----------------------------------------------------------------------------
+# Keys are flat and lowercase to match the settings field names
+# (common/settings.py). Connection identity and secrets (POSTGRES_*), the ports
+# the compose port-mapping / healthcheck interpolate (API_PORT / HOST_PORT), and
+# the write API key stay in .env — they're needed before/aside from this file.
+api:
+  # Database pool & connection tuning
+  db_pool_min_conn: 2
+  db_pool_max_conn: 10
+  db_connect_timeout: 10        # seconds to wait for a connection
+  db_keepalives_idle: 30        # TCP keepalive idle (s)
+  db_keepalives_interval: 10    # TCP keepalive interval (s)
+  db_keepalives_count: 5        # TCP keepalive probes before giving up
+
+  # DB retry (transient errors)
+  db_retry_max_attempts: 3
+  db_retry_delay_seconds: 0.1   # initial backoff; doubles each retry
+
+  # Data retention
+  news_retention_days: 30       # each cycle purges news + logs older than this
+
+  # API rate limiting (per client IP, sliding window)
+  rate_limit_calls: 120
+  rate_limit_period: 60         # window length in seconds
+  rate_limit_max_tracked: 10000 # client IPs tracked before the stale-IP sweep
+
+  # Feed
+  feed_engines_window_days: 7   # engine filter lists engines seen within this window
+  feed_page_size: 20            # default feed page size (API + UI), 1..100
+
+  # Scrape-health signal (/api/v1/status)
+  health_log_window: 30         # recent scraper logs read for the health signal
+  health_stale_min_seconds: 300 # floor for the 'stalled' threshold
+  health_stale_max_seconds: 1800 # ceiling for the 'stalled' threshold
+  health_stale_default_seconds: 900 # 'stalled' threshold when cadence is unknown
+
+  # Frontend (served to the UI via GET /api/v1/config)
+  status_poll_interval_ms: 30000 # UI status-strip refresh interval
+  ws_reconnect_base_ms: 5000     # WebSocket reconnect backoff base
+  ws_reconnect_max_ms: 30000     # WebSocket reconnect backoff cap
+
+  # Deployment behaviour (also commonly set via .env)
+  # cors_origins: "*"               # comma-separated allowed origins, or "*"
+  # trusted_proxy_count: 0          # reverse proxies; >0 reads client IP from X-Forwarded-For
+  # log_format: text                # 'text' (default) or 'json'

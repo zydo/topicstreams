@@ -195,11 +195,10 @@ cp .env.example .env
 docker compose up -d
 ```
 
-The defaults in `.env.example` work out-of-the-box; edit `.env` to customize ports, credentials, or the optional API key. The YAML config files (`config/scraper.yml`, `config/anti_detection.yml`) are still created from their `.yml.example` templates on first run, so you only need to copy them when you want to change scraper settings:
+The defaults in `.env.example` work out-of-the-box; edit `.env` to customize ports, credentials, or the optional API key. `config.yml` is created from its `.yml.example` template on first run, so you only need to copy it when you want to change scraper or API settings:
 
 ```bash
-cp config/scraper.yml.example config/scraper.yml
-cp config/anti_detection.yml.example config/anti_detection.yml
+cp config.yml.example config.yml
 ```
 
 This will start three containers:
@@ -286,7 +285,7 @@ TopicStreams uses sophisticated techniques to make the scraper appear as a real 
 For detailed information about anti-detection strategies (Playwright stealth, browser fingerprinting, random delays, etc.), see [Anti-Bot Detection Documentation](docs/ANTI_BOT_DETECTION.md).
 
 **Quick Reference:**
-- All anti-detection strategies are configurable via `config/anti_detection.yml` (auto-created from the template on first run)
+- All anti-detection strategies are configurable via `config.yml` (auto-created from the template on first run)
 - See [Configuration](docs/CONFIGURATION.md#anti-detection-settings-configanti_detectionyml) for YAML configuration details
 
 ## Scraping Behavior

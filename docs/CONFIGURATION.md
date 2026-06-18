@@ -1,9 +1,12 @@
 # Configuration
 
-TopicStreams uses two types of configuration files:
+TopicStreams uses two configuration files, both at the repo root:
 
-- `.env` file for database and API settings (via environment variables)
-- YAML files in `config/` directory for scraper and anti-detection settings
+- `.env` — secrets and values Docker Compose needs at startup (DB credentials,
+  ports, API key, proxy). Read as environment variables.
+- `config.yml` — everything else: scraper behavior, anti-detection, and API
+  tuning. One file with `scraper:` / `anti_detection:` / `api:` sections that the
+  scraper and API processes each read.
 
 ## First-Time Setup
 
@@ -17,20 +20,21 @@ cp .env.example .env
 docker compose up
 ```
 
-The YAML configuration files are created automatically: if `config/scraper.yml` or `config/anti_detection.yml` is missing at startup, it is copied from its `.yml.example` template (a warning is logged). To customize settings before the first run, create and edit them manually:
+`config.yml` is created automatically: if it's missing at startup, the scraper
+copies it from `config.yml.example` (a warning is logged); the API just falls
+back to built-in defaults. To customize before the first run, copy and edit it:
 
 ```bash
-cp config/scraper.yml.example config/scraper.yml
-cp config/anti_detection.yml.example config/anti_detection.yml
-vim config/scraper.yml
-vim config/anti_detection.yml
+cp config.yml.example config.yml
+vim config.yml
 ```
 
-**How YAML configuration works:**
-- Template files (`.yml.example`) are tracked in git and contain sensible defaults
-- Your local `.yml` files are gitignored and contain your custom settings
-- You can modify your `.yml` files anytime, and changes will be preserved
-- To reset to defaults, delete your local `.yml` files; they will be re-created from the templates on next startup
+**How it works:**
+- `config.yml.example` is tracked in git and holds the sensible defaults
+- Your local `config.yml` is gitignored and holds your custom settings
+- You can edit `config.yml` anytime; changes are preserved
+- To reset to defaults, delete `config.yml`; it's re-created from the template on
+  next startup (the scraper process) or the API uses built-in defaults
 
 ## Environment Variables (.env)
 
@@ -72,11 +76,16 @@ vim config/anti_detection.yml
 | --------------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
 | `NEWS_RETENTION_DAYS` | `30`    | Each scrape cycle purges news (feed events + orphaned articles) **and** scraper logs older than this window. |
 
-## YAML Configuration Files
+## YAML Configuration (`config.yml`)
 
-Scraper and anti-detection settings are configured via YAML files in the `config/` directory. These files are mounted into the containers at runtime and can be edited without rebuilding.
+Scraper, anti-detection, and API-tuning settings all live in `config.yml` at the
+repo root, under three top-level sections: `scraper:`, `anti_detection:`, and
+`api:`. The scraper and API processes each read this one file and pull their own
+section. The file is baked into the images at build time (so edit it, then
+rebuild); the `SCRAPER_PROXY` env var lets you override proxy credentials without
+a rebuild.
 
-### Scraper Settings (`config/scraper.yml`)
+### Scraper Settings (`config.yml`)
 
 ```yaml
 scraper:
@@ -97,8 +106,49 @@ scraper:
 | `max_pages`       | `1`                            | Number of result pages to scrape. Increase if you have high-volume topics or longer intervals.                                                                                                                                                                                             |
 | `engines`         | `[google, bing, yahoo, brave]` | Search engines to scrape, as a list in priority order. Available: `google`, `bing`, `yahoo`, `brave`. (DuckDuckGo is not supported — it hard-blocks scraping; see [docs/DUCKDUCKGO_UNSUPPORTED.md](DUCKDUCKGO_UNSUPPORTED.md).) See [Search Engines](SCRAPING_BEHAVIOR.md#search-engines). |
 | `engine_strategy` | `all`                          | How enabled engines combine per cycle: `all` (scrape every engine each cycle), `fallback` (try in order, stop at the first that returns items), or `rotate` (one engine per cycle, rotating).                                                                                              |
+| `browser_recycle_cycles` | `50`                    | Recycle the Chromium context every N cycles to release accumulated memory (the on-disk persistent profile survives). Guards against unbounded context growth; see [postmortem](POSTMORTEM_2026-06-13_OOM_HANG.md).                                                                          |
 
-### Anti-Detection Settings (`config/anti_detection.yml`)
+### API Tuning Settings (`config.yml`, `api:` section)
+
+API-side tuning knobs — DB pool/connection, rate limiting, data retention, feed,
+scrape-health thresholds, DB retry, and the frontend poll/WebSocket cadence —
+live in the `api:` section of `config.yml`. Every key is optional and defaults to
+the value shown in `config.yml.example`.
+
+**Precedence:** init args > environment > `.env` > `config.yml` (`api:`) > built-in default. So secrets and values Docker Compose needs at startup (DB credentials, `API_PORT`/`HOST_PORT`, `API_KEY`, `SCRAPER_PROXY`) stay in `.env` — they win — while the `api:` section is the preferred surface for tunable defaults. Any key can still be set via the environment to override the YAML for a single deployment.
+
+```bash
+cp config.yml.example config.yml
+vim config.yml
+```
+
+| Setting                       | Default | Description                                                                                          |
+| ----------------------------- | ------- | ---------------------------------------------------------------------------------------------------- |
+| `db_pool_min_conn`            | `2`     | Minimum DB connections in the pool.                                                                  |
+| `db_pool_max_conn`            | `10`    | Maximum DB connections in the pool.                                                                  |
+| `db_connect_timeout`          | `10`    | Postgres connect timeout (s).                                                                        |
+| `db_keepalives_idle`          | `30`    | Postgres TCP keepalive idle (s).                                                                     |
+| `db_keepalives_interval`      | `10`    | Postgres TCP keepalive interval (s).                                                                 |
+| `db_keepalives_count`         | `5`     | Postgres TCP keepalive probes before giving up.                                                      |
+| `db_retry_max_attempts`       | `3`     | Attempts for transient DB errors.                                                                    |
+| `db_retry_delay_seconds`      | `0.1`   | Initial backoff between DB retries (s); doubles each retry.                                          |
+| `news_retention_days`         | `30`    | Each cycle purges news + scraper logs older than this.                                               |
+| `rate_limit_calls`            | `120`   | Max requests per client IP per `rate_limit_period`.                                                  |
+| `rate_limit_period`           | `60`    | Rate-limit window (s).                                                                               |
+| `rate_limit_max_tracked`      | `10000` | Client IPs tracked before the stale-IP eviction sweep.                                               |
+| `feed_engines_window_days`    | `7`     | Engine filter lists engines seen within this window.                                                 |
+| `feed_page_size`              | `20`    | Default feed page size (API + UI), 1–100.                                                            |
+| `health_log_window`           | `30`    | Recent scraper logs read for the health signal.                                                      |
+| `health_stale_min_seconds`    | `300`   | Floor for the "stalled" threshold.                                                                   |
+| `health_stale_max_seconds`    | `1800`  | Ceiling for the "stalled" threshold.                                                                 |
+| `health_stale_default_seconds`| `900`   | "stalled" threshold when the cadence can't be inferred.                                              |
+| `status_poll_interval_ms`     | `30000` | UI status-strip refresh interval (ms).                                                               |
+| `ws_reconnect_base_ms`        | `5000`  | WebSocket reconnect backoff base (ms).                                                               |
+| `ws_reconnect_max_ms`         | `30000` | WebSocket reconnect backoff cap (ms).                                                                |
+
+The frontend reads `feed_page_size` and the poll/WebSocket cadence at startup from `GET /api/v1/config`, so changing them here takes effect on next UI load without a frontend rebuild.
+
+### Anti-Detection Settings (`config.yml`)
 
 ```yaml
 anti_detection:
@@ -273,7 +323,7 @@ SCRAPER_PROXY=http://user:pass@gateway.provider.com:7777
 ```
 
 ```yaml
-# config/anti_detection.yml
+# config.yml
 anti_detection:
   proxy:
     enabled: true
@@ -289,7 +339,7 @@ anti_detection:
 | `SCRAPER_PROXY` | unset   | Single proxy URL (env var). Overrides `proxies` and enables proxying.                              |
 
 > **Match the location.** Set `timezone_id` and `geolocation` (above in
-> `anti_detection.yml`) to the proxy's exit country — a mismatch is itself a
+> `config.yml`) to the proxy's exit country — a mismatch is itself a
 > detection signal.
 
 ## Reloading Configuration
@@ -314,9 +364,8 @@ docker compose restart
 **To reset configuration to defaults:**
 
 ```bash
-# Delete your local config files (they are re-created from the
-# .yml.example templates on next startup)
-rm config/scraper.yml config/anti_detection.yml
+# Delete your local config (re-created from the template on next startup)
+rm config.yml
 
 # Restart the application
 docker compose restart

@@ -1,6 +1,6 @@
 # Anti-Bot Detection
 
-> **Configuration:** All anti-detection strategies are configurable via `config/anti_detection.yml` (created from `config/anti_detection.yml.example` template on first-time setup). See [Configuration](docs/CONFIGURATION.md) for details on customizing each strategy.
+> **Configuration:** All anti-detection strategies are configurable via `config.yml` (created from `config.yml.example` template on first-time setup). See [Configuration](docs/CONFIGURATION.md) for details on customizing each strategy.
 
 TopicStreams uses sophisticated techniques to make the scraper appear as a real human user, minimizing the risk of being blocked by Google.
 
@@ -8,7 +8,7 @@ TopicStreams uses sophisticated techniques to make the scraper appear as a real 
 
 The scraper uses **Playwright** with its bundled **native Chromium** and a runtime-derived browser fingerprint to mimic a genuine user. Notably, **playwright-stealth is disabled by default and must stay that way for Google** — its JS patches are themselves detectable (see [Playwright-Stealth Patches — DISABLED](#3-playwright-stealth-patches--disabled) below).
 
-All strategies below are loaded from `config/anti_detection.yml` and can be enabled/disabled individually.
+All strategies below are loaded from `config.yml` and can be enabled/disabled individually.
 
 > **Hard-won findings (verified 2026-06-11):** Google CAPTCHAs `/search` whenever
 > any of these is true, regardless of everything else:
@@ -26,7 +26,7 @@ All strategies below are loaded from `config/anti_detection.yml` and can be enab
 ### 1. Browser Launch Arguments
 
 ```python
-# Loaded from config/anti_detection.yml
+# Loaded from config.yml
 browser_args = anti_detection_config.browser_args  # Configurable
 browser.launch(
     headless=True,
@@ -56,7 +56,7 @@ Default arguments (configurable in YAML):
 The browser context is configured to match a real Chrome user (all values configurable in YAML):
 
 ```python
-# All values loaded from config/anti_detection.yml
+# All values loaded from config.yml
 context = browser.new_context(
     user_agent=profile.user_agent,
     viewport={
@@ -148,7 +148,7 @@ for topic in topics:
 To avoid static browser fingerprints that can be flagged by Google, the scraper supports rotating through multiple fingerprint profiles. Each profile bundles a user agent with matching Sec-CH-UA headers:
 
 ```python
-# Loaded from config/anti_detection.yml
+# Loaded from config.yml
 if anti_detection_config.user_agent_rotation_enabled:
     strategy = anti_detection_config.user_agent_rotation_strategy  # "per_cycle" or "per_topic"
 
@@ -218,7 +218,7 @@ For high-volume or 24/7 scraping, consider [proxy rotation](SCRAPING_BEHAVIOR.md
 **Best practices:**
 
 - Match timezone/geolocation to your server's IP location
-- Keep `scrape_interval` reasonable (default 60s is safe) - see `config/scraper.yml`
+- Keep `scrape_interval` reasonable (default 60s is safe) - see `config.yml`
 - Monitor scraper logs for HTTP 429 (rate limit) or 403 (blocked)
 
 See [Configuration](CONFIGURATION.md) to customize settings.

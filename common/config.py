@@ -1,7 +1,8 @@
 """Configuration management for TopicStreams.
 
-Loads and provides access to YAML configuration files for both scraper
-and anti-detection settings.
+Loads the unified ``config.yml`` (at the repo root, alongside ``.env``) and
+exposes its ``scraper:`` and ``anti_detection:`` sections. The API process reads
+the same file's ``api:`` section via common.settings's YAML source.
 """
 
 import logging
@@ -15,8 +16,9 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# Base config directory
-CONFIG_DIR = Path(__file__).parent.parent / "config"
+# Unified config file at the repo/container root (WORKDIR is /app in the image,
+# so this resolves to /app/config.yml there and <repo>/config.yml locally).
+CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yml"
 
 
 @dataclass
@@ -76,7 +78,7 @@ class ScraperConfig(_BaseConfig):
 
     _log_name = "scraper"
 
-    def __init__(self, config_path: Path = CONFIG_DIR / "scraper.yml"):
+    def __init__(self, config_path: Path = CONFIG_PATH):
         super().__init__(config_path)
 
     @property
@@ -103,13 +105,18 @@ class ScraperConfig(_BaseConfig):
         """How enabled engines are combined: 'all', 'fallback', or 'rotate'."""
         return self._get("scraper", "engine_strategy", default="fallback")
 
+    @property
+    def browser_recycle_cycles(self) -> int:
+        """Recycle the Chromium context every N cycles to release memory."""
+        return self._get("scraper", "browser_recycle_cycles", default=50)
+
 
 class AntiDetectionConfig(_BaseConfig):
     """Anti-detection configuration loader and accessor."""
 
     _log_name = "anti-detection"
 
-    def __init__(self, config_path: Path = CONFIG_DIR / "anti_detection.yml"):
+    def __init__(self, config_path: Path = CONFIG_PATH):
         super().__init__(config_path)
 
     # ============================================
@@ -162,6 +169,120 @@ class AntiDetectionConfig(_BaseConfig):
                 "--disable-blink-features=AutomationControlled",
             ],
         )
+
+    # ----- Page interaction timing (speed vs. block-risk) -----
+
+    @property
+    def nav_timeout_ms(self) -> int:
+        """Navigation (page.goto) timeout in milliseconds."""
+        return self._get(
+            "anti_detection", "page_interaction", "nav_timeout_ms", default=30000
+        )
+
+    @property
+    def selector_timeout_ms(self) -> int:
+        """Timeout waiting for the results container, in milliseconds."""
+        return self._get(
+            "anti_detection", "page_interaction", "selector_timeout_ms", default=5000
+        )
+
+    @property
+    def page_settle_min_ms(self) -> int:
+        """Minimum post-load settle wait, in milliseconds."""
+        return self._get(
+            "anti_detection", "page_interaction", "settle_min_ms", default=1500
+        )
+
+    @property
+    def page_settle_max_ms(self) -> int:
+        """Maximum post-load settle wait, in milliseconds."""
+        return self._get(
+            "anti_detection", "page_interaction", "settle_max_ms", default=3000
+        )
+
+    # ----- Human-simulation jitter (scroll/mouse after the page settles) -----
+    # Cosmetic anti-bot motion; trades a little speed for looking less robotic.
+    # Each range mirrors a random.randint(lo, hi) call in scraper.py, and the
+    # defaults reproduce the prior hardcoded behaviour exactly.
+
+    def _human_sim(self, key: str, default: Any) -> Any:
+        """Read one knob under anti_detection.page_interaction.human_simulation."""
+        return self._get(
+            "anti_detection",
+            "page_interaction",
+            "human_simulation",
+            key,
+            default=default,
+        )
+
+    @property
+    def scroll_steps_min(self) -> int:
+        return self._human_sim("scroll_steps_min", 2)
+
+    @property
+    def scroll_steps_max(self) -> int:
+        return self._human_sim("scroll_steps_max", 4)
+
+    @property
+    def scroll_distance_min(self) -> int:
+        return self._human_sim("scroll_distance_min", 80)
+
+    @property
+    def scroll_distance_max(self) -> int:
+        return self._human_sim("scroll_distance_max", 250)
+
+    @property
+    def scroll_wait_min(self) -> int:
+        return self._human_sim("scroll_wait_min", 300)
+
+    @property
+    def scroll_wait_max(self) -> int:
+        return self._human_sim("scroll_wait_max", 800)
+
+    @property
+    def mouse_x_min(self) -> int:
+        return self._human_sim("mouse_x_min", 200)
+
+    @property
+    def mouse_x_max(self) -> int:
+        return self._human_sim("mouse_x_max", 1700)
+
+    @property
+    def mouse_y_min(self) -> int:
+        return self._human_sim("mouse_y_min", 200)
+
+    @property
+    def mouse_y_max(self) -> int:
+        return self._human_sim("mouse_y_max", 800)
+
+    @property
+    def mouse_steps_min(self) -> int:
+        return self._human_sim("mouse_steps_min", 5)
+
+    @property
+    def mouse_steps_max(self) -> int:
+        return self._human_sim("mouse_steps_max", 15)
+
+    @property
+    def scroll_back_chance(self) -> float:
+        """Probability of a small upward scroll after the mouse move (0..1)."""
+        return self._human_sim("scroll_back_chance", 0.5)
+
+    @property
+    def scroll_back_distance_min(self) -> int:
+        return self._human_sim("scroll_back_distance_min", 30)
+
+    @property
+    def scroll_back_distance_max(self) -> int:
+        return self._human_sim("scroll_back_distance_max", 100)
+
+    @property
+    def scroll_back_wait_min(self) -> int:
+        return self._human_sim("scroll_back_wait_min", 200)
+
+    @property
+    def scroll_back_wait_max(self) -> int:
+        return self._human_sim("scroll_back_wait_max", 500)
 
     @property
     def random_delay_min(self) -> float:
@@ -278,7 +399,7 @@ class AntiDetectionConfig(_BaseConfig):
     def proxy_enabled(self) -> bool:
         # Setting SCRAPER_PROXY in the environment implicitly enables proxying,
         # so credentials can be supplied via .env without rebuilding the image
-        # (config/ is baked into the scraper image at build time).
+        # (config.yml is baked into the images at build time).
         if os.environ.get("SCRAPER_PROXY", "").strip():
             return True
         return self._get("anti_detection", "proxy", "enabled", default=False)

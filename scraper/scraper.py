@@ -144,7 +144,9 @@ def _scrape_one_page(
 
     try:
         response: Response | None = page.goto(
-            url, wait_until="domcontentloaded", timeout=30000
+            url,
+            wait_until="domcontentloaded",
+            timeout=anti_detection_config.nav_timeout_ms,
         )
 
         if response is None:
@@ -188,27 +190,46 @@ def _scrape_one_page(
             )
 
         # Let dynamic content load.
-        page.wait_for_timeout(1500 + random.randint(0, 1500))
-
-        # Simulate human-like reading behaviour.
-        try:
-            for _ in range(random.randint(2, 4)):
-                page.evaluate(f"window.scrollBy(0, {random.randint(80, 250)})")
-                page.wait_for_timeout(random.randint(300, 800))
-            page.mouse.move(
-                random.randint(200, 1700),
-                random.randint(200, 800),
-                steps=random.randint(5, 15),
+        page.wait_for_timeout(
+            random.randint(
+                anti_detection_config.page_settle_min_ms,
+                anti_detection_config.page_settle_max_ms,
             )
-            if random.random() > 0.5:
-                page.evaluate(f"window.scrollBy(0, -{random.randint(30, 100)})")
-                page.wait_for_timeout(random.randint(200, 500))
+        )
+
+        # Simulate human-like reading behaviour. The scroll/mouse ranges come
+        # from anti_detection.page_interaction.human_simulation so block-risk vs.
+        # speed is tunable without a code change.
+        hs = anti_detection_config
+        try:
+            for _ in range(random.randint(hs.scroll_steps_min, hs.scroll_steps_max)):
+                page.evaluate(
+                    f"window.scrollBy(0, {random.randint(hs.scroll_distance_min, hs.scroll_distance_max)})"
+                )
+                page.wait_for_timeout(
+                    random.randint(hs.scroll_wait_min, hs.scroll_wait_max)
+                )
+            page.mouse.move(
+                random.randint(hs.mouse_x_min, hs.mouse_x_max),
+                random.randint(hs.mouse_y_min, hs.mouse_y_max),
+                steps=random.randint(hs.mouse_steps_min, hs.mouse_steps_max),
+            )
+            if random.random() < hs.scroll_back_chance:
+                page.evaluate(
+                    f"window.scrollBy(0, -{random.randint(hs.scroll_back_distance_min, hs.scroll_back_distance_max)})"
+                )
+                page.wait_for_timeout(
+                    random.randint(hs.scroll_back_wait_min, hs.scroll_back_wait_max)
+                )
         except Exception:
             pass
 
         # Wait for the engine's results container, but don't fail if missing.
         try:
-            page.wait_for_selector(source.ready_selector, timeout=5000)
+            page.wait_for_selector(
+                source.ready_selector,
+                timeout=anti_detection_config.selector_timeout_ms,
+            )
         except Exception as e:
             logger.warning(f"Selector wait timeout, proceeding anyway: {e}")
 

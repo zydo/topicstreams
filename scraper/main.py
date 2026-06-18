@@ -51,8 +51,8 @@ USER_DATA_DIR = Path("/app/.browser_profiles/default")
 # Recycle the Chromium context every N cycles to release accumulated memory.
 # A single long-lived context grows unbounded over thousands of cycles; on the
 # swap-less production host this exhausted RAM and livelocked the box (postmortem
-# 2026-06-13). The on-disk persistent profile survives the recycle.
-BROWSER_RECYCLE_CYCLES = 50
+# 2026-06-13). The on-disk persistent profile survives the recycle. The cadence
+# is configurable: scraper.browser_recycle_cycles in config.yml (default 50).
 
 
 def _detect_fingerprint(p) -> FingerprintProfile:
@@ -301,7 +301,7 @@ def main():
                     )
 
                 cycle_count += 1
-                if cycle_count % BROWSER_RECYCLE_CYCLES == 0:
+                if cycle_count % scraper_config.browser_recycle_cycles == 0:
                     logger.info(
                         f"Recycling browser context after {cycle_count} cycles "
                         "to release accumulated memory"
