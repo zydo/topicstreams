@@ -63,11 +63,9 @@
             <div class="wire__head">
                 <h2>The Wire</h2>
                 <div class="filters">
-                    <label class="filter">Engine
-                        <select id="engine-filter">
-                            <option value="">All engines</option>
-                        </select>
-                    </label>
+                    <span class="filter__label">Engine</span>
+                    <div class="engine-filter" id="engine-filter" role="group"
+                        aria-label="Filter the wire by search engine"></div>
                 </div>
             </div>
             <div class="news-container" id="news-container">
@@ -97,6 +95,14 @@
                 <p class="news-excerpt"></p>
             </div>
         </div>
+    </template>
+
+    <!-- Engine filter button template -->
+    <template id="engine-btn-template">
+        <button class="engine-btn" type="button" aria-pressed="false">
+            <img class="engine-btn__logo" alt="" width="16" height="16">
+            <span class="engine-btn__name"></span>
+        </button>
     </template>
 
     <!-- Topic slug template -->

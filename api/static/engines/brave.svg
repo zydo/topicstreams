@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Brave">
+  <defs>
+    <linearGradient id="bv" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF7A38"/>
+      <stop offset="1" stop-color="#FB542B"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="11" fill="url(#bv)"/>
+  <text x="24" y="35" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#ffffff">B</text>
+</svg>

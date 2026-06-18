@@ -255,30 +255,42 @@ a { color: inherit; }
 /* ── The Wire head + filter ────────────────────────────── */
 .wire { position: relative; }
 .wire__head {
-  display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 16px; padding: 30px 0 12px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px 24px; padding: 30px 0 12px; flex-wrap: wrap;
 }
 .wire__head h2 {
   font-size: 13px; letter-spacing: 0.26em; text-transform: uppercase;
   color: var(--ink-soft); font-weight: 600;
 }
-.filters { display: inline-flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
-.filter {
-  display: inline-flex; align-items: center; gap: 8px;
+.filters { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.filter__label {
   font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--ink-soft);
+  color: var(--ink-faint);
 }
-.filter select {
-  font-family: var(--mono); font-size: 12px; letter-spacing: 0.05em;
-  text-transform: uppercase; color: var(--ink); background: var(--paper);
-  border: 0; border-bottom: 1px solid var(--ink); padding: 3px 18px 3px 4px;
-  cursor: pointer; -webkit-appearance: none; appearance: none;
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--ink) 50%),
-    linear-gradient(135deg, var(--ink) 50%, transparent 50%);
-  background-position: calc(100% - 9px) 9px, calc(100% - 4px) 9px;
-  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+
+/* Engine filter: one button per engine, each carrying its brand mark. Same
+   tune-in model as the topic slugs — pick one to filter, click it again to
+   release; the active one inverts to an ink stamp and the rest recede. */
+.engine-filter { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.engine-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--ink);
+  background: var(--paper-raise); border: 1px solid var(--rule);
+  padding: 4px 9px 4px 7px; cursor: pointer; line-height: 1.2;
+  transition: opacity .15s ease, background .15s ease,
+              border-color .15s ease, color .15s ease;
 }
+.engine-btn:hover { border-color: var(--ink-soft); }
+.engine-btn__logo {
+  width: 15px; height: 15px; display: block; flex: none; border-radius: 3px;
+}
+.engine-btn.is-active {
+  background: var(--ink); border-color: var(--ink); color: var(--paper);
+}
+.engine-filter.is-filtering .engine-btn:not(.is-active) { opacity: 0.4; }
+.engine-filter.is-filtering .engine-btn:not(.is-active):hover { opacity: 0.82; }
+.engine-btn:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; }
 
 /* ── The transmission tape ─────────────────────────────── */
 .news-container {
@@ -439,7 +451,7 @@ a { color: inherit; }
 }
 @media (prefers-reduced-motion: reduce) {
   .onair[data-state="live"] .dot, .news-item--live .news-item__body::before { animation: none; }
-  .topic-card, .delete-btn { transition: none; }
+  .topic-card, .delete-btn, .engine-btn { transition: none; }
 }
 
 /* ── Responsive ────────────────────────────────────────── */
