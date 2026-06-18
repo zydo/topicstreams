@@ -216,17 +216,44 @@ The scrape-health signal, computed server-side from recent scraper logs.
 #### Metrics
 
 ```http
-GET /api/v1/metrics
+GET /api/v1/metrics?window=3600
 ```
 
-Operational counters as JSON:
+Operational counters plus a per-engine scrape breakdown, a recent-cycle
+timeline, and recent failures. Powers the built-in **`/monitor`** ops page.
 
-| Field                    | Type          | Description                               |
-| ------------------------ | ------------- | ----------------------------------------- |
-| `active_topics`          | integer       | Watched (active) topics                   |
-| `total_news`             | integer       | Feed events across active topics          |
-| `scrape_success_rate`    | float \| null | Fraction of recent scrapes that succeeded |
-| `feed_freshness_seconds` | float \| null | Age of the newest feed event, in seconds  |
+**Query Parameters:**
+
+| Parameter | Type    | Default | Description                                            |
+| --------- | ------- | ------- | ------------------------------------------------------ |
+| `window`  | integer | `3600`  | Aggregation window in seconds (60 … 604800 / 7 days)   |
+
+**Response:** the lightweight fields below (kept for back-compat) plus a rich
+dashboard payload. Aggregates are computed over the `window`; latency
+percentiles (`avg`/`p50`/`p95`) ignore unmeasured attempts.
+
+| Field                    | Type          | Description                                  |
+| ------------------------ | ------------- | -------------------------------------------- |
+| `active_topics`          | integer       | Watched (active) topics                      |
+| `total_news`             | integer       | Feed events across active topics             |
+| `scrape_success_rate`    | float \| null | Overall scrape success rate in the window    |
+| `feed_freshness_seconds` | float \| null | Age of the newest feed event, in seconds     |
+| `generated_at`           | string        | When this response was assembled (UTC)       |
+| `window_seconds`         | integer       | Aggregation window actually used             |
+| `overall`                | object        | Totals over the window (see below)           |
+| `engines`                | array         | Per-engine aggregates, engine name A→Z       |
+| `recent_cycles`          | array         | Newest-first per-cycle summaries             |
+| `recent_failures`        | array         | Newest-first failed scrapes                  |
+
+Each `engines[*]` entry carries `scrapes`, `successes`, `success_rate`,
+`entries_parsed`, `zero_parse` (successful scrapes that parsed 0 items — a
+selector-rot signal), `failures`, `blocked` (failures with HTTP 429/403/503),
+`avg_latency_ms` / `p50_latency_ms` / `p95_latency_ms`, `last_scrape_at`,
+`last_success`, `last_http_status`, `http_status_breakdown`, and a heuristic
+`health` label: `healthy | degraded | blocked | parsing | idle` (see
+[docs/OBSERVABILITY.md](OBSERVABILITY.md)). Each `recent_cycles[*]` carries
+`started_at`, `finished_at`, `duration_seconds`, `topics_count`,
+`entries_parsed`, `new_events`, `success`, `error`.
 
 > Every API response also carries an `X-Process-Time-Ms` header with the request's processing time.
 

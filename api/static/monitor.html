@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TopicStreams — Ops / Monitor</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    <link rel="stylesheet" href="/static/styles.css">
+    <script>
+        // Set theme before first paint to avoid a flash of the wrong palette.
+        (function () {
+            try {
+                var t = localStorage.getItem('ts-theme');
+                if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                document.documentElement.dataset.theme = t;
+            } catch (e) {
+                console.debug('theme init fell back to light:', e);
+                document.documentElement.dataset.theme = 'light';
+            }
+        })();
+    </script>
+</head>
+
+<body>
+    <div class="sheet monitor">
+        <!-- Masthead -->
+        <header class="masthead">
+            <div class="brand">TOPICSTREAMS <span>/ ops</span></div>
+            <div class="status">
+                <span class="monitor__updated"><span id="last-updated">—</span></span>
+                <span class="sep">·</span>
+                <label class="filter">Window
+                    <select id="window-select">
+                        <option value="3600">1h</option>
+                        <option value="21600">6h</option>
+                        <option value="86400">24h</option>
+                    </select>
+                </label>
+                <button id="theme-toggle" class="chip" type="button" aria-label="Toggle theme">☾</button>
+                <a class="chip" href="/">← the wire</a>
+            </div>
+        </header>
+
+        <!-- Overall strip -->
+        <section class="kpis" id="kpis">
+            <div class="kpi"><div class="kpi__n" id="kpi-topics">–</div><div class="kpi__l">active topics</div></div>
+            <div class="kpi"><div class="kpi__n" id="kpi-filed">–</div><div class="kpi__l">filed</div></div>
+            <div class="kpi"><div class="kpi__n" id="kpi-success">–</div><div class="kpi__l">scrape success</div></div>
+            <div class="kpi"><div class="kpi__n" id="kpi-fresh">–</div><div class="kpi__l">feed freshness</div></div>
+            <div class="kpi"><div class="kpi__n" id="kpi-cycle">–</div><div class="kpi__l">last cycle</div></div>
+            <div class="kpi"><div class="kpi__n" id="kpi-scrapes">–</div><div class="kpi__l">scrapes (blocked / fail)</div></div>
+        </section>
+
+        <!-- Engines -->
+        <section class="panel">
+            <h2>Engines</h2>
+            <div class="table-wrap">
+                <table class="engines" id="engines-table">
+                    <thead>
+                        <tr>
+                            <th class="al">engine</th>
+                            <th>health</th>
+                            <th>scrapes</th>
+                            <th>success</th>
+                            <th>latency avg / p95</th>
+                            <th>items</th>
+                            <th title="Successful scrapes that parsed 0 items — selector-rot signal">0-parse</th>
+                            <th title="Failures with a 429/403/503 status">blocks</th>
+                            <th>fails</th>
+                            <th>last status</th>
+                            <th>last scrape</th>
+                        </tr>
+                    </thead>
+                    <tbody id="engines-body">
+                        <tr><td colspan="11" class="muted center">loading…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Cycles -->
+        <section class="panel">
+            <h2>Recent cycles</h2>
+            <div class="spark" id="cycle-spark" aria-hidden="true"></div>
+            <div class="cycles" id="cycles-list">
+                <div class="muted">loading…</div>
+            </div>
+        </section>
+
+        <!-- Failures -->
+        <section class="panel">
+            <h2>Recent failures</h2>
+            <div class="failures" id="failures-list">
+                <div class="muted">loading…</div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Engine row template -->
+    <template id="engine-row-template">
+        <tr>
+            <td class="c-engine"><span class="edot"></span><span class="ename"></span></td>
+            <td class="c-health"><span class="ehealth"></span></td>
+            <td class="c-scrapes num r"></td>
+            <td class="c-success num r"></td>
+            <td class="c-latency num r"></td>
+            <td class="c-items num r"></td>
+            <td class="c-zparse num r"></td>
+            <td class="c-blocks num r"></td>
+            <td class="c-fails num r"></td>
+            <td class="c-status r"><span class="estatus"></span></td>
+            <td class="c-last r"><span class="elast"></span></td>
+        </tr>
+    </template>
+
+    <!-- Cycle row template -->
+    <template id="cycle-row-template">
+        <div class="cycle">
+            <span class="cycle__dot"></span>
+            <span class="cycle__when"></span>
+            <span class="cycle__dur"></span>
+            <span class="cycle__meta"></span>
+        </div>
+    </template>
+
+    <!-- Failure row template -->
+    <template id="failure-row-template">
+        <div class="failure">
+            <span class="failure__time"></span>
+            <span class="engine-badge failure__engine"></span>
+            <span class="failure__topic"></span>
+            <span class="failure__status"></span>
+            <span class="failure__msg"></span>
+        </div>
+    </template>
+
+    <script src="/static/monitor.js"></script>
+    <script>
+        // Theme toggle chrome (mirrors index.html).
+        (function () {
+            var root = document.documentElement;
+            var themeBtn = document.getElementById('theme-toggle');
+            function syncTheme() {
+                var dark = root.dataset.theme === 'dark';
+                themeBtn.textContent = dark ? '☀' : '☾';
+                themeBtn.title = dark ? 'Switch to light' : 'Switch to dark';
+            }
+            syncTheme();
+            themeBtn.addEventListener('click', function () {
+                var next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+                root.dataset.theme = next;
+                try { localStorage.setItem('ts-theme', next); } catch (e) { console.debug('could not persist theme preference:', e); }
+                syncTheme();
+            });
+        })();
+    </script>
+</body>
+
+</html>

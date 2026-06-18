@@ -79,6 +79,10 @@
   --rule: #CDCBC1;
   --signal: #C5341E;
   --signal-rgb: 197, 52, 30;
+  --good: #3E6B47;
+  --good-rgb: 62, 107, 71;
+  --warn: #9A6A1A;
+  --warn-rgb: 154, 106, 26;
   --masthead-rule: #1A1A17;
   --texture: rgba(0, 0, 0, 0.018);
   --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
@@ -93,6 +97,10 @@
   --rule: #332F26;
   --signal: #F0512E;
   --signal-rgb: 240, 81, 46;
+  --good: #7FB07F;
+  --good-rgb: 127, 176, 127;
+  --warn: #D9A441;
+  --warn-rgb: 217, 164, 65;
   --masthead-rule: #9A978A;
   --texture: rgba(255, 255, 255, 0.02);
 }
@@ -404,3 +412,128 @@ a { color: inherit; }
   .news-title { font-size: 15px; }
   #topic-input { width: 130px; }
 }
+
+/* ── Monitor / ops page ─────────────────────────────────── */
+/* The ops console reuses the wire-desk palette but, unlike the wire (where red
+   = "live/good"), here semantic colors mean what dashboards usually mean:
+   green healthy, amber degraded/odd, red blocked/rot, grey idle. */
+
+.monitor__updated { color: var(--ink-soft); letter-spacing: 0.06em; }
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  margin: 18px 0 4px;
+}
+.kpi { background: var(--paper); padding: 14px 14px 12px; }
+.kpi__n {
+  font-size: 21px; font-weight: 600; color: var(--ink);
+  font-variant-numeric: tabular-nums; line-height: 1.15;
+}
+.kpi__l {
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-faint); margin-top: 4px;
+}
+
+.panel { padding: 22px 0 6px; }
+.panel h2 {
+  font-size: 13px; letter-spacing: 0.26em; text-transform: uppercase;
+  color: var(--ink-soft); font-weight: 600; margin-bottom: 12px;
+}
+
+.table-wrap { overflow-x: auto; border-top: 1px solid var(--rule); }
+.engines { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.engines th, .engines td {
+  padding: 9px 12px; white-space: nowrap; border-bottom: 1px solid var(--rule);
+}
+.engines th {
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-faint); font-weight: 500; text-align: right;
+  position: sticky; top: 0; background: var(--paper);
+}
+.engines th.al, .engines td.al, .engines .c-engine { text-align: left; }
+.engines td.r { text-align: right; }
+.engines td.num { font-variant-numeric: tabular-nums; }
+.engines tbody tr:hover { background: var(--paper-raise); }
+
+.c-engine { display: table-cell; } /* keep layout; dot+name inline */
+.edot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 9px; vertical-align: middle; background: var(--ink-faint);
+}
+.edot[data-health="healthy"] { background: var(--good); }
+.edot[data-health="degraded"] { background: var(--warn); }
+.edot[data-health="blocked"], .edot[data-health="parsing"] { background: var(--signal); }
+.edot[data-health="idle"] { background: var(--ink-faint); }
+
+.ehealth { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; }
+.ehealth[data-health="healthy"] { color: var(--good); }
+.ehealth[data-health="degraded"] { color: var(--warn); }
+.ehealth[data-health="blocked"], .ehealth[data-health="parsing"] { color: var(--signal); }
+.ehealth[data-health="idle"] { color: var(--ink-faint); }
+
+td.hot { color: var(--signal); font-weight: 600; }
+td.warm { color: var(--warn); font-weight: 600; }
+
+.estatus[data-state="ok"] { color: var(--ink-soft); }
+.estatus[data-state="blocked"] { color: var(--signal); font-weight: 600; }
+.estatus[data-state="error"] { color: var(--warn); font-weight: 600; }
+.estatus[data-state="unknown"] { color: var(--ink-faint); }
+
+/* Cycle sparkline: a row of bars, oldest → newest. */
+.spark {
+  display: flex; align-items: flex-end; gap: 3px;
+  height: 54px; margin-bottom: 14px; padding: 4px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.spark__bar {
+  flex: 1 1 0; min-width: 4px; background: var(--good); opacity: 0.85;
+}
+.spark__bar[data-ok="0"] { background: var(--signal); }
+
+.cycles { display: flex; flex-direction: column; }
+.cycle {
+  display: grid; grid-template-columns: 12px 92px 70px 1fr;
+  align-items: center; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--rule);
+  font-size: 12.5px;
+}
+.cycle__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+.cycle__dot[data-ok="0"] { background: var(--signal); }
+.cycle__when { color: var(--ink-faint); }
+.cycle__dur { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.cycle__meta { color: var(--ink-soft); }
+
+.failures { display: flex; flex-direction: column; }
+.failure {
+  display: grid;
+  grid-template-columns: 70px 84px 110px 52px 1fr;
+  align-items: baseline; gap: 10px;
+  padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 12.5px;
+}
+.failure__time { color: var(--ink-faint); }
+.failure__topic {
+  color: var(--ink); font-weight: 600; letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+.failure__status { font-weight: 600; }
+.failure__msg {
+  color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.failure__status[data-state="blocked"] { color: var(--signal); }
+.failure__status[data-state="error"] { color: var(--warn); }
+.failure__status[data-state="unknown"] { color: var(--ink-faint); }
+
+.muted { color: var(--ink-faint); font-size: 12px; letter-spacing: 0.04em; }
+.center { text-align: center; }
+
+@media (max-width: 760px) {
+  .kpis { grid-template-columns: repeat(3, 1fr); }
+  .failure { grid-template-columns: 64px 80px 1fr; }
+  .failure__status, .failure__topic { display: none; }
+}
+

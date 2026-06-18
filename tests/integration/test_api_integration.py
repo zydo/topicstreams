@@ -154,6 +154,62 @@ def test_metrics_endpoint(client, db):
     assert body["feed_freshness_seconds"] is not None
     assert body["feed_freshness_seconds"] >= 0
     assert body["scrape_success_rate"] is None  # no scraper logs inserted
+    # Richer fields are present even with no scrape activity.
+    assert body["window_seconds"] == 3600
+    assert body["engines"] == []
+    assert body["recent_cycles"] == []
+    assert body["recent_failures"] == []
+    assert body["overall"]["scrapes"] == 0
+
+
+def test_metrics_with_scraper_activity(client, db):
+    from datetime import datetime, timezone
+
+    db.add_topic("alpha")
+    # Insert with NOW() (the DB clock) so the rows land inside the metrics
+    # window. (ScraperLog.create_new stamps datetime.now(), which is local-naive
+    # and would skew from the testcontainer's UTC NOW(); in production both the
+    # scraper and the DB run in UTC containers so they agree.)
+    with db._Connection() as conn:
+        conn.cursor().execute(
+            "INSERT INTO scraper_logs "
+            "(topic, scraped_at, success, http_status_code, entry_count, engine, duration_ms) "
+            "VALUES "
+            "('alpha', NOW(), TRUE, 200, 5, 'google', 2000), "
+            "('alpha', NOW(), TRUE, 200, 0, 'google', 2100), "
+            "('alpha', NOW(), FALSE, 429, 0, 'bing', 500)"
+        )
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.insert_cycle(
+        started_at=now,
+        finished_at=now,
+        duration_seconds=12.0,
+        topics_count=1,
+        entries_parsed=5,
+        new_events=3,
+        success=True,
+    )
+
+    body = client.get("/api/v1/metrics?window=3600").json()
+    by_engine = {e["engine"]: e for e in body["engines"]}
+    assert set(by_engine) == {"google", "bing"}
+
+    google = by_engine["google"]
+    assert google["scrapes"] == 2 and google["successes"] == 2
+    assert google["entries_parsed"] == 5
+    assert google["avg_latency_ms"] == 2050  # (2000 + 2100) / 2
+    # 2 scrapes is under the >=3 threshold for selector rot, and rate is 1.0.
+    assert google["health"] == "healthy"
+
+    bing = by_engine["bing"]
+    assert bing["scrapes"] == 1 and bing["successes"] == 0
+    assert bing["health"] == "blocked"  # latest scrape was a 429
+
+    assert body["overall"]["entries_parsed"] == 5
+    assert len(body["recent_cycles"]) == 1
+    assert body["recent_cycles"][0]["new_events"] == 3
+    assert len(body["recent_failures"]) == 1
+    assert body["recent_failures"][0]["engine"] == "bing"
 
 
 def test_response_has_timing_header(client):

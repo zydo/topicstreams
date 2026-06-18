@@ -1,6 +1,15 @@
-"""Operational metrics for monitoring the scraper and feed."""
+"""Operational metrics for monitoring the scraper and feed.
 
-from fastapi import APIRouter
+The response is a superset of the original lightweight summary: the four scalar
+fields (``active_topics``, ``total_news``, ``scrape_success_rate``,
+``feed_freshness_seconds``) are kept for back-compat, and a per-engine
+breakdown plus recent cycles/failures are added to power the ``/monitor`` ops
+page. One call fetches everything the page needs.
+"""
+
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -8,33 +17,211 @@ from common import database as db
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
-_LOG_WINDOW = 50
+# Display-only defaults (not lifted to config — the window is a query param, and
+# these counts just bound how much history the page renders).
+_DEFAULT_WINDOW_SECONDS = 3600  # 1h
+_RECENT_CYCLES = 24
+_RECENT_FAILURES = 15
+
+# HTTP statuses treated as throttle/block signals (rate-limit / forbidden /
+# unavailable). Drives the per-engine "blocked" health label.
+_BLOCK_STATUSES = (429, 403, 503)
+
+
+def _naive_utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _rate(successes: int, scrapes: int) -> float | None:
+    return round(successes / scrapes, 4) if scrapes else None
+
+
+def classify_engine(row: dict) -> str:
+    """Per-engine health label from an aggregate row.
+
+    idle    - no scrapes in the window
+    blocked - the most recent scrape was a throttle/block (429/403/503)
+    parsing - sustained selector rot: every successful scrape parsed nothing
+              (>=3 scrapes, >=1 success, all successes 0-entry)
+    degraded- success rate below 0.75 (includes a total failure: 0%)
+    healthy - otherwise
+
+    Heuristic by design — the raw counts (success rate, zero-parse, block count,
+    last status) are always shown alongside the label, so it is a triage hint,
+    not the whole story.
+    """
+    scrapes = row["scrapes"]
+    if scrapes == 0:
+        return "idle"
+    if (
+        row.get("last_success") is False
+        and row.get("last_http_status") in _BLOCK_STATUSES
+    ):
+        return "blocked"
+    successes = row["successes"]
+    if successes > 0 and row["zero_parse"] >= successes and scrapes >= 3:
+        return "parsing"
+    rate = successes / scrapes
+    return "degraded" if rate < 0.75 else "healthy"
+
+
+class OverallMetrics(BaseModel):
+    scrapes: int = Field(..., description="Page-attempts in the window")
+    successes: int = Field(..., description="Successful page-attempts")
+    success_rate: float | None = Field(
+        None, description="Fraction of scrapes that succeeded (null if none)"
+    )
+    entries_parsed: int = Field(..., description="Total items parsed")
+    zero_parse: int = Field(
+        ..., description="Successful scrapes that parsed 0 items (selector-rot signal)"
+    )
+    failures: int = Field(..., description="Failed page-attempts")
+    blocked: int = Field(..., description="Failures with a 429/403/503 status")
+    avg_latency_ms: int | None = Field(None, description="Mean fetch latency (ms)")
+    p50_latency_ms: int | None = Field(None, description="Median fetch latency (ms)")
+    p95_latency_ms: int | None = Field(None, description="p95 fetch latency (ms)")
+    last_scrape_at: datetime | None = Field(None, description="Newest scrape in window")
+
+
+class EngineMetrics(BaseModel):
+    engine: str = Field(..., description="Search engine name")
+    health: str = Field(
+        ...,
+        description="healthy | degraded | blocked | parsing | idle (see classify_engine)",
+    )
+    scrapes: int
+    successes: int
+    success_rate: float | None
+    entries_parsed: int
+    zero_parse: int
+    failures: int
+    blocked: int
+    avg_latency_ms: int | None
+    p50_latency_ms: int | None
+    p95_latency_ms: int | None
+    last_scrape_at: datetime | None
+    last_success: bool | None = Field(None, description="Outcome of the newest scrape")
+    last_http_status: int | None = Field(
+        None, description="HTTP status of the newest scrape"
+    )
+    http_status_breakdown: dict[str, int] = Field(
+        ..., description="Counts per monitored HTTP status (200/429/403/503)"
+    )
+
+
+class CycleMetrics(BaseModel):
+    started_at: datetime
+    finished_at: datetime
+    duration_seconds: float = Field(..., description="Wall-clock for the full pass")
+    topics_count: int
+    entries_parsed: int
+    new_events: int = Field(..., description="New feed events filed this cycle")
+    success: bool
+    error: str | None = None
+
+
+class FailureRow(BaseModel):
+    topic: str
+    engine: str
+    scraped_at: datetime
+    http_status_code: int | None
+    error_message: str | None
+    entry_count: int
+    duration_ms: int | None
 
 
 class MetricsResponse(BaseModel):
+    # Original lightweight fields (kept for back-compat).
     active_topics: int = Field(..., description="Number of watched (active) topics")
     total_news: int = Field(..., description="Total feed events across active topics")
     scrape_success_rate: float | None = Field(
-        None, description="Fraction of recent scrapes that succeeded (null if none)"
+        None, description="Overall scrape success rate in the window (null if none)"
     )
     feed_freshness_seconds: float | None = Field(
         None, description="Age of the newest feed event in seconds (null if empty)"
     )
+    # Rich dashboard payload.
+    generated_at: datetime = Field(
+        ..., description="When this response was assembled (UTC)"
+    )
+    window_seconds: int = Field(..., description="Aggregation window actually used")
+    overall: OverallMetrics
+    engines: list[EngineMetrics] = Field(
+        ..., description="Per-engine aggregates, engine name A→Z"
+    )
+    recent_cycles: list[CycleMetrics] = Field(
+        ..., description="Newest-first cycle summaries"
+    )
+    recent_failures: list[FailureRow] = Field(
+        ..., description="Newest-first failed scrapes"
+    )
+
+
+def _build_overall(row: dict) -> OverallMetrics:
+    return OverallMetrics(
+        scrapes=row["scrapes"],
+        successes=row["successes"],
+        success_rate=_rate(row["successes"], row["scrapes"]),
+        entries_parsed=row["entries_parsed"],
+        zero_parse=row["zero_parse"],
+        failures=row["failures"],
+        blocked=row["blocked"],
+        avg_latency_ms=row["avg_latency_ms"],
+        p50_latency_ms=row["p50_latency_ms"],
+        p95_latency_ms=row["p95_latency_ms"],
+        last_scrape_at=row["last_scrape_at"],
+    )
+
+
+def _build_engine(row: dict) -> EngineMetrics:
+    return EngineMetrics(
+        engine=row["engine"],
+        health=classify_engine(row),
+        scrapes=row["scrapes"],
+        successes=row["successes"],
+        success_rate=_rate(row["successes"], row["scrapes"]),
+        entries_parsed=row["entries_parsed"],
+        zero_parse=row["zero_parse"],
+        failures=row["failures"],
+        blocked=row["blocked"],
+        avg_latency_ms=row["avg_latency_ms"],
+        p50_latency_ms=row["p50_latency_ms"],
+        p95_latency_ms=row["p95_latency_ms"],
+        last_scrape_at=row["last_scrape_at"],
+        last_success=row["last_success"],
+        last_http_status=row["last_http_status"],
+        http_status_breakdown=row["http_status_breakdown"],
+    )
 
 
 @router.get("")
-async def get_metrics() -> MetricsResponse:
+async def get_metrics(
+    window: int = Query(
+        _DEFAULT_WINDOW_SECONDS,
+        ge=60,
+        le=7 * 24 * 3600,
+        description="Aggregation window in seconds (1 minute..7 days)",
+    ),
+) -> MetricsResponse:
     topics = await run_in_threadpool(db.get_topics)
-    logs = await run_in_threadpool(db.get_scraper_logs, _LOG_WINDOW)
     total_news = await run_in_threadpool(db.get_active_feed_count)
     freshness = await run_in_threadpool(db.get_feed_freshness_seconds)
+    metrics = await run_in_threadpool(db.get_scrape_metrics, window)
+    cycles = await run_in_threadpool(db.get_recent_cycles, _RECENT_CYCLES)
+    failures = await run_in_threadpool(db.get_recent_scrape_failures, _RECENT_FAILURES)
 
-    success_rate = (
-        round(sum(1 for log in logs if log.success) / len(logs), 4) if logs else None
-    )
+    overall = _build_overall(metrics["overall"])
+    engines = [_build_engine(row) for row in metrics["engines"]]
+
     return MetricsResponse(
         active_topics=len(topics),
         total_news=total_news,
-        scrape_success_rate=success_rate,
+        scrape_success_rate=overall.success_rate,
         feed_freshness_seconds=freshness,
+        generated_at=_naive_utc_now(),
+        window_seconds=window,
+        overall=overall,
+        engines=engines,
+        recent_cycles=[CycleMetrics(**c) for c in cycles],
+        recent_failures=[FailureRow(**f) for f in failures],
     )

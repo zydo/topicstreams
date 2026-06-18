@@ -17,9 +17,10 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from common.database import close_pool
+from common.database import close_pool, ensure_schema
 from common.logging_config import configure_logging
 from common.settings import settings
 from .exceptions import TopicStreamsException
@@ -117,6 +118,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(__app: FastAPI):
+    # Evolve the schema for an existing volume (adds scraper_logs.duration_ms
+    # and the scraper_cycles table). Shared with the scraper process; idempotent.
+    await run_in_threadpool(ensure_schema)
     websocket_manager.start_listener()
     yield
     await websocket_manager.stop_listener()
@@ -175,6 +179,21 @@ async def read_root():
     return JSONResponse(
         status_code=404,
         content={"error": "Web UI not found", "message": "Static files not available"},
+    )
+
+
+@app.get("/monitor")
+async def read_monitor():
+    """Serve the scrape-observability monitor page."""
+    index_file = static_dir / "monitor.html"
+    if index_file.exists():
+        return FileResponse(index_file)
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": "Monitor page not found",
+            "message": "Static files not available",
+        },
     )
 
 
