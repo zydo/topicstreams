@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from common import database as db
+from common.block_signals import is_network_block
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
@@ -26,6 +27,12 @@ _RECENT_FAILURES = 15
 # HTTP statuses treated as throttle/block signals (rate-limit / forbidden /
 # unavailable). Drives the per-engine "blocked" health label.
 _BLOCK_STATUSES = (429, 403, 503)
+
+# A persisted cooldown snapshot older than this is ignored: the scraper writes
+# one every cycle, so a stale snapshot means the scraper is down (the cycle
+# timeline surfaces that) and the cooldown countdown is meaningless. Generous
+# vs. the scrape interval so a slow cycle doesn't blink the indicator off.
+_COOLDOWN_STALE_SECONDS = 600
 
 
 def _naive_utc_now() -> datetime:
@@ -40,7 +47,9 @@ def classify_engine(row: dict) -> str:
     """Per-engine health label from an aggregate row.
 
     idle    - no scrapes in the window
-    blocked - the most recent scrape was a throttle/block (429/403/503)
+    blocked - the most recent scrape was a throttle/block: a 429/403/503 status,
+              or a connection-level teardown with no HTTP status (e.g. Yahoo's
+              ERR_CONNECTION_CLOSED — see common/block_signals.py)
     parsing - sustained selector rot: every successful scrape parsed nothing
               (>=3 scrapes, >=1 success, all successes 0-entry)
     degraded- success rate below 0.75 (includes a total failure: 0%)
@@ -53,9 +62,9 @@ def classify_engine(row: dict) -> str:
     scrapes = row["scrapes"]
     if scrapes == 0:
         return "idle"
-    if (
-        row.get("last_success") is False
-        and row.get("last_http_status") in _BLOCK_STATUSES
+    if row.get("last_success") is False and (
+        row.get("last_http_status") in _BLOCK_STATUSES
+        or is_network_block(row.get("last_error_message"))
     ):
         return "blocked"
     successes = row["successes"]
@@ -63,6 +72,46 @@ def classify_engine(row: dict) -> str:
         return "parsing"
     rate = successes / scrapes
     return "degraded" if rate < 0.75 else "healthy"
+
+
+def _live_cooldown_seconds(cd: dict | None, now: datetime) -> float | None:
+    """Seconds until the next probe if this engine is *currently* benched.
+
+    None when not cooling, when the snapshot is stale (scraper likely down), or
+    when the probe is already due (remaining <= 0) — in those cases the
+    log-derived health label stands on its own.
+    """
+    if not cd or cd["failures"] <= 0 or cd["next_probe_at"] is None:
+        return None
+    if (now - cd["updated_at"]).total_seconds() > _COOLDOWN_STALE_SECONDS:
+        return None
+    remaining = (cd["next_probe_at"] - now).total_seconds()
+    return remaining if remaining > 0 else None
+
+
+def _empty_engine_row(engine: str) -> dict:
+    """A zeroed aggregate row for an engine with no scrapes in the window.
+
+    Lets an engine that is benched (hence producing no logs) still appear on the
+    monitor — otherwise a long cooldown would make it vanish from the table.
+    """
+    return {
+        "engine": engine,
+        "scrapes": 0,
+        "successes": 0,
+        "entries_parsed": 0,
+        "zero_parse": 0,
+        "failures": 0,
+        "blocked": 0,
+        "avg_latency_ms": None,
+        "p50_latency_ms": None,
+        "p95_latency_ms": None,
+        "last_scrape_at": None,
+        "last_success": None,
+        "last_http_status": None,
+        "last_error_message": None,
+        "http_status_breakdown": {},
+    }
 
 
 class OverallMetrics(BaseModel):
@@ -87,7 +136,10 @@ class EngineMetrics(BaseModel):
     engine: str = Field(..., description="Search engine name")
     health: str = Field(
         ...,
-        description="healthy | degraded | blocked | parsing | idle (see classify_engine)",
+        description=(
+            "healthy | degraded | blocked | parsing | idle (see classify_engine), "
+            "or cooldown when the scraper has the engine benched"
+        ),
     )
     scrapes: int
     successes: int
@@ -106,6 +158,15 @@ class EngineMetrics(BaseModel):
     )
     http_status_breakdown: dict[str, int] = Field(
         ..., description="Counts per monitored HTTP status (200/429/403/503)"
+    )
+    cooldown_seconds_remaining: float | None = Field(
+        None,
+        description="Seconds until the scraper next probes a benched engine "
+        "(null when not cooling down)",
+    )
+    cooldown_failures: int = Field(
+        0,
+        description="Consecutive block signals driving the current cooldown (0 if none)",
     )
 
 
@@ -173,10 +234,23 @@ def _build_overall(row: dict) -> OverallMetrics:
     )
 
 
-def _build_engine(row: dict) -> EngineMetrics:
+def _build_engine(row: dict, cooldown: dict | None = None) -> EngineMetrics:
+    """Shape one engine row. ``cooldown`` is its live ``{failures, remaining}``
+    when currently benched, which overrides the log-derived health label."""
+    health = classify_engine(row)
+    cooldown_remaining = None
+    cooldown_failures = 0
+    if cooldown is not None:
+        cooldown_remaining = cooldown["remaining"]
+        cooldown_failures = cooldown["failures"]
+        # The engine is benched right now; that supersedes a stale log-based
+        # label (often "idle" — no logs are produced while skipped).
+        health = "cooldown"
     return EngineMetrics(
         engine=row["engine"],
-        health=classify_engine(row),
+        health=health,
+        cooldown_seconds_remaining=cooldown_remaining,
+        cooldown_failures=cooldown_failures,
         scrapes=row["scrapes"],
         successes=row["successes"],
         success_rate=_rate(row["successes"], row["scrapes"]),
@@ -209,9 +283,24 @@ async def get_metrics(
     metrics = await run_in_threadpool(db.get_scrape_metrics, window)
     cycles = await run_in_threadpool(db.get_recent_cycles, _RECENT_CYCLES)
     failures = await run_in_threadpool(db.get_recent_scrape_failures, _RECENT_FAILURES)
+    cooldowns = await run_in_threadpool(db.get_engine_cooldowns)
 
     overall = _build_overall(metrics["overall"])
-    engines = [_build_engine(row) for row in metrics["engines"]]
+
+    # Resolve which engines are *currently* benched (fresh snapshot, probe still
+    # in the future), then overlay that onto the per-engine rows.
+    now = _naive_utc_now()
+    live = {
+        engine: {"remaining": remaining, "failures": cd["failures"]}
+        for engine, cd in cooldowns.items()
+        if (remaining := _live_cooldown_seconds(cd, now)) is not None
+    }
+    rows = {row["engine"]: row for row in metrics["engines"]}
+    # A long cooldown means no scrapes in the window, so a benched engine may be
+    # absent from the aggregates entirely — synthesize a row so it still shows.
+    for engine in live:
+        rows.setdefault(engine, _empty_engine_row(engine))
+    engines = [_build_engine(rows[engine], live.get(engine)) for engine in sorted(rows)]
 
     return MetricsResponse(
         active_topics=len(topics),

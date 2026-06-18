@@ -183,10 +183,10 @@ http://localhost:5000
 A built-in observability console at **`/monitor`** (linked from the wire masthead) gives a per-engine, per-cycle view of scraper health — no Prometheus/Grafana stack required, since the data already lives in Postgres. It polls [`GET /api/v1/metrics`](docs/API_REFERENCE.md#metrics) over a selectable window (1h / 6h / 24h) and shows:
 
 - **Overall strip** - active topics, total filed, scrape success rate, feed freshness, last-cycle duration, and scrapes-in-window (blocked / failed).
-- **Engines table** - one row per engine with a health label (`healthy` / `degraded` / `blocked` / `parsing` / `idle`), success %, fetch latency (avg / p95), items parsed, 0-parse count (selector-rot signal), blocks (429/403/503), and last HTTP status.
+- **Engines table** - one row per engine with a health label (`healthy` / `degraded` / `blocked` / `parsing` / `cooldown` / `idle`), success %, fetch latency (avg / p95), items parsed, 0-parse count (selector-rot signal), blocks (429/403/503), and last HTTP status. `blocked` now also covers connection-level teardowns with no HTTP status (e.g. Yahoo's `ERR_CONNECTION_CLOSED`).
 - **Recent cycles** - a sparkline of per-cycle durations plus a list (duration, topics, parsed, new events).
 
-A throttled engine shows up here rather than silently vanishing from the feed — below, Brave reads `degraded` with its block count while Google/Bing/Yahoo stay `healthy`. See [Observability](docs/OBSERVABILITY.md) for details.
+A throttled engine shows up here rather than silently vanishing from the feed. When the scraper benches an engine, the table shows `cooldown` with a countdown to the next probe — so an engine that produces no scrapes while cooling stays visible instead of disappearing. See [Observability](docs/OBSERVABILITY.md) for details.
 
 <p align="center">
 <img src="docs/pic/ui_monitor_screenshot.png" alt="TopicStreams /monitor ops page - per-engine health table and recent-cycle timeline" width="600"/>

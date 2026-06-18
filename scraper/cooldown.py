@@ -24,6 +24,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Literal
 
+from common.block_signals import is_network_block
 from common.model import ScraperLog
 
 logger = logging.getLogger(__name__)
@@ -36,9 +37,26 @@ Outcome = Literal["block", "ok", "other"]
 Decision = Literal["run", "probe", "skip"]
 
 
+@dataclass(frozen=True)
+class CooldownSnapshot:
+    """One engine's cooldown state, serialized for cross-process consumption.
+
+    ``remaining_seconds`` is the wall-clock-equivalent of the tracker's internal
+    monotonic ``next_probe`` at snapshot time, so a reader in another process
+    (the API) can turn it into an absolute timestamp.
+    """
+
+    engine: str
+    failures: int
+    remaining_seconds: float
+
+
 def _is_block_message(log: ScraperLog) -> bool:
-    # detect_block / redirected_off_results record "<engine> blocked: <reason>".
-    return "block" in (log.error_message or "").lower()
+    # detect_block / redirected_off_results record "<engine> blocked: <reason>";
+    # a connection-level teardown (e.g. Yahoo's ERR_CONNECTION_CLOSED) carries no
+    # HTTP status but is equally a block, so fold it in here too.
+    message = log.error_message or ""
+    return "block" in message.lower() or is_network_block(message)
 
 
 def classify_logs(logs: list[ScraperLog]) -> Outcome:
@@ -123,3 +141,15 @@ class EngineCooldownTracker:
             # the same window so a flaky probe doesn't become a per-topic retry
             # storm across the rest of the cycle.
             state.next_probe = self._clock() + self._window_for(state.failures)
+
+    def snapshot(self) -> list[CooldownSnapshot]:
+        """Current state of every tracked engine, for persistence (see
+        db.upsert_engine_cooldowns). Engines never seen are simply absent."""
+        return [
+            CooldownSnapshot(
+                engine=engine,
+                failures=state.failures,
+                remaining_seconds=self.remaining(engine),
+            )
+            for engine, state in self._state.items()
+        ]

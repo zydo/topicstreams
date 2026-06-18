@@ -110,6 +110,18 @@ class MonitorApp {
             hl.dataset.health = e.health;
             row.querySelector('.c-health').dataset.health = e.health;
 
+            // Cooldown: show the countdown to the next probe beside the label.
+            const cd = row.querySelector('.ecooldown');
+            if (e.cooldown_seconds_remaining != null) {
+                cd.textContent = `~${this.fmtCountdown(e.cooldown_seconds_remaining)}`;
+                const blocks = e.cooldown_failures
+                    ? `${e.cooldown_failures} consecutive block${e.cooldown_failures === 1 ? '' : 's'}; `
+                    : '';
+                cd.title = `${blocks}probing again in ~${this.fmtCountdown(e.cooldown_seconds_remaining)}`;
+            } else {
+                cd.textContent = '';
+            }
+
             row.querySelector('.c-scrapes').textContent = this.fmtInt(e.scrapes);
             row.querySelector('.c-success').textContent = this.fmtPct(e.success_rate);
             row.querySelector('.c-latency').textContent = `${this.fmtMs(e.avg_latency_ms)} / ${this.fmtMs(e.p95_latency_ms)}`;
@@ -231,6 +243,13 @@ class MonitorApp {
     fmtMs(ms) {
         if (ms == null) return '–';
         return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+    }
+
+    fmtCountdown(s) {
+        if (s == null) return '–';
+        if (s < 90) return `${Math.round(s)}s`;
+        if (s < 3600) return `${Math.round(s / 60)}m`;
+        return `${(s / 3600).toFixed(1)}h`;
     }
 
     fmtFresh(s) {

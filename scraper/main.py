@@ -317,6 +317,20 @@ def main():
                     db.insert_scraper_logs(all_logs)
                     cycle_success = True
 
+                    # Publish the in-process cooldown state so the API/monitor
+                    # can show which engines are benched. Best-effort: a write
+                    # failure here must not fail the (otherwise successful) cycle.
+                    if cooldown is not None:
+                        try:
+                            db.upsert_engine_cooldowns(
+                                [
+                                    (s.engine, s.failures, s.remaining_seconds)
+                                    for s in cooldown.snapshot()
+                                ]
+                            )
+                        except Exception:
+                            logger.exception("Failed to publish engine cooldown state")
+
                 except Exception as e:
                     cycle_error = f"{type(e).__name__}: {e}"
                     logger.error(f"Error in scraping loop: {e}")

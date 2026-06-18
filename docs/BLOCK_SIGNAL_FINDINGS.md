@@ -195,15 +195,18 @@ Flooded Yahoo News at ~100–116 req/s. Yahoo served real results for exactly
 - **HTTP 500, empty body (`Content-Length: 0`)**, `Server: ATS` (Yahoo's Apache
   Traffic Server edge), `Cache-Control: private`, `Connection: close`. No
   redirect (`final_url` unchanged), no captcha copy — the body is literally
-  empty, so there is nothing for `detect_block` to match.
+  empty, so there is nothing for the body-level `detect_block` to match. (The
+  connection-level error *is* now treated as a block — see below.)
 - **Persistent / IP-scoped:** still 500 on low-rate sequential probes ~15 s
   after the flood stopped — a cooldown block of the IP, not momentary overload.
   (Contrast 2026-06-17: ~900 sequential requests never tripped it.)
 - **What the real (Playwright) scraper sees:** `page.goto` raises
   `net::ERR_CONNECTION_CLOSED` (the empty 500 + `Connection: close` looks like a
   dropped connection to Chromium). The runner's outer `except` catches it →
-  `success=False` with that error message. So the production scraper **already
-  fails honestly** on a Yahoo block; it just isn't labelled a "block".
+  `success=False` with that error message. `common/block_signals.is_network_block`
+  recognizes that error as a connection-level block, so the engine is now both
+  **benched by the adaptive cooldown** (rather than re-hit every cycle) and
+  **labelled `blocked` on the monitor** despite having no HTTP status.
 - Raw fixture saved: `scraper_dumps/yahoo_500_sample.html` (0 bytes — the empty
   body is itself the signal) and `yahoo_httpx_block_*` dumps.
 - `detect_block` action: **keep `None`** — there is no body to inspect (goto
@@ -275,9 +278,11 @@ Notes:
    resolved why their `detect_block` stubs should stay `None`: **Bing never
    hard-blocks** (silent per-IP throttle, ~50k requests all HTTP 200) and
    **Yahoo blocks with an empty HTTP 500** (no parseable challenge page; a real
-   browser sees `net::ERR_CONNECTION_CLOSED`, already caught as a nav error).
-   Neither exposes a body signal to key on. Optional: add `500` to
-   `monitored_codes` to flag a Yahoo 500 on the non-browser/200 path.
+   browser sees `net::ERR_CONNECTION_CLOSED`, caught as a nav error and now
+   recognized as a network-level block — `is_network_block` — so Yahoo is
+   benched and labelled `blocked`). Neither exposes a *body* signal to key on.
+   Optional: add `500` to `monitored_codes` to flag a Yahoo 500 on the
+   non-browser/200 path.
 4. The parse-0 / `_capture_diagnostic` self-documenting logging (plan step 5)
    worked: it captured Brave's captcha body and Google's `/sorry/` body
    automatically, with raw HTML dumped to `scraper_dumps/` for fixtures.

@@ -68,8 +68,11 @@ data (2026-06-18 concurrency run):
   with `Connection: close`, persisting as an IP cooldown. A real browser nav
   then fails with `net::ERR_CONNECTION_CLOSED` — caught by the runner's outer
   exception handler as a failed scrape — *before* any body exists for
-  `detect_block` to inspect. So `detect_block` stays `None`; the honest-failure
-  path is the navigation-error + parse-0 nets, not a body signal. (Optional
+  `detect_block` to inspect. So `detect_block` (a *body* signal) stays `None`.
+  The connection-level teardown is instead recognized as a block by
+  `common/block_signals.is_network_block`, which feeds two places: the scraper's
+  adaptive cooldown benches Yahoo instead of re-hitting it every cycle, and the
+  monitor labels it `blocked` even though there is no HTTP status. (Optional
   hardening: add `500` to `monitored_codes` so a non-browser/200-path 500 is
   flagged too — see findings.)
 
