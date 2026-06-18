@@ -38,6 +38,7 @@ from common import database as db
 from common.config import FingerprintProfile, anti_detection_config, scraper_config
 from common.logging_config import configure_logging
 from common.settings import settings
+from .cooldown import EngineCooldownTracker
 from .scraper import scrape_topic
 from .sources import get_source
 
@@ -228,6 +229,21 @@ def main():
             f"(strategy: {strategy})"
         )
 
+        # Adaptive per-engine cooldown. One tracker for the whole loop so its
+        # backoff state persists across topics and cycles; None disables the
+        # gate (scrape_topic then hits every engine every cycle as before).
+        cooldown: EngineCooldownTracker | None = None
+        if scraper_config.cooldown_enabled:
+            cooldown = EngineCooldownTracker(
+                base_seconds=scraper_config.cooldown_base_seconds,
+                max_seconds=scraper_config.cooldown_max_seconds,
+            )
+            logger.info(
+                "Adaptive engine cooldown enabled "
+                f"(base {scraper_config.cooldown_base_seconds:.0f}s, "
+                f"cap {scraper_config.cooldown_max_seconds:.0f}s)"
+            )
+
         try:
             while True:
                 started_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -286,6 +302,7 @@ def main():
                             strategy=strategy,
                             cycle=cycle_count,
                             max_result_pages=scraper_config.max_pages,
+                            cooldown=cooldown,
                         )
                         all_entries.extend(entries)
                         all_logs.extend(scraper_logs)

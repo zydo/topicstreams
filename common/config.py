@@ -110,6 +110,26 @@ class ScraperConfig(_BaseConfig):
         """Recycle the Chromium context every N cycles to release memory."""
         return self._get("scraper", "browser_recycle_cycles", default=50)
 
+    @property
+    def cooldown_enabled(self) -> bool:
+        """Whether adaptive per-engine cooldown is active (scraper/cooldown.py).
+
+        When on, an engine that returns a throttle/block signal (429/403/503 or
+        a detected block page) is benched for an exponential backoff window and
+        probed once before resuming, instead of being hit every cycle.
+        """
+        return self._get("scraper", "cooldown", "enabled", default=True)
+
+    @property
+    def cooldown_base_seconds(self) -> float:
+        """Backoff window after an engine's first block; doubles per block."""
+        return self._get("scraper", "cooldown", "base_seconds", default=300)
+
+    @property
+    def cooldown_max_seconds(self) -> float:
+        """Cap on the exponential cooldown window."""
+        return self._get("scraper", "cooldown", "max_seconds", default=3600)
+
 
 class AntiDetectionConfig(_BaseConfig):
     """Anti-detection configuration loader and accessor."""

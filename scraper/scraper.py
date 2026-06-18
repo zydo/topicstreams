@@ -19,6 +19,7 @@ from playwright.sync_api import Page, Response
 from common.config import anti_detection_config
 from common.model import NewsEntry, ScraperLog
 
+from .cooldown import EngineCooldownTracker
 from .sources import Ordering, Recency, SearchSource
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ def scrape_topic(
     ordering: Ordering = Ordering.DATE,
     recency: Recency = Recency.HOUR,
     max_result_pages: int | None = None,
+    cooldown: EngineCooldownTracker | None = None,
 ) -> tuple[list[NewsEntry], list[ScraperLog]]:
     """Scrape one topic across the configured engines per ``strategy``.
 
@@ -59,11 +61,28 @@ def scrape_topic(
     engine navigates independently. Returns the combined entries and the
     per-engine, per-page ScraperLogs. Cross-engine duplicates are resolved
     downstream by the URL-derived news id, so engines can safely overlap.
+
+    When a ``cooldown`` tracker is supplied, an engine that recently threw a
+    throttle/block signal is skipped until its backoff window expires, then
+    probed once; see ``scraper/cooldown.py``. Skipped engines produce no logs
+    this cycle, so under ``fallback`` the chain naturally falls through to the
+    next healthy engine.
     """
     all_entries: list[NewsEntry] = []
     all_logs: list[ScraperLog] = []
 
     for source in _engines_for_cycle(sources, strategy, cycle):
+        if cooldown is not None:
+            decision = cooldown.decide(source.name)
+            if decision == "skip":
+                logger.info(
+                    f"Skipping {source.name} for '{topic}' — cooling down "
+                    f"(~{cooldown.remaining(source.name):.0f}s until next probe)"
+                )
+                continue
+            if decision == "probe":
+                logger.info(f"Probing {source.name} for '{topic}' after cooldown")
+
         page = make_page()
         try:
             entries, logs = scrape_news(
@@ -76,6 +95,9 @@ def scrape_topic(
             )
         finally:
             page.close()
+
+        if cooldown is not None:
+            cooldown.record(source.name, logs)
 
         all_entries.extend(entries)
         all_logs.extend(logs)

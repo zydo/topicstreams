@@ -42,6 +42,16 @@ scraper:
   # A long-lived context grows unbounded; on a swap-less host this livelocked
   # the box (postmortem 2026-06-13). The on-disk persistent profile survives it.
   browser_recycle_cycles: 50
+  # Adaptive per-engine cooldown. When an engine returns a throttle/block signal
+  # (HTTP 429/403/503 or a detected block page), it is benched for an exponential
+  # backoff window instead of being hammered every cycle (which re-arms the
+  # rate-limit window — observed 2026-06-17 with Brave). After the window the
+  # engine gets a single probe request; a clean probe resumes it, another block
+  # deepens the backoff. The per-engine health label on /monitor reflects this.
+  cooldown:
+    enabled: true
+    base_seconds: 300   # window after the first block; doubles per consecutive block
+    max_seconds: 3600   # cap on the exponential window (1h)
 
 # -----------------------------------------------------------------------------
 # Anti-detection (scraper)
