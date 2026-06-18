@@ -35,13 +35,13 @@ Computed by `classify_engine` in `api/v1/metrics.py` from the window's
 aggregate row. It's a triage **hint** — the raw counts are always shown
 alongside it, so the label isn't the whole story.
 
-| Label     | Meaning                                                                 |
-| --------- | ----------------------------------------------------------------------- |
-| `idle`    | No scrapes for this engine in the window.                               |
-| `blocked` | The most recent scrape was a throttle/block (HTTP 429 / 403 / 503).     |
-| `parsing` | Sustained selector rot: ≥3 scrapes, ≥1 success, and every success parsed 0 items. |
-| `degraded`| Success rate below 0.75 (includes a total failure: 0%).                 |
-| `healthy` | Otherwise.                                                              |
+| Label      | Meaning                                                                           |
+| ---------- | --------------------------------------------------------------------------------- |
+| `idle`     | No scrapes for this engine in the window.                                         |
+| `blocked`  | The most recent scrape was a throttle/block (HTTP 429 / 403 / 503).               |
+| `parsing`  | Sustained selector rot: ≥3 scrapes, ≥1 success, and every success parsed 0 items. |
+| `degraded` | Success rate below 0.75 (includes a total failure: 0%).                           |
+| `healthy`  | Otherwise.                                                                        |
 
 `blocked` keys off the **latest** scrape so an engine that recovered shows
 healthy, and one currently throttled shows blocked — even if its long-run

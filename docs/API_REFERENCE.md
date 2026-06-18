@@ -224,26 +224,26 @@ timeline, and recent failures. Powers the built-in **`/monitor`** ops page.
 
 **Query Parameters:**
 
-| Parameter | Type    | Default | Description                                            |
-| --------- | ------- | ------- | ------------------------------------------------------ |
-| `window`  | integer | `3600`  | Aggregation window in seconds (60 … 604800 / 7 days)   |
+| Parameter | Type    | Default | Description                                          |
+| --------- | ------- | ------- | ---------------------------------------------------- |
+| `window`  | integer | `3600`  | Aggregation window in seconds (60 … 604800 / 7 days) |
 
 **Response:** the lightweight fields below (kept for back-compat) plus a rich
 dashboard payload. Aggregates are computed over the `window`; latency
 percentiles (`avg`/`p50`/`p95`) ignore unmeasured attempts.
 
-| Field                    | Type          | Description                                  |
-| ------------------------ | ------------- | -------------------------------------------- |
-| `active_topics`          | integer       | Watched (active) topics                      |
-| `total_news`             | integer       | Feed events across active topics             |
-| `scrape_success_rate`    | float \| null | Overall scrape success rate in the window    |
-| `feed_freshness_seconds` | float \| null | Age of the newest feed event, in seconds     |
-| `generated_at`           | string        | When this response was assembled (UTC)       |
-| `window_seconds`         | integer       | Aggregation window actually used             |
-| `overall`                | object        | Totals over the window (see below)           |
-| `engines`                | array         | Per-engine aggregates, engine name A→Z       |
-| `recent_cycles`          | array         | Newest-first per-cycle summaries             |
-| `recent_failures`        | array         | Newest-first failed scrapes                  |
+| Field                    | Type          | Description                               |
+| ------------------------ | ------------- | ----------------------------------------- |
+| `active_topics`          | integer       | Watched (active) topics                   |
+| `total_news`             | integer       | Feed events across active topics          |
+| `scrape_success_rate`    | float \| null | Overall scrape success rate in the window |
+| `feed_freshness_seconds` | float \| null | Age of the newest feed event, in seconds  |
+| `generated_at`           | string        | When this response was assembled (UTC)    |
+| `window_seconds`         | integer       | Aggregation window actually used          |
+| `overall`                | object        | Totals over the window (see below)        |
+| `engines`                | array         | Per-engine aggregates, engine name A→Z    |
+| `recent_cycles`          | array         | Newest-first per-cycle summaries          |
+| `recent_failures`        | array         | Newest-first failed scrapes               |
 
 Each `engines[*]` entry carries `scrapes`, `successes`, `success_rate`,
 `entries_parsed`, `zero_parse` (successful scrapes that parsed 0 items — a

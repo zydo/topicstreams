@@ -178,6 +178,22 @@ http://localhost:5000
 
 > **Scrape-health is server-computed** (`GET /api/v1/status`) from recent `scraper_logs`, refreshed every 30s. It detects selector rot: if Google changes its News-tab markup so scrapes return HTTP 200 but parse **0 entries** across the board, the masthead shows `no items` (state `parsing`) instead of silently reading `live`. A single topic with genuinely no news this hour is safe — it only trips when *every* recent scrape parses nothing.
 
+### Monitor (ops) page
+
+A built-in observability console at **`/monitor`** (linked from the wire masthead) gives a per-engine, per-cycle view of scraper health — no Prometheus/Grafana stack required, since the data already lives in Postgres. It polls [`GET /api/v1/metrics`](docs/API_REFERENCE.md#metrics) over a selectable window (1h / 6h / 24h) and shows:
+
+- **Overall strip** - active topics, total filed, scrape success rate, feed freshness, last-cycle duration, and scrapes-in-window (blocked / failed).
+- **Engines table** - one row per engine with a health label (`healthy` / `degraded` / `blocked` / `parsing` / `idle`), success %, fetch latency (avg / p95), items parsed, 0-parse count (selector-rot signal), blocks (429/403/503), and last HTTP status.
+- **Recent cycles** - a sparkline of per-cycle durations plus a list (duration, topics, parsed, new events).
+
+A throttled engine shows up here rather than silently vanishing from the feed — below, Brave reads `degraded` with its block count while Google/Bing/Yahoo stay `healthy`. See [Observability](docs/OBSERVABILITY.md) for details.
+
+<p align="center">
+<img src="docs/pic/ui_monitor_screenshot.png" alt="TopicStreams /monitor ops page - per-engine health table and recent-cycle timeline" width="600"/>
+<br/>
+<em>The <code>/monitor</code> ops page — per-engine health, latency, and the recent-cycle timeline</em>
+</p>
+
 ## Quick Start
 
 ### 1. Clone the Repository

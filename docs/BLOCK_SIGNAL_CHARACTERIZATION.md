@@ -43,12 +43,12 @@ block/challenge/redirect page. Those need a per-engine (or generic-redirect)
 
 ## Current per-engine state (as of 2026-06-17)
 
-| Engine     | `detect_block` today                                                                                                                | Grounded in a real observation?    |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| Engine     | `detect_block` today                                                                                                                | Grounded in a real observation?                            |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | **Google** | `/sorry/` redirect (definitive) + captcha keywords (`captcha`, `unusual traffic`, from `anti_detection.captcha_detection.keywords`) | ✅ Yes (CAPTCHA work 2026-06-11/12; reconfirmed 2026-06-17) |
-| **Brave**  | captcha-interstitial body markers (`decided to schedule a captcha`, `page:"/captcha"`)                                              | ✅ Yes (blocked ~250 reqs in; 2026-06-17) |
-| **Bing**   | `return None` (stub)                                                                                                                | ⏳ No block at ~1 req/s (~440 reqs) |
-| **Yahoo**  | `return None` (stub)                                                                                                                | ⏳ No block at ~1 req/s (~900 reqs) |
+| **Brave**  | captcha-interstitial body markers (`decided to schedule a captcha`, `page:"/captcha"`)                                              | ✅ Yes (blocked ~250 reqs in; 2026-06-17)                   |
+| **Bing**   | `return None` (stub)                                                                                                                | ⏳ No block at ~1 req/s (~440 reqs)                         |
+| **Yahoo**  | `return None` (stub)                                                                                                                | ⏳ No block at ~1 req/s (~900 reqs)                         |
 
 For both real blockers (Google, Brave) the HTTP `429` net fires first; the
 per-engine `detect_block` is the backup for a `200`-served challenge. Bing and

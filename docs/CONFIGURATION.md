@@ -104,16 +104,16 @@ scraper:
     max_seconds: 3600   # cap on the exponential window (1h)
 ```
 
-| Setting           | Default                        | Description                                                                                                                                                                                                                                                                                |
-| ----------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `scrape_interval` | `60`                           | Interval in seconds between scrape cycles (measured from start to start). Set to `0` or negative for continuous scraping with no delay. See [Scrape Interval Behavior](SCRAPING_BEHAVIOR.md#scrape-interval-behavior).                                                                     |
-| `max_pages`       | `1`                            | Number of result pages to scrape. Increase if you have high-volume topics or longer intervals.                                                                                                                                                                                             |
-| `engines`         | `[google, bing, yahoo, brave]` | Search engines to scrape, as a list in priority order. Available: `google`, `bing`, `yahoo`, `brave`. (DuckDuckGo is not supported — it hard-blocks scraping; see [docs/DUCKDUCKGO_UNSUPPORTED.md](DUCKDUCKGO_UNSUPPORTED.md).) See [Search Engines](SCRAPING_BEHAVIOR.md#search-engines). |
-| `engine_strategy` | `all`                          | How enabled engines combine per cycle: `all` (scrape every engine each cycle), `fallback` (try in order, stop at the first that returns items), or `rotate` (one engine per cycle, rotating).                                                                                              |
-| `browser_recycle_cycles` | `50`                    | Recycle the Chromium context every N cycles to release accumulated memory (the on-disk persistent profile survives). Guards against unbounded context growth; see [postmortem](POSTMORTEM_2026-06-13_OOM_HANG.md).                                                                          |
-| `cooldown.enabled`       | `true`                  | Adaptive per-engine cooldown: when an engine throttles/blocks (HTTP 429/403/503 or a detected block page), bench it for an exponential backoff window and send one probe before resuming, instead of hitting it every cycle. The `/monitor` health label reflects it.                       |
-| `cooldown.base_seconds`  | `300`                   | Backoff window after an engine's first block; doubles per consecutive block.                                                                                                                                                                                                              |
-| `cooldown.max_seconds`   | `3600`                  | Cap on the exponential cooldown window.                                                                                                                                                                                                                                                   |
+| Setting                  | Default                        | Description                                                                                                                                                                                                                                                                                |
+| ------------------------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `scrape_interval`        | `60`                           | Interval in seconds between scrape cycles (measured from start to start). Set to `0` or negative for continuous scraping with no delay. See [Scrape Interval Behavior](SCRAPING_BEHAVIOR.md#scrape-interval-behavior).                                                                     |
+| `max_pages`              | `1`                            | Number of result pages to scrape. Increase if you have high-volume topics or longer intervals.                                                                                                                                                                                             |
+| `engines`                | `[google, bing, yahoo, brave]` | Search engines to scrape, as a list in priority order. Available: `google`, `bing`, `yahoo`, `brave`. (DuckDuckGo is not supported — it hard-blocks scraping; see [docs/DUCKDUCKGO_UNSUPPORTED.md](DUCKDUCKGO_UNSUPPORTED.md).) See [Search Engines](SCRAPING_BEHAVIOR.md#search-engines). |
+| `engine_strategy`        | `all`                          | How enabled engines combine per cycle: `all` (scrape every engine each cycle), `fallback` (try in order, stop at the first that returns items), or `rotate` (one engine per cycle, rotating).                                                                                              |
+| `browser_recycle_cycles` | `50`                           | Recycle the Chromium context every N cycles to release accumulated memory (the on-disk persistent profile survives). Guards against unbounded context growth; see [postmortem](POSTMORTEM_2026-06-13_OOM_HANG.md).                                                                         |
+| `cooldown.enabled`       | `true`                         | Adaptive per-engine cooldown: when an engine throttles/blocks (HTTP 429/403/503 or a detected block page), bench it for an exponential backoff window and send one probe before resuming, instead of hitting it every cycle. The `/monitor` health label reflects it.                      |
+| `cooldown.base_seconds`  | `300`                          | Backoff window after an engine's first block; doubles per consecutive block.                                                                                                                                                                                                               |
+| `cooldown.max_seconds`   | `3600`                         | Cap on the exponential cooldown window.                                                                                                                                                                                                                                                    |
 
 ### API Tuning Settings (`config.yml`, `api:` section)
 
@@ -129,29 +129,29 @@ cp config.yml.example config.yml
 vim config.yml
 ```
 
-| Setting                       | Default | Description                                                                                          |
-| ----------------------------- | ------- | ---------------------------------------------------------------------------------------------------- |
-| `db_pool_min_conn`            | `2`     | Minimum DB connections in the pool.                                                                  |
-| `db_pool_max_conn`            | `10`    | Maximum DB connections in the pool.                                                                  |
-| `db_connect_timeout`          | `10`    | Postgres connect timeout (s).                                                                        |
-| `db_keepalives_idle`          | `30`    | Postgres TCP keepalive idle (s).                                                                     |
-| `db_keepalives_interval`      | `10`    | Postgres TCP keepalive interval (s).                                                                 |
-| `db_keepalives_count`         | `5`     | Postgres TCP keepalive probes before giving up.                                                      |
-| `db_retry_max_attempts`       | `3`     | Attempts for transient DB errors.                                                                    |
-| `db_retry_delay_seconds`      | `0.1`   | Initial backoff between DB retries (s); doubles each retry.                                          |
-| `news_retention_days`         | `30`    | Each cycle purges news + scraper logs older than this.                                               |
-| `rate_limit_calls`            | `120`   | Max requests per client IP per `rate_limit_period`.                                                  |
-| `rate_limit_period`           | `60`    | Rate-limit window (s).                                                                               |
-| `rate_limit_max_tracked`      | `10000` | Client IPs tracked before the stale-IP eviction sweep.                                               |
-| `feed_engines_window_days`    | `7`     | Engine filter lists engines seen within this window.                                                 |
-| `feed_page_size`              | `20`    | Default feed page size (API + UI), 1–100.                                                            |
-| `health_log_window`           | `30`    | Recent scraper logs read for the health signal.                                                      |
-| `health_stale_min_seconds`    | `300`   | Floor for the "stalled" threshold.                                                                   |
-| `health_stale_max_seconds`    | `1800`  | Ceiling for the "stalled" threshold.                                                                 |
-| `health_stale_default_seconds`| `900`   | "stalled" threshold when the cadence can't be inferred.                                              |
-| `status_poll_interval_ms`     | `30000` | UI status-strip refresh interval (ms).                                                               |
-| `ws_reconnect_base_ms`        | `5000`  | WebSocket reconnect backoff base (ms).                                                               |
-| `ws_reconnect_max_ms`         | `30000` | WebSocket reconnect backoff cap (ms).                                                                |
+| Setting                        | Default | Description                                                 |
+| ------------------------------ | ------- | ----------------------------------------------------------- |
+| `db_pool_min_conn`             | `2`     | Minimum DB connections in the pool.                         |
+| `db_pool_max_conn`             | `10`    | Maximum DB connections in the pool.                         |
+| `db_connect_timeout`           | `10`    | Postgres connect timeout (s).                               |
+| `db_keepalives_idle`           | `30`    | Postgres TCP keepalive idle (s).                            |
+| `db_keepalives_interval`       | `10`    | Postgres TCP keepalive interval (s).                        |
+| `db_keepalives_count`          | `5`     | Postgres TCP keepalive probes before giving up.             |
+| `db_retry_max_attempts`        | `3`     | Attempts for transient DB errors.                           |
+| `db_retry_delay_seconds`       | `0.1`   | Initial backoff between DB retries (s); doubles each retry. |
+| `news_retention_days`          | `30`    | Each cycle purges news + scraper logs older than this.      |
+| `rate_limit_calls`             | `120`   | Max requests per client IP per `rate_limit_period`.         |
+| `rate_limit_period`            | `60`    | Rate-limit window (s).                                      |
+| `rate_limit_max_tracked`       | `10000` | Client IPs tracked before the stale-IP eviction sweep.      |
+| `feed_engines_window_days`     | `7`     | Engine filter lists engines seen within this window.        |
+| `feed_page_size`               | `20`    | Default feed page size (API + UI), 1–100.                   |
+| `health_log_window`            | `30`    | Recent scraper logs read for the health signal.             |
+| `health_stale_min_seconds`     | `300`   | Floor for the "stalled" threshold.                          |
+| `health_stale_max_seconds`     | `1800`  | Ceiling for the "stalled" threshold.                        |
+| `health_stale_default_seconds` | `900`   | "stalled" threshold when the cadence can't be inferred.     |
+| `status_poll_interval_ms`      | `30000` | UI status-strip refresh interval (ms).                      |
+| `ws_reconnect_base_ms`         | `5000`  | WebSocket reconnect backoff base (ms).                      |
+| `ws_reconnect_max_ms`          | `30000` | WebSocket reconnect backoff cap (ms).                       |
 
 The frontend reads `feed_page_size` and the poll/WebSocket cadence at startup from `GET /api/v1/config`, so changing them here takes effect on next UI load without a frontend rebuild.
 
