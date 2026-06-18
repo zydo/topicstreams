@@ -14,13 +14,15 @@ def _now():
 
 def _log(topic, ok=True, n=10, ago_s=0, code=200, err=None, engine="google"):
     return ScraperLog(
+        id=None,
         topic=topic,
-        success=ok,
         scraped_at=_now() - timedelta(seconds=ago_s),
+        success=ok,
         http_status_code=code,
         error_message=err,
         entry_count=n,
         engine=engine,
+        duration_ms=None,
     )
 
 

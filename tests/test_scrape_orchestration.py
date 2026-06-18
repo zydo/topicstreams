@@ -60,13 +60,13 @@ def _patch_scrape_news(monkeypatch, behavior):
 
 def test_all_and_fallback_consider_every_engine():
     sources = [_source("google"), _source("bing")]
-    assert _engines_for_cycle(sources, "all", cycle=3) == sources
-    assert _engines_for_cycle(sources, "fallback", cycle=3) == sources
+    assert _engines_for_cycle(sources, "all", cycle=3) == sources  # type: ignore[arg-type]
+    assert _engines_for_cycle(sources, "fallback", cycle=3) == sources  # type: ignore[arg-type]
 
 
 def test_rotate_picks_one_engine_per_cycle():
     sources = [_source("google"), _source("bing")]
-    assert [_engines_for_cycle(sources, "rotate", c)[0].name for c in range(4)] == [
+    assert [_engines_for_cycle(sources, "rotate", c)[0].name for c in range(4)] == [  # type: ignore[arg-type]
         "google",
         "bing",
         "google",
@@ -91,7 +91,7 @@ def test_fallback_stops_after_first_engine_with_items(monkeypatch):
         },
     )
     factory = _PageFactory()
-    entries, logs = scrape_topic(factory, sources, "t", strategy="fallback")
+    entries, _logs = scrape_topic(factory, sources, "t", strategy="fallback")  # type: ignore[arg-type]
 
     assert calls == ["google"]  # bing never reached
     assert [e.title for e in entries] == ["g"]
@@ -107,7 +107,7 @@ def test_fallback_advances_when_first_engine_is_empty(monkeypatch):
             "bing": ([_entry("b")], [_log("bing", n=1)]),
         },
     )
-    entries, logs = scrape_topic(_PageFactory(), sources, "t", strategy="fallback")
+    entries, logs = scrape_topic(_PageFactory(), sources, "t", strategy="fallback")  # type: ignore[arg-type]
 
     assert calls == ["google", "bing"]
     assert [e.title for e in entries] == ["b"]
@@ -123,7 +123,7 @@ def test_fallback_advances_when_first_engine_fails(monkeypatch):
             "bing": ([_entry("b")], [_log("bing", n=1)]),
         },
     )
-    scrape_topic(_PageFactory(), sources, "t", strategy="fallback")
+    scrape_topic(_PageFactory(), sources, "t", strategy="fallback")  # type: ignore[arg-type]
     assert calls == ["google", "bing"]
 
 
@@ -137,7 +137,7 @@ def test_all_runs_every_engine_even_when_first_succeeds(monkeypatch):
         },
     )
     factory = _PageFactory()
-    entries, _ = scrape_topic(factory, sources, "t", strategy="all")
+    entries, _ = scrape_topic(factory, sources, "t", strategy="all")  # type: ignore[arg-type]
 
     assert calls == ["google", "bing"]
     assert {e.title for e in entries} == {"g", "b"}
@@ -153,5 +153,5 @@ def test_rotate_uses_a_single_engine_for_the_cycle(monkeypatch):
             "bing": ([_entry("b")], [_log("bing", n=1)]),
         },
     )
-    scrape_topic(_PageFactory(), sources, "t", strategy="rotate", cycle=1)
+    scrape_topic(_PageFactory(), sources, "t", strategy="rotate", cycle=1)  # type: ignore[arg-type]
     assert calls == ["bing"]

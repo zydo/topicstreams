@@ -3,6 +3,8 @@ integration with scrape_topic."""
 
 from types import SimpleNamespace
 
+import pytest
+
 import scraper.scraper as scraper_mod
 from common.model import NewsEntry, ScraperLog
 from scraper.cooldown import EngineCooldownTracker, classify_logs
@@ -105,7 +107,7 @@ def test_clean_probe_clears_cooldown():
 
     tracker.record("g", [_log("g", ok=True, n=3)])
     assert tracker.decide("g") == "run"
-    assert tracker.remaining("g") == 0.0
+    assert tracker.remaining("g") == pytest.approx(0.0)
 
 
 def test_repeated_block_doubles_window_up_to_cap():
@@ -151,7 +153,7 @@ def test_snapshot_reports_failures_and_remaining():
 
     # A healthy engine is still reported, but not cooling.
     assert snap["google"].failures == 0
-    assert snap["google"].remaining_seconds == 0.0
+    assert snap["google"].remaining_seconds == pytest.approx(0.0)
 
 
 def test_snapshot_empty_before_any_activity():
@@ -203,10 +205,9 @@ def test_scrape_topic_skips_cooling_engine_and_falls_through(monkeypatch):
         },
     )
     factory = _PageFactory()
-    entries, logs = scrape_topic(
-        factory, sources, "t", strategy="fallback", cooldown=tracker
+    entries, _logs = scrape_topic(
+        factory, sources, "t", strategy="fallback", cooldown=tracker  # type: ignore[arg-type]
     )
-
     # google is benched, so fallback goes straight to bing (no page opened for
     # google).
     assert calls == ["bing"]
@@ -222,7 +223,7 @@ def test_scrape_topic_records_block_into_tracker(monkeypatch):
         monkeypatch,
         {"google": ([], [_log("google", ok=False, status=429)])},
     )
-    scrape_topic(_PageFactory(), sources, "t", strategy="all", cooldown=tracker)
+    scrape_topic(_PageFactory(), sources, "t", strategy="all", cooldown=tracker)  # type: ignore[arg-type]
 
     # The 429 observed during the scrape benches google for the next call.
     assert tracker.decide("google") == "skip"
@@ -237,6 +238,6 @@ def test_scrape_topic_without_cooldown_is_unchanged(monkeypatch):
             "bing": ([_entry("b")], [_log("bing", n=1)]),
         },
     )
-    scrape_topic(_PageFactory(), sources, "t", strategy="fallback")
+    scrape_topic(_PageFactory(), sources, "t", strategy="fallback")  # type: ignore[arg-type]
     # No tracker: behaves as before — google fails, fallback advances to bing.
     assert calls == ["google", "bing"]

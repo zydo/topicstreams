@@ -6,6 +6,8 @@ pure Python derivation that turns an aggregate row into a triage label.
 
 from datetime import datetime, timedelta
 
+import pytest
+
 from api.v1.metrics import (
     _COOLDOWN_STALE_SECONDS,
     _live_cooldown_seconds,
@@ -16,14 +18,14 @@ from api.v1.metrics import (
 
 def _row(
     *,
-    scrapes=10,
-    successes=10,
-    zero_parse=0,
-    failures=0,
-    blocked=0,
-    last_success=True,
-    last_http_status=200,
-    last_error_message=None,
+    scrapes: int = 10,
+    successes: int = 10,
+    zero_parse: int = 0,
+    failures: int = 0,
+    blocked: int = 0,
+    last_success: bool = True,
+    last_http_status: int | None = 200,
+    last_error_message: str | None = None,
 ):
     return {
         "scrapes": scrapes,
@@ -40,7 +42,7 @@ def _row(
 def test_idle_when_no_scrapes():
     assert (
         classify_engine(
-            _row(scrapes=0, successes=0, last_success=None, last_http_status=None)
+            _row(scrapes=0, successes=0, last_http_status=None)
         )
         == "idle"
     )
@@ -79,7 +81,7 @@ def test_not_blocked_when_latest_ok_despite_block_history():
 
 
 def test_blocked_on_connection_closed_without_http_status():
-    # Yahoo-style network teardown: no HTTP status, but the error message is a
+    # Yahoo-style network-style teardown: no HTTP status, but the error message is a
     # connection-level block → "blocked", not "degraded".
     r = _row(
         scrapes=4,
@@ -149,9 +151,9 @@ def test_healthy_at_high_success_rate():
 
 
 def test_rate_helper():
-    assert _rate(8, 10) == 0.8
+    assert _rate(8, 10) == pytest.approx(0.8)
     assert _rate(0, 0) is None
-    assert _rate(3, 4) == 0.75
+    assert _rate(3, 4) == pytest.approx(0.75)
 
 
 # ── _live_cooldown_seconds ───────────────────────────────────────────────────
@@ -169,7 +171,7 @@ def _cd(*, failures=1, probe_in=300, updated_ago=5):
 
 
 def test_cooldown_live_when_benched_and_fresh():
-    assert _live_cooldown_seconds(_cd(probe_in=286), _NOW) == 286
+    assert _live_cooldown_seconds(_cd(probe_in=286), _NOW) == pytest.approx(286)
 
 
 def test_cooldown_none_when_not_cooling():

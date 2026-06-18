@@ -11,12 +11,12 @@ _INIT_SQL = Path(__file__).resolve().parents[2] / "postgres" / "init.sql"
 
 
 @pytest.fixture(scope="session")
-def _postgres():
+def postgres():
     postgres_mod = pytest.importorskip("testcontainers.postgres")
     container = postgres_mod.PostgresContainer(
         "postgres:18-alpine",
         username="newsuser",
-        password="newspass",
+        password="newspass",  # NOSONAR — ephemeral throwaway test container
         dbname="newsdb",
     )
     try:
@@ -28,7 +28,7 @@ def _postgres():
 
 
 @pytest.fixture(scope="session")
-def db(_postgres):
+def db(postgres):
     """Point the app's settings at the test container, load the schema, and
     return the database module. The connection pool is lazy, so overriding
     settings before the first call is enough."""
@@ -36,11 +36,11 @@ def db(_postgres):
     from common import settings as settings_mod
 
     s = settings_mod.settings
-    s.postgres_host = _postgres.get_container_host_ip()
-    s.postgres_port = int(_postgres.get_exposed_port(5432))
-    s.postgres_db = _postgres.dbname
-    s.postgres_user = _postgres.username
-    s.postgres_password = _postgres.password
+    s.postgres_host = postgres.get_container_host_ip()
+    s.postgres_port = int(postgres.get_exposed_port(5432))
+    s.postgres_db = postgres.dbname
+    s.postgres_user = postgres.username
+    s.postgres_password = postgres.password
 
     database.close_pool()
     with database._Connection() as conn:
@@ -51,7 +51,7 @@ def db(_postgres):
 
 
 @pytest.fixture(autouse=True)
-def _clean(db):
+def clean(db):
     """Reset all rows (and serial counters) before each test for isolation."""
     with db._Connection() as conn:
         conn.cursor().execute(

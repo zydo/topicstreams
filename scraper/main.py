@@ -26,7 +26,6 @@ import logging
 import random
 import sys
 import time
-import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from random import shuffle
@@ -138,7 +137,7 @@ def _build_proxy() -> dict | None:
     servers = anti_detection_config.proxy_servers
     if not servers:
         logger.warning(
-            "Proxy enabled but no proxy servers configured; " "connecting directly"
+            "Proxy enabled but no proxy servers configured; connecting directly"
         )
         return None
 
@@ -333,8 +332,8 @@ def main():
 
                 except Exception as e:
                     cycle_error = f"{type(e).__name__}: {e}"
-                    logger.error(f"Error in scraping loop: {e}")
-                    logger.error(f"Full traceback:\n{traceback.format_exc()}")
+                    # logger.exception records the full traceback for us.
+                    logger.exception("Error in scraping loop: %s", e)
 
                 elapsed = time.time() - cycle_start
                 # Record this pass for the monitor's cycle timeline. A recording

@@ -10,7 +10,6 @@ Google, Bing, etc.
 import logging
 import random
 import time
-import traceback
 from typing import Callable
 
 from bs4 import BeautifulSoup
@@ -331,9 +330,8 @@ def _scrape_one_page(
         )
 
     except Exception as e:
-        logger.error(f"Error scraping news for topic '{topic}'")
-        logger.error(f"Exception type: {type(e).__name__}")
-        logger.error(f"Full traceback:\n{traceback.format_exc()}")
+        # logger.exception records the type and full traceback for us.
+        logger.exception("Error scraping news for topic '%s'", topic)
         return (
             [],
             _log(

@@ -13,6 +13,8 @@ def _entries(ids):
             url="https://x.com",
             domain="x.com",
             source=None,
+            snippet=None,
+            engine=None,
             scraped_at=None,
         )
         for i in ids

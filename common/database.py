@@ -216,11 +216,15 @@ class _Connection:
                 self._conn.commit()
         finally:
             try:
+                # __enter__ guarantees _pool is set before __exit__ is called.
+                assert self._pool is not None
                 self._pool.putconn(self._conn)
             finally:
                 _conn_slots.release()
 
     def cursor(self):
+        # Only called inside a `with _Connection() as conn:` block, so _conn is set.
+        assert self._conn is not None
         return self._conn.cursor(cursor_factory=RealDictCursor)
 
 
@@ -812,6 +816,7 @@ def get_scrape_metrics(window_seconds: int) -> dict:
 
     # An aggregate with no GROUP BY always returns exactly one row (even over an
     # empty set, COUNT(*) = 0), so overall_row is never None.
+    assert overall_row is not None
     overall = _shape_metrics_row(dict(overall_row))
     engines = []
     for row in engine_rows:

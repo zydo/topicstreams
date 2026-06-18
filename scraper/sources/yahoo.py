@@ -70,6 +70,7 @@ class YahooSource(SearchSource):
         )
 
     def detect_block(self, final_url: str, html: str) -> str | None:
+        del final_url, html  # no body signal to inspect; see below
         # Yahoo DOES block under load, but not with a parseable page: the
         # 2026-06-18 concurrency run tripped it after ~250 rapid requests, after
         # which it served a persistent empty (0-byte) HTTP 500 from its

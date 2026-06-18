@@ -68,11 +68,13 @@ def test_parse_unwraps_google_redirect_and_extracts_fields():
 
 def test_google_snippet_none_when_only_title_and_source():
     entry = _GOOGLE.parse_item(_items()[1], topic="bitcoin")  # no snippet div
+    assert entry is not None
     assert entry.snippet is None
 
 
 def test_parse_direct_url():
     entry = _GOOGLE.parse_item(_items()[1], topic="bitcoin")
+    assert entry is not None
     assert entry.url == "https://coindesk.com/story-2"
     assert entry.domain == "coindesk.com"
 
@@ -82,6 +84,7 @@ def test_parse_resolves_relative_url():
         '<div class="WCv1we"><a href="/foo/bar"><div role="heading">T</div></a></div>'
     )
     entry = _GOOGLE.parse_item(_items(html)[0], topic="t")
+    assert entry is not None
     assert entry.url == "https://www.google.com/foo/bar"
 
 
@@ -151,6 +154,7 @@ def test_bing_find_items():
 
 def test_bing_parse_from_card_attributes():
     entry = _BING.parse_item(_bing_items()[0], topic="bitcoin")
+    assert entry is not None
     assert entry.title == "Economist reveals next Bitcoin target"
     assert entry.url == "https://www.thestreet.com/crypto/x"
     assert entry.domain == "thestreet.com"
@@ -222,8 +226,9 @@ def test_yahoo_find_items():
 
 def test_yahoo_unwraps_redirect_and_extracts_fields():
     entry = _YAHOO.parse_item(_yahoo_items()[0], topic="bitcoin")
+    assert entry is not None
     assert entry.title == "Bitcoin bottom signal flashes"
-    assert entry.url == "https://www.coindesk.com/markets/story"  # RU= unwrapped
+    assert entry.url == "https://www.coindesk.com/markets/story"
     assert entry.domain == "coindesk.com"
     assert entry.source == "Coindesk"
     assert (
@@ -233,6 +238,7 @@ def test_yahoo_unwraps_redirect_and_extracts_fields():
 
 def test_yahoo_cleans_source_suffix():
     entry = _YAHOO.parse_item(_yahoo_items()[1], topic="t")
+    assert entry is not None
     assert entry.source == "BeInCrypto"  # "· via Yahoo Finance" stripped
 
 
@@ -286,6 +292,7 @@ def test_brave_find_items():
 
 def test_brave_extracts_title_url_and_source():
     entry = _BRAVE.parse_item(_brave_items()[0], topic="bitcoin")
+    assert entry is not None
     assert entry.title == "BlackRock launches bitcoin income fund"
     assert entry.url == "https://www.coindesk.com/markets/story"
     assert entry.domain == "coindesk.com"

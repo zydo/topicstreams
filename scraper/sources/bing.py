@@ -71,15 +71,17 @@ class BingSource(SearchSource):
             return None
         snippet_el = item.select_one("div.snippet")
         snippet = snippet_el.get_text(" ", strip=True) if snippet_el else None
+        author = item.get("data-author")
         return NewsEntry.create_new(
             topic=topic,
             title=str(title).strip(),
             url=str(url).strip(),
-            source=(item.get("data-author") or None),
+            source=str(author).strip() if author else None,
             snippet=snippet or None,
         )
 
     def detect_block(self, final_url: str, html: str) -> str | None:
+        del final_url, html  # no body signal to inspect; see below
         # Bing never hard-blocks: the 2026-06-18 concurrency run flooded it with
         # ~50k requests at up to ~76 req/s and every response was HTTP 200 with
         # real results — no 429/403/503, no redirect, no challenge page. Bing's
