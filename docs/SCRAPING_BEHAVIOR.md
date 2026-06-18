@@ -201,11 +201,17 @@ This makes each proxy appear as a completely different user (different location,
 - **24/7 operation** - Sustained high-volume scraping becomes feasible
 - **Geographic diversity** - Appear as users from different locations
 
-## Implementation Considerations
+## What's implemented vs. not
 
-- Proxy pool management and health checks
-- Persona configuration and rotation strategy
-- Error handling for proxy failures
+**Implemented today:** reading a proxy from `SCRAPER_PROXY` / `config.yml`,
+choosing one endpoint per browser launch, and routing the persistent context
+through it. Residential gateways rotate their exit IP server-side, so a single
+sticky endpoint already varies the apparent IP.
+
+**Not implemented** (would be future work if ever needed): in-app proxy-pool
+health checks / failover, per-proxy personas, and concurrent multi-proxy
+scraping. The scraper is sequential and runs one identity, so these aren't wired
+up — the snippets above marked *illustrative* are conceptual.
 
 ## When You Need This
 
@@ -221,10 +227,6 @@ This makes each proxy appear as a completely different user (different location,
 - Need true real-time updates (interval near 0)
 - Switching to concurrent scraping for performance
 - Experiencing frequent HTTP 429/403 blocks
-
-## Future Plans
-
-This feature is not currently implemented but is on the roadmap. Contributions welcome!
 
 ### See Also
 

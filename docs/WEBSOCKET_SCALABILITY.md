@@ -1,113 +1,59 @@
 # WebSocket Scalability
 
-> **Not implemented yet** - The current WebSocket implementation uses simple broadcasting that doesn't scale beyond a limited number of subscribers.
+> **Status:** real-time fanout already rides on **Postgres `LISTEN/NOTIFY`**, which
+> works across multiple API replicas as-is. The only genuinely
+> multi-replica-unsafe piece is the in-process rate limiter. None of this is a
+> bottleneck for the single-instance Docker-Compose deployment this project
+> targets.
 
-## Current State: Simple Broadcasting
+## How fanout works today
 
-TopicStreams uses a straightforward approach for WebSocket message distribution:
+TopicStreams does **not** broadcast from the process that scrapes. New articles
+flow to clients through the database:
 
-```python
-# Current implementation (simplified)
-async def broadcast_news_update(news_entry: NewsEntry):
-    for websocket in connected_websockets[topic]:
-        try:
-            await websocket.send_json(news_entry.dict())
-        except ConnectionClosedOK:
-            connected_websockets[topic].remove(websocket)
-```
+1. The scraper inserts news; a Postgres trigger fires `NOTIFY news_updates,
+   '<topic>:<id>'` (see `postgres/init.sql`).
+2. Each API process holds a dedicated `LISTEN news_updates` connection
+   (`api/v1/websocket/manager.py`, `_postgres_listener`). The payload is just
+   `topic:id` — not the article — which sidesteps `NOTIFY`'s 8 KB payload limit.
+3. On a notification the process re-fetches the entry and sends it to its own
+   locally-connected WebSocket clients (`_broadcast_to_topic`).
 
-### How It Works
+Postgres delivers every `NOTIFY` to **all** listening connections. So Postgres
+is already acting as the pub/sub bus — the role a Redis Pub/Sub layer would
+otherwise play.
 
-- Each WebSocket connection is stored in memory
-- When new news arrives, the server iterates through ALL connected clients for that topic
-- Messages are sent one-by-one to each subscriber
-- Failed connections are cleaned up during broadcasting
+## What this means for multiple replicas
 
-## Scalability Limitations
+If you ran N API replicas behind a load balancer, **WebSocket fanout already
+works**: each replica has its own `LISTEN` connection, each receives the
+notification independently, and each fans out to the clients connected to it.
+The per-replica `for connection in subscribers: send()` loop is `O(local
+connections)`, which is exactly what horizontal scaling distributes — a client
+is only ever served by the one replica it connected to.
 
-**This approach has significant limitations:**
+### The one open item: the rate limiter
 
-1. **O(n) Broadcast Cost** - Sending to 1000 subscribers requires 1000 separate send operations
-2. **Memory Usage** - All WebSocket connections stored in server memory
-3. **Single Point of Failure** - If one server restarts, all connections are lost
-4. **No Load Distribution** - All broadcasting load handled by single server instance
-5. **Slow Message Delivery** - Large subscriber bases experience delivery delays
+The HTTP rate limiter (`RateLimitMiddleware` in `api/main.py`) keeps its
+sliding-window counters **in process**. With N replicas, a client's requests
+spread across them, so the effective limit is up to N× the configured value.
+This is a mild correctness drift, not a failure mode. Options, cheapest first:
 
-## Recommended Solutions
+- **Rate-limit at the edge** — nginx/Traefik/Cloudflare in front of the replicas
+  enforces a single shared limit. Usually you already have this proxy.
+- **Sticky routing** — hash clients to replicas (IP hash) so each client's
+  counter lives on one replica.
+- **Shared store** — move the counter to Redis for a precise global limit. This
+  is the only case that actually warrants adding Redis, and it's a real lift for
+  one counter — do it only if the edge/sticky options don't fit.
 
-### 1. Redis Pub/Sub
+## Scaling ceiling
 
-```python
-# Future implementation with Redis
-import redis
-import json
-
-async def publish_news_update(news_entry: NewsEntry):
-    redis_client = redis.Redis()
-    await redis_client.publish(
-        f"news_updates:{news_entry.topic}",
-        json.dumps(news_entry.dict())
-    )
-
-# WebSocket servers subscribe to Redis channels
-async def redis_subscriber():
-    pubsub = redis_client.pubsub()
-    await pubsub.subscribe("news_updates:*")
-
-    async for message in pubsub.listen():
-        if message['type'] == 'message':
-            await broadcast_to_local_clients(message['data'])
-```
-
-#### Benefits
-
-- **O(1) Publish Cost** - Single publish operation regardless of subscriber count
-- **Horizontal Scaling** - Multiple WebSocket servers can subscribe to same Redis channels
-- **Fault Tolerance** - Redis handles message queuing and delivery
-- **Low Latency** - Optimized binary protocol for message distribution
-
-#### Implementation
-
-- Add Redis to docker-compose.yml
-- Modify WebSocket servers to publish/subscribe via Redis
-- Each server only manages its local connections
-- Redis handles cross-server message distribution
-
-### 2. Apache Kafka
-
-For very large-scale deployments (10K+ subscribers):
-
-```python
-# Future implementation with Kafka
-from kafka import KafkaProducer
-
-async def publish_news_update(news_entry: NewsEntry):
-    producer = KafkaProducer(
-        bootstrap_servers=['kafka:9092'],
-        value_serializer=lambda v: json.dumps(v).encode()
-    )
-    producer.send(f"news-updates-{news_entry.topic}", news_entry.dict())
-```
-
-#### Benefits
-
-- **Message Persistence** - Messages stored on disk, can replay missed updates
-- **Partitioning** - Natural load distribution across multiple consumers
-- **Exactly-Once Semantics** - Guaranteed message delivery without duplication
-- **Backpressure Handling** - Natural flow control for slow consumers
-
-## When You Need This
-
-### You Probably DON'T Need These Solutions If:
-
-- You have fewer than 100 concurrent WebSocket connections
-- Running on a single server with minimal scaling needs
-- Message delivery latency of <100ms is acceptable
-
-### You SHOULD Consider These Solutions If:
-
-- Expecting 100+ concurrent WebSocket connections per topic
-- Need to scale horizontally across multiple servers
-- Require <10ms message delivery latency
-- Need fault tolerance and automatic failover
-- Running 24/7 with high subscriber volume
+Postgres `LISTEN/NOTIFY` comfortably handles this app's notification volume (one
+notify per new feed event). It is not a 100K-subscriber message bus, but the
+single-user, self-hosted deployment here is nowhere near that. If you ever
+genuinely outgrow it (thousands of concurrent subscribers across many
+replicas), the migration is to publish to Redis Pub/Sub (or Kafka for
+replay/persistence) instead of `NOTIFY`, with each replica subscribing and
+fanning out locally — i.e. the same topology, a different bus. There is no
+reason to do this preemptively.

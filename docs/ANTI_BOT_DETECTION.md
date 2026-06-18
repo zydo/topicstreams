@@ -53,11 +53,16 @@ Default arguments (configurable in YAML):
 
 ### 2. Realistic Browser Context
 
-The browser context is configured to match a real Chrome user (all values configurable in YAML):
+A single **persistent** browser context is launched and reused for the whole
+run, configured to match a real Chrome user (all values configurable in YAML).
+A persistent context keeps cookies/cache on disk across container restarts and
+runs one consistent identity (see [Single identity by design](#5-single-identity-by-design)):
 
 ```python
-# All values loaded from config.yml
-context = browser.new_context(
+# All values loaded from config.yml (see scraper/main.py:_launch_context)
+context = p.chromium.launch_persistent_context(
+    str(USER_DATA_DIR),                     # on-disk profile, survives restarts
+    headless=True,
     user_agent=profile.user_agent,
     viewport={
         "width": anti_detection_config.viewport_width,
@@ -68,7 +73,7 @@ context = browser.new_context(
     permissions=anti_detection_config.permissions,
     geolocation={
         "latitude": anti_detection_config.geolocation_latitude,
-        "longitude": anti_detection_config.geolocation_longitude
+        "longitude": anti_detection_config.geolocation_longitude,
     },
     color_scheme=anti_detection_config.color_scheme,
     extra_http_headers=_build_headers(profile),
@@ -114,82 +119,42 @@ The signals stealth used to mask are covered without JS patching:
 | `navigator.webdriver` | `--disable-blink-features=AutomationControlled`     |
 | User agent / brands   | Runtime-derived fingerprint (`_detect_fingerprint`) |
 
-### 4. Memory Management & Additional Strategies
+### 4. Memory Management
 
-To prevent memory leaks in long-running scrapers, each topic gets a fresh page (configurable via `page_isolation.enabled` in YAML). When using `per_topic` profile rotation, a new context is also created per topic:
+The scraper runs one long-lived persistent context, which would otherwise grow
+unbounded over thousands of cycles — on a swap-less host this once exhausted RAM
+and livelocked the box (see [postmortem](POSTMORTEM_2026-06-13_OOM_HANG.md)). Two
+measures bound that growth:
 
-```python
-for topic in topics:
-    if need_context_per_topic:
-        # New context per topic (for per_topic rotation)
-        context = browser.new_context(profile, ...)
-        if stealth:
-            stealth.apply_stealth_sync(context)
+- **Fresh page per engine/topic**: each scrape opens a new page and closes it in
+  a `finally`, so per-page DOM/JS state never accumulates (`scrape_topic` in
+  `scraper/scraper.py`).
+- **Context recycling**: the whole Chromium context is closed and relaunched
+  every `scraper.browser_recycle_cycles` cycles (default 50). The on-disk
+  persistent profile (cookies/cache) survives the recycle, so identity is
+  preserved while accumulated memory is released (`scraper/main.py`).
 
-    page = context.new_page()
+**Other configurable behaviours:**
 
-    try:
-        scrape_news(page, topic)
-    finally:
-        page.close()
-        if need_context_per_topic:
-            context.close()
-```
+- **Random Delays** (`random_delays.enabled`): random pause between topics to
+  mimic human pacing.
+- **Randomized Order** (`randomized_order.enabled`): shuffle topic order each
+  cycle to avoid a deterministic request pattern.
+- **Human-Like Behaviour** (`page_interaction.human_simulation`): random
+  scrolling and mouse movement during page loads to simulate reading; the ranges
+  are tunable in `config.yml`.
 
-**Additional configurable strategies:**
+### 5. Single identity by design
 
-- **Random Delays** (`random_delays.enabled`): Random delay between topics to mimic human behavior
-- **Randomized Order** (`randomized_order.enabled`): Shuffle topic order each cycle to avoid deterministic patterns
-- **Fingerprint Profile Rotation** (`user_agent_rotation.enabled`): Rotate through profiles with matching UA + Sec-CH-UA headers
-- **Human-Like Behavior**: Random scrolling and mouse movements during page loads to simulate reading
-
-### 5. Fingerprint Profile Rotation
-
-To avoid static browser fingerprints that can be flagged by Google, the scraper supports rotating through multiple fingerprint profiles. Each profile bundles a user agent with matching Sec-CH-UA headers:
-
-```python
-# Loaded from config.yml
-if anti_detection_config.user_agent_rotation_enabled:
-    strategy = anti_detection_config.user_agent_rotation_strategy  # "per_cycle" or "per_topic"
-
-    if strategy == "per_cycle":
-        # Rotate once per scrape cycle (all topics use same profile)
-        profile = profiles[cycle_count % len(profiles)]
-    elif strategy == "per_topic":
-        # Rotate for each topic (each topic gets different profile)
-        profile = profiles[topic_index % len(profiles)]
-```
-
-**Configuration:**
-
-```yaml
-browser_fingerprint:
-  user_agent_rotation:
-    enabled: true
-    strategy: "per_topic"  # "per_cycle" or "per_topic"
-    profiles:
-      - user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ... Chrome/131.0.0.0 ..."
-        sec_ch_ua: '"Chromium";v="131", "Not_A Brand";v="24"'
-        sec_ch_ua_platform: '"Windows"'
-      - user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ... Chrome/131.0.0.0 ..."
-        sec_ch_ua: '"Chromium";v="131", "Not_A Brand";v="24"'
-        sec_ch_ua_platform: '"macOS"'
-      # ... more Chrome-only profiles across Windows, macOS, and Linux
-```
-
-**Why this matters:**
-
-- Cloud VM IPs often have static user agents that get flagged
-- Each profile changes the entire browser fingerprint (UA + headers), not just the user agent string
-- Only Chrome profiles are used — Firefox/Safari UAs on a Chromium browser are detectable
-- Helps avoid pattern detection by Google's anti-bot systems
-
-**Strategy comparison:**
-
-| Strategy    | Description             | Performance                      | Stealth |
-| ----------- | ----------------------- | -------------------------------- | ------- |
-| `per_cycle` | One UA per scrape cycle | Faster (fewer context creations) | Good    |
-| `per_topic` | Different UA per topic  | Slower (more context creations)  | Better  |
+The scraper deliberately runs **one** consistent fingerprint, not a rotating
+pool. The single identity is derived at startup from the installed Chromium
+version (`_detect_fingerprint` in `scraper/main.py`) so the claimed UA always
+matches the real browser — the property Google actually checks. UA/profile
+rotation is **not** used: against a single residential IP it adds little (the IP,
+not the UA, is the dominant signal) and a mismatched or implausible rotated
+fingerprint is itself a detection risk. To distribute load across identities,
+the supported lever is multiple residential/mobile **proxy** exits (see
+[Proxy Support](SCRAPING_BEHAVIOR.md#proxy-rotation)), not UA rotation.
 
 ## What Google Sees
 
@@ -210,10 +175,10 @@ detectable and were getting the scraper blocked.
 **This is NOT perfect invisibility:**
 
 - Google can still detect patterns (same IP scraping many topics)
-- User-Agent rotation helps, but IP-based detection is still possible
-- High request rates will still trigger blocks
+- IP-based detection is the dominant signal — a clean fingerprint doesn't help if the IP is flagged
+- High request rates will still trigger blocks (and now trigger the adaptive per-engine cooldown — see [Scraping Behavior](SCRAPING_BEHAVIOR.md))
 
-For high-volume or 24/7 scraping, consider [proxy rotation](SCRAPING_BEHAVIOR.md#proxy-rotation) to distribute load across multiple IPs.
+For high-volume or 24/7 scraping, route through residential/mobile [proxies](SCRAPING_BEHAVIOR.md#proxy-rotation) to distribute load across multiple IPs.
 
 **Best practices:**
 

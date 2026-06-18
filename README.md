@@ -24,9 +24,10 @@ Google News ([https://news.google.com](https://news.google.com)) and Google News
 
 ### TopicStreams' Approach
 
-TopicStreams scrapes **Google Search → News Tab** with time filters, giving you:
+TopicStreams scrapes **search engines' News results** with time filters — Google
+Search's News tab by default, plus Bing/Yahoo/Brave — giving you:
 
-- **Real-time results** - All news indexed by Google, regardless of quality rating
+- **Real-time results** - All news the engine indexes, regardless of quality rating
 - **Unfiltered access** - No curation, you decide what's relevant
 - **Near-instant updates** - Scrape frequently enough and catch news as it breaks
 - **Full control** - Customize topics (search keywords) and scrape intervals
@@ -80,14 +81,14 @@ The WebSocket delivers live news updates as they're scraped, showing the same co
 
 ### Limitations
 
-- **Google Dependency** - Black box algorithms, no source control, variable indexing speed, geographic filtering
+- **Search-engine dependency** - Black box algorithms, no source control, variable indexing speed, geographic filtering (Google is the default engine; Bing/Yahoo/Brave have the same trade-off)
 - **Inconsistent Results** - Same queries return different results based on IP, geolocation, browser, A/B testing
 - **No Quality Control** - All news included, credible or not
-- **Access Risks** - Google may detect scraping and rate limit or block access, mitigation: [Anti-Bot Detection](docs/ANTI_BOT_DETECTION.md)
+- **Access Risks** - Engines may detect scraping and rate limit or block access; mitigations: [Anti-Bot Detection](docs/ANTI_BOT_DETECTION.md) and adaptive per-engine cooldown
 
 ## Features
 
-- **Real-time News Aggregation** - Continuously scrapes Google Search News tab (not Google News site) for the latest articles
+- **Real-time News Aggregation** - Continuously scrapes search engines' News results (Google Search's News tab by default — not the Google News site — plus Bing/Yahoo/Brave) for the latest articles
 - **Multi-Topic Tracking** - Monitor multiple news topics simultaneously with configurable scrape intervals
 - **WebSocket Streaming** - Subscribe to live news updates per topic via WebSocket connections
 - **REST API** - Manage topics and retrieve historical news entries through HTTP endpoints
@@ -125,7 +126,7 @@ TopicStreams consists of three main components:
 
 ### Data Flow
 
-1. **Scraper Service** continuously scrapes Google Search News tab for tracked topics
+1. **Scraper Service** continuously scrapes the configured search engines (Google's News tab by default, plus Bing/Yahoo/Brave) for tracked topics
 2. New articles are inserted into **PostgreSQL** with automatic deduplication
 3. Database triggers send **NOTIFY** events on new inserts
 4. **FastAPI Server** listens for these events via PostgreSQL's LISTEN/NOTIFY
@@ -245,7 +246,7 @@ curl "http://localhost:5000/api/v1/news?limit=5" | jq
 # List all actively scraping topics
 curl http://localhost:5000/api/v1/topics | jq
 
-# List recent 10 scraper logs (each log represents one Google webpage load - typically up to 10 news entries)
+# List recent 10 scraper logs (each log represents one search-engine page load - typically up to 10 news entries)
 curl http://localhost:5000/api/v1/logs?limit=10 | jq
 ```
 
@@ -274,8 +275,8 @@ For complete configuration documentation including environment variables, YAML f
 **Quick links:**
 
 - [**Environment variables**](docs/CONFIGURATION.md#environment-variables-env) - Database and API settings in .env
-- [**Scraper settings**](docs/CONFIGURATION.md#scraper-settings-configscrayml) - scrape_interval and max_pages
-- [**Anti-detection settings**](docs/CONFIGURATION.md#anti-detection-settings-configanti_detectionyml) - Browser fingerprinting and stealth strategies
+- [**Scraper settings**](docs/CONFIGURATION.md#scraper-settings-configyml) - scrape_interval, max_pages, engines, cooldown
+- [**Anti-detection settings**](docs/CONFIGURATION.md#anti-detection-settings-configyml) - Browser fingerprinting and stealth strategies
 - [**Reloading config**](docs/CONFIGURATION.md#reloading-configuration) - How to apply configuration changes
 
 ## Anti-Bot Detection
@@ -286,7 +287,7 @@ For detailed information about anti-detection strategies (Playwright stealth, br
 
 **Quick Reference:**
 - All anti-detection strategies are configurable via `config.yml` (auto-created from the template on first run)
-- See [Configuration](docs/CONFIGURATION.md#anti-detection-settings-configanti_detectionyml) for YAML configuration details
+- See [Configuration](docs/CONFIGURATION.md#anti-detection-settings-configyml) for YAML configuration details
 
 ## Scraping Behavior
 
@@ -301,25 +302,29 @@ For detailed information about scraping behavior, monitoring, and scaling strate
 
 ## Authentication & Security
 
-> **Not implemented yet** - For security recommendations and implementation strategies, see [Authentication & Security](docs/AUTHENTICATION_SECURITY.md).
+> Ships a few **built-in controls** (API key on writes, per-IP rate limiting,
+> CORS, WS that can't create topics); beyond them it assumes a localhost/LAN or
+> behind-a-reverse-proxy deployment. See [Authentication & Security](docs/AUTHENTICATION_SECURITY.md)
+> for what's covered and further hardening (JWT/OAuth2, Cloudflare).
 
 **Quick links:**
 
-- [**Current state**](docs/AUTHENTICATION_SECURITY.md#current-state-localhostlan-only) - Localhost/LAN only, no built-in security
-- [**Authentication**](docs/AUTHENTICATION_SECURITY.md#1-authentication--authorization) - API keys, JWT, OAuth2 options
-- [**Rate limiting**](docs/AUTHENTICATION_SECURITY.md#2-api-rate-limiting) - Protect against abuse and DDOS
-- [**Cloudflare**](docs/AUTHENTICATION_SECURITY.md#3-cloudflare-recommended-for-public-deployment) - Recommended for public deployment
+- [**Built-in controls**](docs/AUTHENTICATION_SECURITY.md#built-in-controls) - API key on writes, rate limiting, CORS
+- [**Not covered**](docs/AUTHENTICATION_SECURITY.md#not-covered-add-before-public-exposure) - Gaps to close before public exposure
+- [**Further hardening**](docs/AUTHENTICATION_SECURITY.md#recommended-solutions-further-hardening) - JWT/OAuth2, edge rate limiting, Cloudflare
 
 ## WebSocket Scalability
 
-> **Not implemented yet** - For scalability recommendations and implementation strategies, see [WebSocket Scalability](docs/WEBSOCKET_SCALABILITY.md).
+> Real-time fanout already rides on **Postgres `LISTEN/NOTIFY`**, which works
+> across multiple API replicas as-is — each replica listens and fans out to its
+> own clients. The only multi-replica-unsafe piece is the in-process rate
+> limiter. See [WebSocket Scalability](docs/WEBSOCKET_SCALABILITY.md).
 
 **Quick links:**
 
-- [**Current state**](docs/WEBSOCKET_SCALABILITY.md#current-state-simple-broadcasting) - Simple in-memory broadcasting
-- [**Limitations**](docs/WEBSOCKET_SCALABILITY.md#scalability-limitations) - O(n) broadcast cost, single point of failure
-- [**Redis Pub/Sub**](docs/WEBSOCKET_SCALABILITY.md#1-redis-pubsub) - Horizontal scaling with O(1) publish cost
-- [**Apache Kafka**](docs/WEBSOCKET_SCALABILITY.md#2-apache-kafka) - For very large-scale deployments (10K+ subscribers)
+- [**How fanout works**](docs/WEBSOCKET_SCALABILITY.md#how-fanout-works-today) - Scraper → Postgres NOTIFY → per-replica LISTEN → local clients
+- [**Multiple replicas**](docs/WEBSOCKET_SCALABILITY.md#what-this-means-for-multiple-replicas) - Fanout already works; the rate limiter is the open item
+- [**Scaling ceiling**](docs/WEBSOCKET_SCALABILITY.md#scaling-ceiling) - When (and only when) a Redis/Kafka bus would be warranted
 
 ## API Reference
 

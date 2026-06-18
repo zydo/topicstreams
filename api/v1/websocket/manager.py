@@ -109,8 +109,11 @@ class WebSocketManager:
             self._conn.close()
             self._conn = None
 
-    # TODO: This broadcasting does not scale with subscribers growth.
-    #       Use Redis Pub/Sub or Kafka Producer.
+    # Fanout already scales across replicas: this only sends to THIS process's
+    # locally-connected clients, and every API replica receives the same
+    # Postgres NOTIFY on its own LISTEN connection (see docs/WEBSOCKET_SCALABILITY.md).
+    # A Redis/Kafka bus would only be needed past Postgres LISTEN/NOTIFY's volume
+    # ceiling — far beyond this single-instance deployment.
     async def _broadcast_to_topic(self, topic: str, entry: NewsEntry) -> None:
         if topic not in self._topic_subscribers:
             return

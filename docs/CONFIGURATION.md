@@ -98,6 +98,10 @@ scraper:
     - yahoo
     - brave
   engine_strategy: all  # How enabled engines combine: all | fallback | rotate
+  cooldown:             # Adaptive per-engine backoff after a throttle/block
+    enabled: true
+    base_seconds: 300   # window after the first block; doubles per consecutive block
+    max_seconds: 3600   # cap on the exponential window (1h)
 ```
 
 | Setting           | Default                        | Description                                                                                                                                                                                                                                                                                |
@@ -107,6 +111,9 @@ scraper:
 | `engines`         | `[google, bing, yahoo, brave]` | Search engines to scrape, as a list in priority order. Available: `google`, `bing`, `yahoo`, `brave`. (DuckDuckGo is not supported — it hard-blocks scraping; see [docs/DUCKDUCKGO_UNSUPPORTED.md](DUCKDUCKGO_UNSUPPORTED.md).) See [Search Engines](SCRAPING_BEHAVIOR.md#search-engines). |
 | `engine_strategy` | `all`                          | How enabled engines combine per cycle: `all` (scrape every engine each cycle), `fallback` (try in order, stop at the first that returns items), or `rotate` (one engine per cycle, rotating).                                                                                              |
 | `browser_recycle_cycles` | `50`                    | Recycle the Chromium context every N cycles to release accumulated memory (the on-disk persistent profile survives). Guards against unbounded context growth; see [postmortem](POSTMORTEM_2026-06-13_OOM_HANG.md).                                                                          |
+| `cooldown.enabled`       | `true`                  | Adaptive per-engine cooldown: when an engine throttles/blocks (HTTP 429/403/503 or a detected block page), bench it for an exponential backoff window and send one probe before resuming, instead of hitting it every cycle. The `/monitor` health label reflects it.                       |
+| `cooldown.base_seconds`  | `300`                   | Backoff window after an engine's first block; doubles per consecutive block.                                                                                                                                                                                                              |
+| `cooldown.max_seconds`   | `3600`                  | Cap on the exponential cooldown window.                                                                                                                                                                                                                                                   |
 
 ### API Tuning Settings (`config.yml`, `api:` section)
 
@@ -161,10 +168,9 @@ anti_detection:
       - "--no-sandbox"
       - "--disable-setuid-sandbox"
       - "--disable-dev-shm-usage"
+      - "--disable-gpu"
       - "--window-size=1920,1080"
-      - "--disable-background-timer-throttling"
-      - "--disable-backgrounding-occluded-windows"
-      - "--disable-renderer-backgrounding"
+      - "--disable-blink-features=AutomationControlled"  # navigator.webdriver = false
 
   random_delays:
     enabled: true
@@ -174,27 +180,40 @@ anti_detection:
   randomized_order:
     enabled: true    # Shuffle topic order each cycle
 
-  page_isolation:
-    enabled: true    # Create new page per topic (memory management)
+  # Page-interaction timings (speed vs. block-risk) and the human-simulation
+  # scroll/mouse jitter applied after each page loads. Every key is optional.
+  page_interaction:
+    nav_timeout_ms: 30000
+    selector_timeout_ms: 5000
+    settle_min_ms: 1500
+    settle_max_ms: 3000
+    human_simulation:
+      scroll_steps_min: 2
+      scroll_steps_max: 4
+      # ... scroll/mouse ranges; see config.yml.example for the full list
 
   browser_fingerprint:
-    enabled: true
-    user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ..."
+    # NOTE: the user agent and Sec-CH-UA are derived at RUNTIME from the
+    # installed Chromium version (scraper/main.py:_detect_fingerprint), so there
+    # is no static user_agent key here — a stale hardcoded UA is an instant
+    # CAPTCHA. Only the context/identity values below are configured.
     viewport_width: 1920
     viewport_height: 1080
     locale: "en-US"
-    timezone_id: "America/Los_Angeles"     # Recommended to match server IP
-    geolocation_latitude: 37.3273          # Recommended to match server IP
-    geolocation_longitude: -121.954         # Recommended to match server IP
+    timezone_id: "America/Los_Angeles"     # Recommended to match server/proxy IP
+    geolocation_latitude: 37.3273          # Recommended to match server/proxy IP
+    geolocation_longitude: -121.954        # Recommended to match server/proxy IP
     color_scheme: "light"
     permissions:
       - "geolocation"
 
   captcha_detection:
     enabled: true
+    # Keep keywords SPECIFIC to the block page — a bare "captcha" false-positives
+    # because real results pages mention it in Google's own inline JS.
     keywords:
-      - "captcha"
-      - "unusual traffic"
+      - "unusual traffic from your computer network"
+      - "our systems have detected unusual traffic"
 
   http_error_handling:
     enabled: true
@@ -205,33 +224,19 @@ anti_detection:
 
   http_headers:
     enabled: true
-    headers:
-      # Standard browser headers
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
-      Accept-Language: "en-US,en;q=0.9"
-
-      # Sec-Fetch headers (modern browser navigation indicators)
-      Sec-Fetch-Dest: "document"
-      Sec-Fetch-Mode: "navigate"
-      Sec-Fetch-Site: "none"
-      Sec-Fetch-User: "?1"
-
-      # Upgrade hints
-      Upgrade-Insecure-Requests: "1"
-
-      # Sec-Ch-Ua and Sec-Ch-Ua-Platform come from fingerprint profiles,
-      # not here — to keep headers consistent with the rotated user agent.
+    # Empty by default, and that is intentional. Playwright applies extra_http_headers
+    # to EVERY request (documents, XHR, images); forcing Accept / Sec-Fetch-* globally
+    # is itself a detection signal because real browsers vary them per request type
+    # (verified 2026-06-11 — see ANTI_BOT_DETECTION.md). The Sec-CH-UA trio is added
+    # in code from the runtime-derived fingerprint, not here. Leave empty unless you
+    # have a specific reason.
+    headers: {}
 ```
 
-**HTTP Headers Configuration:**
-
-| Header Category   | Headers                                                                | Purpose                              |
-| ----------------- | ---------------------------------------------------------------------- | ------------------------------------ |
-| **Standard**      | `Accept`, `Accept-Language`                                            | Content negotiation                  |
-| **Sec-Fetch***    | `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site`, `Sec-Fetch-User` | Navigation context (modern browsers) |
-| **Upgrade Hints** | `Upgrade-Insecure-Requests`                                            | HTTPS preference                     |
-
-Sec-Ch-Ua headers are automatically merged from the active fingerprint profile (see [Fingerprint Profile Rotation](#fingerprint-profile-rotation) above), not configured here directly. This ensures headers always match the rotated user agent.
+> **No UA/fingerprint rotation.** The scraper runs a single runtime-derived
+> identity by design (see [Single identity by design](ANTI_BOT_DETECTION.md#5-single-identity-by-design)).
+> There is no `user_agent_rotation`, `profiles`, or `page_isolation` config —
+> load is distributed across IPs via [proxies](#proxy-configuration), not user agents.
 
 ### Key Browser Fingerprinting Settings
 
@@ -264,48 +269,6 @@ timezone_id: Asia/Singapore
 geolocation_latitude: 1.3521
 geolocation_longitude: 103.8198
 ```
-
-### Fingerprint Profile Rotation
-
-Fingerprint profile rotation allows the scraper to cycle through multiple realistic browser profiles. Each profile bundles a user agent with matching `Sec-CH-UA` and `Sec-CH-UA-Platform` headers to ensure consistency (only Chrome profiles are used — Firefox/Safari UAs on a Chromium browser are detectable):
-
-```yaml
-browser_fingerprint:
-  user_agent_rotation:
-    enabled: true
-    strategy: "per_topic"  # "per_cycle" or "per_topic"
-    profiles:
-      # Chrome 131 on Windows
-      - user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        sec_ch_ua: '"Chromium";v="131", "Not_A Brand";v="24"'
-        sec_ch_ua_platform: '"Windows"'
-      # Chrome 131 on macOS
-      - user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        sec_ch_ua: '"Chromium";v="131", "Not_A Brand";v="24"'
-        sec_ch_ua_platform: '"macOS"'
-      # Chrome 131 on Linux
-      - user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        sec_ch_ua: '"Chromium";v="131", "Not_A Brand";v="24"'
-        sec_ch_ua_platform: '"Linux"'
-      # Chrome 130 variants (Windows, macOS, Linux) ...
-```
-
-**Fingerprint Profile Rotation Settings:**
-
-| Setting    | Default       | Description                                                                      |
-| ---------- | ------------- | -------------------------------------------------------------------------------- |
-| `enabled`  | `false`       | Enable or disable fingerprint profile rotation                                   |
-| `strategy` | `"per_topic"` | `"per_cycle"` (rotate once per scrape cycle) or `"per_topic"` (rotate per topic) |
-| `profiles` | `[]`          | List of profiles, each with `user_agent`, `sec_ch_ua`, `sec_ch_ua_platform`      |
-
-**Strategy Comparison:**
-
-| Strategy    | Description                  | Performance                      | Recommended For                     |
-| ----------- | ---------------------------- | -------------------------------- | ----------------------------------- |
-| `per_cycle` | One profile per scrape cycle | Faster (fewer context creations) | Lower topic counts                  |
-| `per_topic` | Different profile per topic  | Slower (new context per topic)   | Higher topic counts, better stealth |
-
-When `user_agent_rotation.enabled` is `false`, the scraper uses the static `user_agent` value.
 
 ### Proxy Configuration
 
@@ -346,8 +309,8 @@ anti_detection:
 
 **Editing configuration:**
 
-- YAML configs: Edit the generated `.yml` files in `config/` directory (not the `.yml.example` templates)
-- Environment variables: Edit the `.env` file in the project root
+- YAML config: edit `config.yml` at the repo root (not the `config.yml.example` template)
+- Environment variables: edit the `.env` file in the project root
 
 **After editing YAML configuration files, restart the scraper to apply changes:**
 
