@@ -17,9 +17,37 @@ class MonitorApp {
     apiBase = '/api/v1';
     pollIntervalMs = 30000;
     windowSeconds = 3600;
+    // Shared with the main app: the bearer token the server requires when
+    // TOPICSTREAMS_API_KEY is set. Stored under the same localStorage key.
+    apiKey = localStorage.getItem('topicstreams-api-key') || '';
+    apiKeyDeclined = false;
 
     constructor() {
         this.init();
+    }
+
+    // Attach `Authorization: Bearer <token>` when we have one. On a 401, prompt
+    // once for the token and retry; latch a dismissal so the 30s poll doesn't
+    // nag repeatedly.
+    async fetchWithAuth(url, options = {}) {
+        const doFetch = () => {
+            const headers = { ...(options.headers || {}) };
+            if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`;
+            return fetch(url, { ...options, headers });
+        };
+
+        let response = await doFetch();
+        if (response.status === 401 && !this.apiKeyDeclined) {
+            const key = prompt('This server requires an API token. Enter it:');
+            if (key?.trim()) {
+                this.apiKey = key.trim();
+                localStorage.setItem('topicstreams-api-key', this.apiKey);
+                response = await doFetch();
+            } else {
+                this.apiKeyDeclined = true;
+            }
+        }
+        return response;
     }
 
     async init() {
@@ -43,7 +71,7 @@ class MonitorApp {
         });
 
         try {
-            const r = await fetch(`${this.apiBase}/config`);
+            const r = await this.fetchWithAuth(`${this.apiBase}/config`);
             if (r.ok) this.pollIntervalMs = (await r.json()).status_poll_interval_ms;
         } catch (e) {
             console.error('Failed to load UI config, using defaults:', e);
@@ -55,7 +83,7 @@ class MonitorApp {
 
     async refresh() {
         try {
-            const r = await fetch(`${this.apiBase}/metrics?window=${this.windowSeconds}`);
+            const r = await this.fetchWithAuth(`${this.apiBase}/metrics?window=${this.windowSeconds}`);
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const m = await r.json();
             this.render(m);

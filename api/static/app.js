@@ -33,6 +33,7 @@ class TopicStreamsApp {
     topicWebSockets = new Map();
     reconnectAttempts = new Map();
     apiKey = localStorage.getItem('topicstreams-api-key') || '';
+    apiKeyDeclined = false;     // user dismissed the key prompt; stop auto-nagging
 
     // Real-time feed: a single chronological stream backed by the DB. Live
     // WebSocket entries prepend at the top; scrolling loads older pages via an
@@ -64,7 +65,7 @@ class TopicStreamsApp {
     // feedPageSize drives the page request. On failure we keep the defaults.
     async loadConfig() {
         try {
-            const response = await fetch(`${this.apiBase}/config`);
+            const response = await this.fetchWithAuth(`${this.apiBase}/config`);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const cfg = await response.json();
             this.feedPageSize = cfg.feed_page_size;
@@ -103,22 +104,28 @@ class TopicStreamsApp {
         this.feedObserver.observe(sentinel);
     }
 
-    // Write endpoints require X-API-Key when the server has API_KEY set.
-    // On 401, prompt once for the key, remember it, and retry.
+    // Every endpoint requires `Authorization: Bearer <token>` when the server
+    // has TOPICSTREAMS_API_KEY set. All requests flow through here. On a 401 we
+    // prompt once for the token, store it, and retry; if the user dismisses the
+    // prompt we latch that (apiKeyDeclined) so background polls and the parallel
+    // startup fetches don't trigger a storm of prompts. A user action that
+    // clears the latch (see addTopic) re-enables prompting.
     async fetchWithAuth(url, options = {}) {
         const doFetch = () => {
             const headers = { ...(options.headers || {}) };
-            if (this.apiKey) headers['X-API-Key'] = this.apiKey;
+            if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`;
             return fetch(url, { ...options, headers });
         };
 
         let response = await doFetch();
-        if (response.status === 401) {
-            const key = prompt('This action requires an API key. Enter API key:');
+        if (response.status === 401 && !this.apiKeyDeclined) {
+            const key = prompt('This server requires an API token. Enter it:');
             if (key?.trim()) {
                 this.apiKey = key.trim();
                 localStorage.setItem('topicstreams-api-key', this.apiKey);
                 response = await doFetch();
+            } else {
+                this.apiKeyDeclined = true;
             }
         }
         return response;
@@ -138,7 +145,7 @@ class TopicStreamsApp {
     // engines are enabled in the scraper.
     async loadEngines() {
         try {
-            const response = await fetch(`${this.apiBase}/news/engines`);
+            const response = await this.fetchWithAuth(`${this.apiBase}/news/engines`);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             this.updateEngineFilter(await response.json());
         } catch (error) {
@@ -198,7 +205,7 @@ class TopicStreamsApp {
 
     async loadTopics() {
         try {
-            const response = await fetch(`${this.apiBase}/topics`);
+            const response = await this.fetchWithAuth(`${this.apiBase}/topics`);
             const topics = await response.json();
 
             this.topics.clear();
@@ -238,7 +245,7 @@ class TopicStreamsApp {
     // selector-rot when scrapes parse 0 items) and returned with the counts.
     async updateStatus() {
         try {
-            const response = await fetch(`${this.apiBase}/status`);
+            const response = await this.fetchWithAuth(`${this.apiBase}/status`);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const s = await response.json();
 
@@ -331,6 +338,8 @@ class TopicStreamsApp {
         const button = document.getElementById('add-topic-btn');
         button.disabled = true;
         button.textContent = 'tracking…';
+        // An explicit user action: re-enable the token prompt if it was dismissed.
+        this.apiKeyDeclined = false;
 
         try {
             const response = await this.fetchWithAuth(`${this.apiBase}/topics`, {
@@ -516,7 +525,7 @@ class TopicStreamsApp {
             : '/news';
 
         try {
-            const response = await fetch(`${this.apiBase}${path}?${params}`);
+            const response = await this.fetchWithAuth(`${this.apiBase}${path}?${params}`);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
 
