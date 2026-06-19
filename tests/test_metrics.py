@@ -41,10 +41,7 @@ def _row(
 
 def test_idle_when_no_scrapes():
     assert (
-        classify_engine(
-            _row(scrapes=0, successes=0, last_http_status=None)
-        )
-        == "idle"
+        classify_engine(_row(scrapes=0, successes=0, last_http_status=None)) == "idle"
     )
 
 

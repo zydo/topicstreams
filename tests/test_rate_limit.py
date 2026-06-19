@@ -26,7 +26,9 @@ def _req(xff=None, host=_DEFAULT_PEER_IP):
     return SimpleNamespace(headers=headers, client=SimpleNamespace(host=host))
 
 
-async def _ok(_request: Request) -> Response:  # NOSONAR — must be a coroutine fn; dispatch awaits call_next
+async def _ok(
+    _request: Request,
+) -> Response:  # NOSONAR — must be a coroutine fn; dispatch awaits call_next
     """A no-op ``call_next`` handler for the dispatch tests."""
     return Response("ok")
 
