@@ -212,7 +212,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-The defaults in `.env.example` work out-of-the-box; edit `.env` to customize ports, credentials, or the optional API key. `config.yml` is created from its `.yml.example` template on first run, so you only need to copy it when you want to change scraper or API settings:
+The defaults in `.env.example` work out-of-the-box; edit `.env` to customize ports, credentials, or the optional API auth token(s) (see [Authentication & Security](#authentication--security)). `config.yml` is created from its `.yml.example` template on first run, so you only need to copy it when you want to change scraper or API settings:
 
 ```bash
 cp config.yml.example config.yml
@@ -318,14 +318,136 @@ For detailed information about scraping behavior, monitoring, and scaling strate
 
 ## Authentication & Security
 
-> Ships a few **built-in controls** (API key on writes, per-IP rate limiting,
-> CORS, WS that can't create topics); beyond them it assumes a localhost/LAN or
-> behind-a-reverse-proxy deployment. See [Authentication & Security](docs/AUTHENTICATION_SECURITY.md)
-> for what's covered and further hardening (JWT/OAuth2, Cloudflare).
+> Ships a few **built-in controls** (optional Bearer-token auth on the REST API,
+> per-IP rate limiting, CORS, WS that can't create topics); beyond them it assumes
+> a localhost/LAN or behind-a-reverse-proxy deployment. See
+> [Authentication & Security](docs/AUTHENTICATION_SECURITY.md) for what's covered
+> and further hardening (JWT/OAuth2, Cloudflare).
+
+### REST API authentication (Bearer token)
+
+Auth is **off by default** (dev mode) — every endpoint is open. Once any token is
+configured, **all** REST endpoints require an `Authorization: Bearer <token>`
+header matching a valid token. (WebSocket connections are not yet authenticated.)
+
+Valid tokens come from two sources, used together:
+
+| Source | Where | Takes effect | Best for |
+| --- | --- | --- | --- |
+| **Env bootstrap** | `TOPICSTREAMS_API_KEY` in `.env` (comma-separated) | On container **recreate** | A break-glass/admin key that always works |
+| **DB-backed keys** | `api_keys` table, managed via CLI | **Live**, within ~30s, no restart | Day-to-day keys you add/revoke per client |
+
+**Generate a token** with the bundled helper (cryptographically strong, URL-safe):
+
+```bash
+python scripts/generate_api_key.py             # one token
+python scripts/generate_api_key.py -n 3        # three, comma-separated
+python scripts/generate_api_key.py --bytes 48  # stronger (more entropy)
+```
+
+**Option A — env bootstrap key** (`.env`). Survives DB loss and is the
+recommended way to seed the first/admin token. Editing it needs a container
+**recreate**:
+
+```bash
+# .env
+TOPICSTREAMS_API_KEY=admin-tok
+
+docker compose up -d api    # recreates the container with the new env
+```
+
+> `docker compose restart api` is **not** enough for `.env` changes: it's
+> injected via `env_file` at container-creation time, so a plain restart keeps
+> the old value. Use `up -d` (add `--force-recreate` if it reports "up to date").
+
+**Option B — DB-backed keys (live, no restart).** Add/disable tokens with the
+management CLI; the API picks them up within `api_key_cache_ttl_seconds`
+(default 30s) — no restart:
+
+```bash
+# add a key (mints + prints a token; use --label to name it)
+docker compose exec api python scripts/manage_api_keys.py add --label alice
+
+# list keys (tokens are masked)
+docker compose exec api python scripts/manage_api_keys.py list
+```
+
+### Accessing the API with a Bearer token
+
+Once auth is on, pass the token in the `Authorization: Bearer <token>` header on
+every REST request:
+
+```bash
+TOKEN=alice-tok   # an env bootstrap token or a DB-backed one
+
+# List topics
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:5000/api/v1/topics | jq
+
+# Add a topic
+curl -X POST http://localhost:5000/api/v1/topics \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "artificial intelligence"}'
+
+# Get latest news for a topic
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:5000/api/v1/news/artificial+intelligence?limit=5" | jq
+
+# Delete (stop tracking) a topic
+curl -X DELETE \
+  -H "Authorization: Bearer $TOKEN" \
+  http://localhost:5000/api/v1/topics/artificial+intelligence
+```
+
+Without a valid token, protected requests return `401 Unauthorized`:
+
+```json
+{ "error": "UNAUTHORIZED", "message": "Invalid or missing API token", "status": "error" }
+```
+
+**Web UI:** when auth is on, the UI (and the `/monitor` page) prompts once for a
+token, stores it in your browser (`localStorage`), and sends it on every request.
+
+> **WebSocket** streams (`/api/v1/ws/...`) are **not** authenticated yet, so they
+> take no token — see the caveat under [Accessing Real-Time News](#4-access-real-time-news).
+
+### Managing tokens
+
+**DB-backed keys (live — recommended for day-to-day).** Managed with
+`scripts/manage_api_keys.py`; changes apply within `api_key_cache_ttl_seconds`
+(default 30s) with **no restart**:
+
+```bash
+# inside the API container (shares the DB connection settings):
+docker compose exec api python scripts/manage_api_keys.py add --label alice  # add + print a token
+docker compose exec api python scripts/manage_api_keys.py list               # list (id, label, masked token, active)
+docker compose exec api python scripts/manage_api_keys.py disable 3          # revoke key #3
+docker compose exec api python scripts/manage_api_keys.py enable 3           # re-enable key #3
+docker compose exec api python scripts/manage_api_keys.py delete 3           # remove key #3
+```
+
+- **Add / revoke** — `add` / `disable` (by id from `list`); effective within the
+  cache TTL, no restart.
+- **Rotate** — `add` a new key, move clients over, then `disable`/`delete` the old one.
+- Hand a distinct key (with a `--label`) to each client so you can revoke one
+  without disrupting the rest.
+
+**Env bootstrap key (`TOPICSTREAMS_API_KEY`).** Comma-separated; an always-valid
+fallback that's independent of the DB. Any change requires a container
+**recreate** (`docker compose up -d api`) — a plain `docker compose restart api`
+keeps the old value. Unset it (and have no active DB keys) to return to open dev
+mode.
+
+> The two sources are unioned: the env key is your break-glass/admin token (works
+> even if the DB is empty or a brand-new key hasn't propagated yet), while DB keys
+> are the live-manageable set. Tokens are stored in plaintext and there's no
+> per-token usage audit yet — for stronger key management put the API behind a
+> gateway (see further hardening below).
 
 **Quick links:**
 
-- [**Built-in controls**](docs/AUTHENTICATION_SECURITY.md#built-in-controls) - API key on writes, rate limiting, CORS
+- [**Built-in controls**](docs/AUTHENTICATION_SECURITY.md#built-in-controls) - Bearer-token auth, rate limiting, CORS
 - [**Not covered**](docs/AUTHENTICATION_SECURITY.md#not-covered-add-before-public-exposure) - Gaps to close before public exposure
 - [**Further hardening**](docs/AUTHENTICATION_SECURITY.md#recommended-solutions-further-hardening) - JWT/OAuth2, edge rate limiting, Cloudflare
 

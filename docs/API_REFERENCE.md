@@ -4,6 +4,21 @@ Base URL: `http://localhost:5000/api/v1`
 
 > **Note:** Replace `5000` with your `HOST_PORT` value if you changed it in `.env` (e.g., `http://localhost:80/api/v1` for production).
 
+### Authentication
+
+When the server has any API token configured, **all** REST endpoints below
+require an `Authorization: Bearer <token>` header; without a valid token they
+return `401 UNAUTHORIZED`. When no token is configured the API is open (dev
+mode). Tokens come from the `TOPICSTREAMS_API_KEY` env var and/or the
+runtime-managed `api_keys` table — see
+[Authentication & Security](../README.md#authentication--security). The examples
+below omit the header for brevity (dev mode); add `-H "Authorization: Bearer
+<token>"` when auth is on. WebSocket streams are not authenticated.
+
+```bash
+curl -H "Authorization: Bearer <token>" http://localhost:5000/api/v1/topics
+```
+
 ### Topics
 
 #### List Topics
@@ -62,7 +77,7 @@ POST /api/v1/topics
 - Topic names are automatically normalized (lowercased, trimmed), in above example, name is normalized as ```climate change```
 - Adding an existing inactive topic reactivates it
 - Adding an existing active topic is idempotent (no error)
-- Requires `X-API-Key` when the server has `API_KEY` set
+- Requires `Authorization: Bearer <token>` when the server has API auth configured (see [Authentication](#authentication))
 
 **Example:**
 
@@ -92,7 +107,7 @@ DELETE /api/v1/topics/{topic_name}
 - Deleting a non-existent topic succeeds (idempotent)
 - Use URL encoding for topics with spaces: `Quantum%20Computing` or `Quantum+Computing`
 - In this example, the topic with normalized name `quantum computing` will be soft deleted
-- Requires `X-API-Key` when the server has `API_KEY` set
+- Requires `Authorization: Bearer <token>` when the server has API auth configured (see [Authentication](#authentication))
 
 **Example:**
 
@@ -380,6 +395,7 @@ All errors return JSON with this structure:
 | Code  | Error Type              | Description                                     |
 | ----- | ----------------------- | ----------------------------------------------- |
 | `400` | `BAD_REQUEST`           | Invalid request (e.g., topic name too long)     |
+| `401` | `UNAUTHORIZED`          | Missing or invalid `Authorization: Bearer` token (when auth is enabled) |
 | `422` | `VALIDATION_ERROR`      | Request validation failed (see `details` field) |
 | `500` | `INTERNAL_SERVER_ERROR` | Unexpected server error                         |
 

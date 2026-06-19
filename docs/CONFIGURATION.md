@@ -3,7 +3,7 @@
 TopicStreams uses two configuration files, both at the repo root:
 
 - `.env` — secrets and values Docker Compose needs at startup (DB credentials,
-  ports, API key, proxy). Read as environment variables.
+  ports, API bootstrap token, proxy). Read as environment variables.
 - `config.yml` — everything else: scraper behavior, anti-detection, and API
   tuning. One file with `scraper:` / `anti_detection:` / `api:` sections that the
   scraper and API processes each read.
@@ -62,10 +62,10 @@ vim config.yml
 
 ### Security Settings
 
-| Variable              | Default | Description                                                                                                                                                                                                                              |
-| --------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `API_KEY`             | (unset) | When set, `POST`/`DELETE /api/v1/topics` require a matching `X-API-Key` header. Unset = writes are open (dev mode).                                                                                                                      |
-| `CORS_ORIGINS`        | `*`     | Comma-separated allowed origins for browser requests.                                                                                                                                                                                    |
+| Variable               | Default | Description                                                                                                                                                                                                                              |
+| ---------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TOPICSTREAMS_API_KEY` | (unset) | Comma-separated **bootstrap** bearer tokens. When set (or when the `api_keys` table has an active token), **all** `/api/v1/*` endpoints require `Authorization: Bearer <token>`; unset + empty table = open (dev mode). Editing this var needs a container recreate (`docker compose up -d api`); for live add/disable use the `api_keys` table via `scripts/manage_api_keys.py`. See [Authentication & Security](../README.md#authentication--security). |
+| `CORS_ORIGINS`         | `*`     | Comma-separated allowed origins for browser requests.                                                                                                                                                                                    |
 | `TRUSTED_PROXY_COUNT` | `0`     | Reverse proxies in front of the app. `>0` makes the rate limiter read the client IP from `X-Forwarded-For` (Nth entry from the right); `0` = direct, header ignored. Set this to match your proxy chain, or one IP rate-limits everyone. |
 
 > **Behind a reverse proxy:** set `TRUSTED_PROXY_COUNT` to the number of proxies between the client and the app (usually `1`). Lock the origin so it only accepts traffic from those proxies — otherwise `X-Forwarded-For` can be spoofed by hitting the app directly.
@@ -122,7 +122,7 @@ scrape-health thresholds, DB retry, and the frontend poll/WebSocket cadence —
 live in the `api:` section of `config.yml`. Every key is optional and defaults to
 the value shown in `config.yml.example`.
 
-**Precedence:** init args > environment > `.env` > `config.yml` (`api:`) > built-in default. So secrets and values Docker Compose needs at startup (DB credentials, `API_PORT`/`HOST_PORT`, `API_KEY`, `SCRAPER_PROXY`) stay in `.env` — they win — while the `api:` section is the preferred surface for tunable defaults. Any key can still be set via the environment to override the YAML for a single deployment.
+**Precedence:** init args > environment > `.env` > `config.yml` (`api:`) > built-in default. So secrets and values Docker Compose needs at startup (DB credentials, `API_PORT`/`HOST_PORT`, `TOPICSTREAMS_API_KEY`, `SCRAPER_PROXY`) stay in `.env` — they win — while the `api:` section is the preferred surface for tunable defaults. Any key can still be set via the environment to override the YAML for a single deployment.
 
 ```bash
 cp config.yml.example config.yml
@@ -140,6 +140,7 @@ vim config.yml
 | `db_retry_max_attempts`        | `3`     | Attempts for transient DB errors.                           |
 | `db_retry_delay_seconds`       | `0.1`   | Initial backoff between DB retries (s); doubles each retry. |
 | `news_retention_days`          | `30`    | Each cycle purges news + scraper logs older than this.      |
+| `api_key_cache_ttl_seconds`    | `30`    | How long the DB-backed API key set is cached before re-reading — i.e. the delay before an `api_keys` add/disable goes live (no restart). `0` = re-read every request. |
 | `rate_limit_calls`             | `120`   | Max requests per client IP per `rate_limit_period`.         |
 | `rate_limit_period`            | `60`    | Rate-limit window (s).                                      |
 | `rate_limit_max_tracked`       | `10000` | Client IPs tracked before the stale-IP eviction sweep.      |
@@ -318,11 +319,19 @@ anti_detection:
 docker compose restart scraper
 ```
 
-**For database or API settings changes (`.env`), restart the entire stack:**
+**For database or API settings changes (`.env`), recreate the containers** so
+Compose re-reads `.env` (it's injected via `env_file` at container-creation time,
+so a plain `docker compose restart` keeps the old values):
 
 ```bash
-docker compose restart
+docker compose up -d            # recreates services whose env changed
+# add --force-recreate if it reports "up to date"
 ```
+
+> **API bearer tokens are an exception.** Adding or disabling a token in the
+> `api_keys` table (via `scripts/manage_api_keys.py`) takes effect within
+> `api_key_cache_ttl_seconds` with **no restart**. Only the `TOPICSTREAMS_API_KEY`
+> env var needs the recreate above.
 
 **To reset configuration to defaults:**
 

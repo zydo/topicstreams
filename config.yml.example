@@ -14,7 +14,7 @@
 #
 # Precedence for the `api:` section: init args > environment > .env > this file
 # > built-in default. So secrets and Docker-startup vars (POSTGRES_*, API_PORT,
-# HOST_PORT, API_KEY, SCRAPER_PROXY) stay in .env — they win — while this file is
+# HOST_PORT, TOPICSTREAMS_API_KEY, SCRAPER_PROXY) stay in .env — they win — while this file is
 # the preferred surface for tunable defaults. Any `api:` key can still be set via
 # the environment to override it for a single deployment.
 
@@ -209,6 +209,13 @@ api:
 
   # Data retention
   news_retention_days: 30       # each cycle purges news + logs older than this
+
+  # API authentication (Bearer token). The env var TOPICSTREAMS_API_KEY (.env) is
+  # a comma-separated bootstrap key set; additional keys are managed live in the
+  # api_keys table (scripts/manage_api_keys.py). This is how long the active key
+  # set is cached before re-reading the DB — i.e. the delay before an add/disable
+  # goes live. 0 = re-read every request (no caching).
+  api_key_cache_ttl_seconds: 30
 
   # API rate limiting (per client IP, sliding window)
   rate_limit_calls: 120

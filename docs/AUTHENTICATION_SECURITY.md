@@ -5,13 +5,23 @@ TopicStreams ships a few built-in controls; beyond them it assumes a
 
 ## Built-in controls
 
-- **API key on writes** — when the `API_KEY` env var is set, `POST` and
-  `DELETE /api/v1/topics` require a matching `X-API-Key` header (`api/auth.py`).
-  Unset = open (dev mode).
-- **Topic creation is the only state-changing action, and it's gated by that
-  key.** The WebSocket endpoint streams *existing* topics only — it does **not**
-  create them. Connecting to an unknown or inactive topic closes the socket with
-  code `1008`, so the stream can't be abused to add scraper targets anonymously.
+- **Bearer-token auth on the REST API** — when any token is configured, **every**
+  `/api/v1/*` REST endpoint requires an `Authorization: Bearer <token>` header
+  (`api/auth.py`, applied as a router-level dependency). Valid tokens are the
+  union of two sources:
+  - `TOPICSTREAMS_API_KEY` (env) — a comma-separated bootstrap/break-glass set,
+    fixed for the process lifetime (changing it needs a container recreate).
+  - the `api_keys` DB table — managed at runtime via
+    `scripts/manage_api_keys.py` and read through a short TTL cache
+    (`api_key_cache_ttl_seconds`, default 30s), so adding or disabling a token
+    goes live **without a restart**.
+
+  With both sources empty, auth is a no-op (dev mode — every endpoint is open).
+  WebSocket connections are **not** yet authenticated.
+- **The WebSocket endpoint streams *existing* topics only — it does not create
+  them.** Connecting to an unknown or inactive topic closes the socket with code
+  `1008`, so the stream can't be abused to add scraper targets anonymously (it's
+  unauthenticated, so this matters independently of the REST auth above).
 - **Rate limiting** — in-memory sliding-window limiter (120 req/60s) per client
   IP (`RateLimitMiddleware` in `api/main.py`). Behind a proxy, set
   `TRUSTED_PROXY_COUNT` so it keys on the real client IP from `X-Forwarded-For`
@@ -22,7 +32,9 @@ TopicStreams ships a few built-in controls; beyond them it assumes a
 ## Not covered (add before public exposure)
 
 - No user accounts, roles, or sessions; no HTTPS termination; no DDoS protection.
-- Read endpoints (GET and WebSocket streams) are unauthenticated by design.
+- **WebSocket** streams are unauthenticated (deferred). REST GET endpoints *are*
+  covered once a token is configured; WS auth is the remaining gap.
+- Tokens are stored in plaintext and there's no per-token usage audit trail.
 - The rate limiter is **per-process** (not shared across replicas) and IP-based,
   so clients behind one NAT/VPN/proxy egress share a bucket. For multi-instance
   or precise limiting, use a shared store (Redis) or your proxy/CDN edge limiter.
@@ -33,17 +45,24 @@ TopicStreams ships a few built-in controls; beyond them it assumes a
 
 ### 1. Authentication & Authorization
 
-#### API Key Authentication (Simple)
+#### API Key Authentication (Simple) — already built in
+
+The project already enforces **Bearer-token** auth on every `/api/v1/*` route via
+a router-level dependency (`api/auth.py`), with tokens sourced from the
+`TOPICSTREAMS_API_KEY` env var and the runtime-managed `api_keys` table. See
+[Managing tokens](../README.md#managing-tokens) for day-to-day use. For
+reference, the equivalent check is roughly:
 
 ```python
-# The project already gates writes via an X-API-Key dependency (api/auth.py).
-# A broader middleware variant that protects every route would look like:
-@app.middleware("http")
-async def verify_api_key(request: Request, call_next):
-    api_key = request.headers.get("X-API-Key")
-    if api_key not in valid_api_keys:
-        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
-    return await call_next(request)
+# api/auth.py — required on every route via the v1 router's dependencies.
+async def require_api_key(credentials = Security(HTTPBearer(auto_error=False))):
+    valid = settings.api_keys | db_backed_keys_cached()   # env ∪ DB tokens
+    if not valid:
+        return                                            # dev mode: open
+    if credentials is None or not any(
+        secrets.compare_digest(credentials.credentials, k) for k in valid
+    ):
+        raise HTTPException(401, {"error": "UNAUTHORIZED", ...})
 ```
 
 #### JWT Token Authentication (Advanced)
