@@ -23,6 +23,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from common.database import close_pool, ensure_schema
 from common.logging_config import configure_logging
 from common.settings import settings
+from .auth import warm_api_key_cache
 from .exceptions import TopicStreamsException
 from .v1.router import router as v1_router
 from .v1.websocket.manager import manager as websocket_manager
@@ -121,6 +122,9 @@ async def lifespan(__app: FastAPI):
     # Evolve the schema for an existing volume (adds scraper_logs.duration_ms
     # and the scraper_cycles table). Shared with the scraper process; idempotent.
     await run_in_threadpool(ensure_schema)
+    # Prime the DB-backed API-key cache now that the schema exists, so the first
+    # request doesn't pay the refresh and a later DB blip serves a warm set.
+    await run_in_threadpool(warm_api_key_cache)
     websocket_manager.start_listener()
     yield
     await websocket_manager.stop_listener()

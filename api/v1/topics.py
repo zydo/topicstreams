@@ -1,10 +1,9 @@
 """Topic management endpoints for API v1."""
 
-from fastapi import APIRouter, Depends, Query, Path
+from fastapi import APIRouter, Query, Path
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from api.auth import require_api_key
 from api.exceptions import TopicStreamsException
 from common import database as db
 from common.model import Topic
@@ -39,13 +38,13 @@ async def get_topics(
     return await run_in_threadpool(db.get_topics, include_inactive=all)
 
 
-@router.post("", status_code=201, dependencies=[Depends(require_api_key)])
+@router.post("", status_code=201)
 async def add_topic(topic: TopicCreate) -> None:
     normalized_name = _normalize_or_400(topic.name)
     await run_in_threadpool(db.add_topic, normalized_name)
 
 
-@router.delete("/{topic_name}", dependencies=[Depends(require_api_key)])
+@router.delete("/{topic_name}")
 async def delete_topic(
     topic_name: str = Path(..., min_length=1, max_length=100)
 ) -> None:

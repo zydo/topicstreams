@@ -186,6 +186,17 @@ def ensure_schema() -> None:
                 )
                 """
             )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    id SERIAL PRIMARY KEY,
+                    token VARCHAR(128) NOT NULL UNIQUE,
+                    label VARCHAR(100),
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
         _schema_ready = True
 
 
@@ -732,6 +743,73 @@ def get_engine_cooldowns() -> dict[str, dict]:
             }
             for row in cursor.fetchall()
         }
+
+
+# ── API keys (api_keys) ──────────────────────────────────────────────────────
+
+
+@retry_on_transient_error()
+def get_active_api_keys() -> list[str]:
+    """Active bearer tokens. The API unions these with the env bootstrap key and
+    caches the result briefly, so changes here go live without a restart."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT token FROM api_keys WHERE is_active = TRUE")
+        return [row["token"] for row in cursor.fetchall()]
+
+
+@retry_on_transient_error()
+def add_api_key(token: str, label: str | None = None) -> int:
+    """Insert a bearer token (or reactivate an existing one). Returns its id.
+
+    Re-adding a known token reactivates it and refreshes the label when a new one
+    is given, so this is a safe idempotent 'ensure present and enabled'.
+    """
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO api_keys (token, label) VALUES (%s, %s) "
+            "ON CONFLICT (token) DO UPDATE SET "
+            "  is_active = TRUE, "
+            "  label = COALESCE(EXCLUDED.label, api_keys.label) "
+            "RETURNING id",
+            (token, label),
+        )
+        row = cursor.fetchone()
+        assert row is not None  # INSERT ... RETURNING always yields a row
+        return row["id"]
+
+
+@retry_on_transient_error()
+def list_api_keys() -> list[dict]:
+    """All keys (active and disabled), newest first, for management/listing."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, token, label, is_active, created_at "
+            "FROM api_keys ORDER BY created_at DESC, id DESC"
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+@retry_on_transient_error()
+def set_api_key_active(key_id: int, active: bool) -> bool:
+    """Enable/disable a key by id. Returns True if a row was updated."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE api_keys SET is_active = %s WHERE id = %s", (active, key_id)
+        )
+        return cursor.rowcount > 0
+
+
+@retry_on_transient_error()
+def delete_api_key(key_id: int) -> bool:
+    """Permanently remove a key by id. Returns True if a row was deleted."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM api_keys WHERE id = %s", (key_id,))
+        return cursor.rowcount > 0
 
 
 # ── Scrape metrics aggregation (scraper_logs) ────────────────────────────────

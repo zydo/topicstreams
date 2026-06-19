@@ -250,3 +250,98 @@ def test_metrics_surfaces_cooldown(client, db):
 def test_response_has_timing_header(client):
     r = client.get("/api/v1/topics")
     assert "x-process-time-ms" in {k.lower() for k in r.headers}
+
+
+def test_no_auth_required_when_keys_unset(client):
+    # Default (no TOPICSTREAMS_API_KEY) is dev mode: every endpoint is open.
+    assert client.get("/api/v1/topics").status_code == 200
+
+
+def test_bearer_auth_guards_all_rest_endpoints(client, monkeypatch):
+    from common.settings import settings as app_settings
+
+    # Multiple comma-separated tokens, with stray whitespace to exercise parsing.
+    monkeypatch.setattr(app_settings, "topicstreams_api_key", "tok-a, tok-b ")
+
+    # A read endpoint now requires a token...
+    assert client.get("/api/v1/topics").status_code == 401
+    assert client.get("/api/v1/status").status_code == 401
+    # ...and so does a write endpoint.
+    assert client.post("/api/v1/topics", json={"name": "x"}).status_code == 401
+
+    # Wrong token is rejected.
+    bad = {"Authorization": "Bearer nope"}
+    assert client.get("/api/v1/topics", headers=bad).status_code == 401
+
+    # Wrong scheme (e.g. the old X-API-Key style) is rejected.
+    assert (
+        client.get("/api/v1/topics", headers={"X-API-Key": "tok-a"}).status_code == 401
+    )
+
+    # Either configured token authenticates, on reads and writes.
+    a = {"Authorization": "Bearer tok-a"}
+    b = {"Authorization": "Bearer tok-b"}
+    assert client.get("/api/v1/topics", headers=a).status_code == 200
+    assert (
+        client.post(
+            "/api/v1/topics", json={"name": "auth-topic"}, headers=b
+        ).status_code
+        == 201
+    )
+
+
+def test_websocket_remains_unauthenticated(client, db, monkeypatch):
+    # WebSocket auth is deferred: a configured key must not break WS handshakes.
+    from common.settings import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "topicstreams_api_key", "tok-a")
+    db.add_topic("alpha")
+    with client.websocket_connect("/api/v1/ws/news/alpha"):
+        pass  # handshake accepted despite no token
+
+
+def test_db_backed_keys_live_add_and_revoke(client, db, monkeypatch):
+    # DB-backed tokens take effect without a restart. ttl=0 makes the cache
+    # re-read every request so the test sees changes immediately (in production
+    # the delay is api_key_cache_ttl_seconds).
+    from common.settings import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "topicstreams_api_key", "boot-tok")  # bootstrap
+    monkeypatch.setattr(app_settings, "api_key_cache_ttl_seconds", 0)
+
+    boot = {"Authorization": "Bearer boot-tok"}
+    live = {"Authorization": "Bearer live-tok"}
+
+    # The env bootstrap key works; an unknown token does not.
+    assert client.get("/api/v1/topics", headers=boot).status_code == 200
+    assert client.get("/api/v1/topics", headers=live).status_code == 401
+
+    # Add a DB token — it authenticates on the very next request (no restart).
+    key_id = db.add_api_key("live-tok", label="ci")
+    assert client.get("/api/v1/topics", headers=live).status_code == 200
+
+    # Disable it — revoked immediately; the env bootstrap key still works.
+    assert db.set_api_key_active(key_id, False) is True
+    assert client.get("/api/v1/topics", headers=live).status_code == 401
+    assert client.get("/api/v1/topics", headers=boot).status_code == 200
+
+
+def test_db_backed_key_enables_auth_without_env_key(client, db, monkeypatch):
+    # With no env key, adding the first DB token flips auth from open to enforced.
+    from common.settings import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "topicstreams_api_key", None)
+    monkeypatch.setattr(app_settings, "api_key_cache_ttl_seconds", 0)
+
+    # No keys anywhere → open (dev mode).
+    assert client.get("/api/v1/topics").status_code == 200
+
+    db.add_api_key("only-tok")
+    # Now a token is required.
+    assert client.get("/api/v1/topics").status_code == 401
+    assert (
+        client.get(
+            "/api/v1/topics", headers={"Authorization": "Bearer only-tok"}
+        ).status_code
+        == 200
+    )

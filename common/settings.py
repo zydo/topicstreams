@@ -107,10 +107,19 @@ class Settings(BaseSettings):
 
     api_port: int = Field(default=5000, ge=1, le=65535, description="API server port")
 
-    # When set, POST/DELETE topic endpoints require this key in the X-API-Key header.
-    # Leave unset to disable auth (useful for local development).
-    api_key: str | None = Field(
-        default=None, description="API key for write operations"
+    # Comma-separated bearer tokens that authenticate REST requests. When set,
+    # every v1 REST endpoint requires `Authorization: Bearer <token>` matching
+    # one of these. Leave unset to disable auth (useful for local development).
+    # Env var: TOPICSTREAMS_API_KEY (e.g. "alice-tok,bob-tok,ci-tok").
+    topicstreams_api_key: str | None = Field(
+        default=None, description="Comma-separated bearer tokens for the REST API"
+    )
+
+    # How long the API caches the DB-backed api_keys set before re-reading it.
+    # Adds/disables via the api_keys table go live within this window (no
+    # restart). 0 disables caching (re-reads every request — handy in tests).
+    api_key_cache_ttl_seconds: int = Field(
+        default=30, ge=0, description="TTL for the cached DB-backed API key set"
     )
 
     # Comma-separated list of allowed CORS origins, or '*' to allow all.
@@ -220,6 +229,19 @@ class Settings(BaseSettings):
     ws_reconnect_max_ms: int = Field(
         default=30_000, ge=1000, description="WebSocket reconnect backoff cap"
     )
+
+    @property
+    def api_keys(self) -> frozenset[str]:
+        """Parsed set of valid bearer tokens. Empty means auth is disabled.
+
+        Tokens are comma-separated in ``topicstreams_api_key``; surrounding
+        whitespace is trimmed and empty entries dropped, so a trailing comma or
+        spacing around values is harmless.
+        """
+        raw = self.topicstreams_api_key
+        if not raw:
+            return frozenset()
+        return frozenset(tok.strip() for tok in raw.split(",") if tok.strip())
 
     @property
     def cors_origins_list(self) -> list[str]:

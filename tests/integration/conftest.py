@@ -56,6 +56,11 @@ def clean(db):
     with db._Connection() as conn:
         conn.cursor().execute(
             "TRUNCATE scraper_cycles, topic_news, news, scraper_logs, "
-            "engine_cooldowns, topics RESTART IDENTITY CASCADE"
+            "engine_cooldowns, api_keys, topics RESTART IDENTITY CASCADE"
         )
+    # The auth module caches the DB key set across requests (and processes); drop
+    # it so a key added in one test can't leak into the next.
+    from api import auth
+
+    auth.reset_api_key_cache()
     yield

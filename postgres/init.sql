@@ -105,6 +105,20 @@ CREATE TABLE IF NOT EXISTS engine_cooldowns (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Bearer tokens that authenticate the REST API, manageable at runtime. The API
+-- validates requests against the active tokens here UNION the TOPICSTREAMS_API_KEY
+-- env var (an always-valid bootstrap/break-glass key), reading this table through
+-- a short TTL cache — so adding or disabling a token takes effect within
+-- ~api_key_cache_ttl_seconds with no restart. Disable (is_active = FALSE) to
+-- revoke a token while keeping its label/created_at; delete to drop it entirely.
+CREATE TABLE IF NOT EXISTS api_keys (
+    id SERIAL PRIMARY KEY,
+    token VARCHAR(128) NOT NULL UNIQUE,
+    label VARCHAR(100),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- NOTIFY on each new feed event (topic match), not on news-content insert, so
 -- a topic referencing an already-stored article still streams to that topic.
 -- Format: "topic:topic_news_id".
