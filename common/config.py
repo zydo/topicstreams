@@ -163,6 +163,33 @@ class ScraperConfig(_BaseConfig):
             self.pacing_per_engine.get(engine, self.pacing_default_min_interval)
         )
 
+    # ----- Idle keep-alive heartbeat (warms the session for web search) -----
+    # Off by default: web search isn't wired to the API/WS yet, so until it is
+    # the heartbeat would only add request load. Flip ``enabled`` on once web
+    # search goes live so sessions stay warm between scrapes. See
+    # docs/WEB_SEARCH_WARMUP.md and scraper/keepalive.py.
+
+    @property
+    def keepalive_enabled(self) -> bool:
+        """Whether the per-engine idle keep-alive heartbeat fires."""
+        return self._get("scraper", "keepalive", "enabled", default=False)
+
+    @property
+    def keepalive_interval_seconds(self) -> float:
+        """Idle gap after which a keep-alive warm-up request fires (~10 min)."""
+        return self._get("scraper", "keepalive", "interval_seconds", default=600)
+
+    @property
+    def keepalive_jitter_ratio(self) -> float:
+        """Random fraction (0..1) added on top of the keep-alive interval."""
+        return self._get("scraper", "keepalive", "jitter_ratio", default=0.5)
+
+    @property
+    def keepalive_queries(self) -> list[str] | None:
+        """Optional override of the benign keep-alive query set (else the
+        built-in defaults in scraper/keepalive.py are used)."""
+        return self._get("scraper", "keepalive", "queries", default=None)
+
     # ----- Weighted saturation signal (when to scale to another exit IP) -----
 
     @property

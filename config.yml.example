@@ -71,6 +71,17 @@ scraper:
   saturation:
     canary_engines: [brave]
     robust_threshold: 2
+  # Idle keep-alive heartbeat: warms each engine's session so an on-demand web
+  # search rarely lands on a cold (CAPTCHA-prone) profile. Fires a benign
+  # NEWS-vertical query (news passes cold, web doesn't) only when the worker is
+  # otherwise idle — any real scrape resets the timer. OFF by default: web search
+  # isn't wired to the API yet, so until then it would only add request load.
+  # Turn it on when web search goes live. See docs/WEB_SEARCH_WARMUP.md.
+  keepalive:
+    enabled: false
+    interval_seconds: 600   # idle gap before a warm-up fires (~10 min)
+    jitter_ratio: 0.5       # random extra fraction per interval (avoid regular cadence)
+    # queries: ["weather tomorrow", "local news", "breaking news"]  # optional override
 
 # -----------------------------------------------------------------------------
 # Anti-detection (scraper)
