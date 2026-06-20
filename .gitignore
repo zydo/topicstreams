@@ -50,3 +50,4 @@ Thumbs.db
 # Configuration (local runtime copy from the template)
 /config.yml
 
+.ptest_out/
