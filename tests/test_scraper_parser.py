@@ -154,8 +154,92 @@ def test_request_defaults_are_date_past_hour_news():
 def test_unsupported_vertical_raises():
     import pytest
 
+    # Bing implements only the news vertical; asking for web is a ValueError.
     with pytest.raises(ValueError):
-        _GOOGLE.parser_for(SearchVertical.WEB)
+        _BING.parser_for(SearchVertical.WEB)
+
+
+# --- Google WEB vertical --------------------------------------------------
+
+_GOOGLE_WEB = _GOOGLE.parser_for(SearchVertical.WEB)
+
+# Mirrors the real web-search DOM: organic results in div.MjjYud, title in an
+# <h3> wrapped by a clean destination <a href>, <cite> a display-only
+# breadcrumb. The other two MjjYud blocks are the mixed content (a no-h3
+# People-also-ask block, and an internal Google nav link) that must be skipped.
+_GOOGLE_WEB_FIXTURE = """
+<html><body>
+  <div id="search">
+    <div class="MjjYud">
+      <div class="yuRUbf">
+        <a href="https://www.spacex.com/vehicles/starship/" jsname="x">
+          <h3 class="LC20lb">Starship | SpaceX</h3>
+          <cite>https://www.spacex.com › vehicles › starship</cite>
+        </a>
+      </div>
+      <div class="VwiC3b">Starship is the fully reusable launch system.</div>
+    </div>
+    <div class="MjjYud">
+      <div class="related-question-pair">When is the next Starship launch?</div>
+    </div>
+    <div class="MjjYud">
+      <a href="/search?q=starship+related"><h3>More results</h3></a>
+    </div>
+  </div>
+</body></html>
+"""
+
+
+def _google_web_items(html=_GOOGLE_WEB_FIXTURE):
+    return _GOOGLE_WEB.find_items(_soup(html))
+
+
+def test_google_source_supports_web_vertical():
+    assert SearchVertical.WEB in _GOOGLE.verticals
+
+
+def test_google_web_find_items_returns_all_mjjyud_blocks():
+    # find_items returns every MjjYud block; parse() is what filters non-organic.
+    assert len(_google_web_items()) == 3
+
+
+def test_google_web_parse_extracts_clean_url_and_domain():
+    entry = _GOOGLE_WEB.parse(_google_web_items()[0], _req("starship"))
+    assert entry is not None
+    assert entry.title == "Starship | SpaceX"
+    assert entry.url == "https://www.spacex.com/vehicles/starship/"  # clean, no /url?q=
+    assert entry.domain == "spacex.com"  # from URL, not the <cite> breadcrumb
+    assert entry.source is None  # no publisher concept for general web results
+    assert entry.topic == "starship"
+
+
+def test_google_web_skips_block_without_h3():
+    # People-also-ask block (no <h3>) is not an organic result.
+    assert _GOOGLE_WEB.parse(_google_web_items()[1], _req("starship")) is None
+
+
+def test_google_web_skips_non_http_anchor():
+    # Internal Google nav link (relative href) is not an organic result.
+    assert _GOOGLE_WEB.parse(_google_web_items()[2], _req("starship")) is None
+
+
+def test_google_web_build_url_omits_news_tab():
+    url = _GOOGLE_WEB.build_url(
+        _req("us iran", sort=Ordering.RELEVANCE, recency=Recency.ANY, page=1)
+    )
+    assert "tbm=nws" not in url and "nsd:1" not in url
+    assert "q=us+iran" in url
+    assert "start=0" in url
+    # Relevance + any-recency means no tbs flags at all.
+    assert "tbs=" not in url
+
+
+def test_google_web_build_url_carries_sort_and_recency():
+    url = _GOOGLE_WEB.build_url(
+        _req("x", sort=Ordering.DATE, recency=Recency.WEEK, page=3)
+    )
+    assert "tbs=sbd:1,qdr:w" in url
+    assert "start=20" in url  # page 3 -> offset 20
 
 
 # --- Bing -----------------------------------------------------------------

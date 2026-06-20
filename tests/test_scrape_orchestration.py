@@ -1,7 +1,7 @@
 """Tests for multi-engine orchestration (scrape_topic / engine selection).
 
 These exercise the strategy logic without Playwright by stubbing out the
-per-engine ``scrape_news`` call.
+per-engine ``scrape_pages`` call.
 """
 
 from types import SimpleNamespace
@@ -43,15 +43,15 @@ class _PageFactory:
         return page
 
 
-def _patch_scrape_news(monkeypatch, behavior):
-    """Stub scrape_news; ``behavior`` maps engine name -> (entries, logs)."""
+def _patch_scrape_pages(monkeypatch, behavior):
+    """Stub scrape_pages; ``behavior`` maps engine name -> (entries, logs)."""
     calls = []
 
     def fake(page, source, topic, **kwargs):
         calls.append(source.name)
         return behavior[source.name]
 
-    monkeypatch.setattr(scraper_mod, "scrape_news", fake)
+    monkeypatch.setattr(scraper_mod, "scrape_pages", fake)
     return calls
 
 
@@ -83,7 +83,7 @@ def test_rotate_with_empty_sources_is_safe():
 
 def test_fallback_stops_after_first_engine_with_items(monkeypatch):
     sources = [_source("google"), _source("bing")]
-    calls = _patch_scrape_news(
+    calls = _patch_scrape_pages(
         monkeypatch,
         {
             "google": ([_entry("g")], [_log("google", n=1)]),
@@ -100,7 +100,7 @@ def test_fallback_stops_after_first_engine_with_items(monkeypatch):
 
 def test_fallback_advances_when_first_engine_is_empty(monkeypatch):
     sources = [_source("google"), _source("bing")]
-    calls = _patch_scrape_news(
+    calls = _patch_scrape_pages(
         monkeypatch,
         {
             "google": ([], [_log("google", ok=True, n=0)]),
@@ -116,7 +116,7 @@ def test_fallback_advances_when_first_engine_is_empty(monkeypatch):
 
 def test_fallback_advances_when_first_engine_fails(monkeypatch):
     sources = [_source("google"), _source("bing")]
-    calls = _patch_scrape_news(
+    calls = _patch_scrape_pages(
         monkeypatch,
         {
             "google": ([], [_log("google", ok=False, n=0)]),
@@ -129,7 +129,7 @@ def test_fallback_advances_when_first_engine_fails(monkeypatch):
 
 def test_all_runs_every_engine_even_when_first_succeeds(monkeypatch):
     sources = [_source("google"), _source("bing")]
-    calls = _patch_scrape_news(
+    calls = _patch_scrape_pages(
         monkeypatch,
         {
             "google": ([_entry("g")], [_log("google", n=1)]),
@@ -146,7 +146,7 @@ def test_all_runs_every_engine_even_when_first_succeeds(monkeypatch):
 
 def test_rotate_uses_a_single_engine_for_the_cycle(monkeypatch):
     sources = [_source("google"), _source("bing")]
-    calls = _patch_scrape_news(
+    calls = _patch_scrape_pages(
         monkeypatch,
         {
             "google": ([_entry("g")], [_log("google", n=1)]),

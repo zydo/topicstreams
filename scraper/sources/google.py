@@ -133,13 +133,76 @@ class GoogleNewsParser(ResultParser):
         return best or None
 
 
+class GoogleWebParser(ResultParser):
+    """General web-search results (the default ``/search`` endpoint, no
+    ``tbm=nws``).
+
+    The web DOM differs from the news tab: organic results live in
+    ``div.MjjYud`` blocks (the news-era ``div.g`` is dead here), the title is an
+    ``h3`` wrapped in a clean ``a[href]`` destination link (no ``/url?q=``
+    redirect wrapper to unwrap), and the ``<cite>`` breadcrumb is display-only —
+    the domain comes from the URL. ``MjjYud`` blocks are mixed (organic, video,
+    People-also-ask), so a block without an ``h3`` + http anchor is skipped.
+    """
+
+    ready_selector = "#search, #rso"
+
+    def build_url(self, request: SearchRequest) -> str:
+        start = (request.page - 1) * 10  # 10 results per Google result page
+
+        # Same tbs flags as the news tab, minus tbm=nws/nsd:1 (web endpoint):
+        #   sbd:1  - sort by date; omitted for relevance ordering
+        #   qdr:X  - query date range (h/d/w/m); omitted for "any"
+        tbs = []
+        if request.sort is Ordering.DATE:
+            tbs.append("sbd:1")
+        qdr = _RECENCY_QDR.get(request.recency)
+        if qdr:
+            tbs.append(f"qdr:{qdr}")
+
+        params = [f"q={format_query(request.query)}", f"start={start}"]
+        if tbs:
+            params.append(f"tbs={','.join(tbs)}")
+        return "https://www.google.com/search?" + "&".join(params)
+
+    def find_items(self, soup: BeautifulSoup) -> list[Tag]:
+        return soup.select("div.MjjYud")
+
+    def parse(self, item: Tag, request: SearchRequest) -> NewsEntry | None:
+        heading = item.select_one("h3")
+        if not heading:
+            return None  # video/PAA/non-organic block
+        anchor = heading.find_parent("a", href=True)
+        if not anchor:
+            return None
+        url = str(anchor["href"]).strip()
+        # Web organic links are clean destination URLs; anything else (relative
+        # Google nav, internal /search links, non-http) isn't an organic result.
+        if not url.startswith(("http://", "https://")):
+            return None
+        title = heading.get_text(strip=True)
+        if not title:
+            return None
+        # Source/publisher isn't meaningful for general web results (the <cite>
+        # is just the URL breadcrumb); the domain is derived from the URL.
+        return NewsEntry.create_new(
+            topic=request.query,
+            title=title,
+            url=url,
+            source=None,
+        )
+
+
 class GoogleSource(SearchSource):
     name = "google"
     results_host = "google.com"
     results_path_prefix = "/search"  # a block redirects to /sorry/
 
     def _build_parsers(self) -> dict[SearchVertical, ResultParser]:
-        return {SearchVertical.NEWS: GoogleNewsParser()}
+        return {
+            SearchVertical.NEWS: GoogleNewsParser(),
+            SearchVertical.WEB: GoogleWebParser(),
+        }
 
     def detect_block(self, final_url: str, html: str) -> str | None:
         # The definitive signal is the /sorry/ redirect; keyword matching alone

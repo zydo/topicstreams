@@ -180,14 +180,14 @@ class _PageFactory:
         return SimpleNamespace(close=lambda: None)
 
 
-def _patch_scrape_news(monkeypatch, behavior):
+def _patch_scrape_pages(monkeypatch, behavior):
     calls = []
 
     def fake(page, source, topic, **kwargs):
         calls.append(source.name)
         return behavior[source.name]
 
-    monkeypatch.setattr(scraper_mod, "scrape_news", fake)
+    monkeypatch.setattr(scraper_mod, "scrape_pages", fake)
     return calls
 
 
@@ -197,7 +197,7 @@ def test_scrape_topic_skips_cooling_engine_and_falls_through(monkeypatch):
     tracker.record("google", [_log("google", ok=False, status=429)])  # cooling
 
     sources = [_source("google"), _source("bing")]
-    calls = _patch_scrape_news(
+    calls = _patch_scrape_pages(
         monkeypatch,
         {
             "google": ([_entry("g")], [_log("google", n=1)]),
@@ -219,7 +219,7 @@ def test_scrape_topic_records_block_into_tracker(monkeypatch):
     clock = _Clock()
     tracker = _tracker(clock, base=300)
     sources = [_source("google")]
-    _patch_scrape_news(
+    _patch_scrape_pages(
         monkeypatch,
         {"google": ([], [_log("google", ok=False, status=429)])},
     )
@@ -231,7 +231,7 @@ def test_scrape_topic_records_block_into_tracker(monkeypatch):
 
 def test_scrape_topic_without_cooldown_is_unchanged(monkeypatch):
     sources = [_source("google"), _source("bing")]
-    calls = _patch_scrape_news(
+    calls = _patch_scrape_pages(
         monkeypatch,
         {
             "google": ([], [_log("google", ok=False, status=429)]),

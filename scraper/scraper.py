@@ -90,7 +90,7 @@ def scrape_topic(
 
         page = make_page()
         try:
-            entries, logs = scrape_news(
+            entries, logs = scrape_pages(
                 page,
                 source,
                 topic,
@@ -113,22 +113,27 @@ def scrape_topic(
     return all_entries, all_logs
 
 
-def scrape_news(
+def scrape_pages(
     page: Page,
     source: SearchSource,
     topic: str,
     *,
+    vertical: SearchVertical = SearchVertical.NEWS,
     ordering: Ordering = Ordering.DATE,
     recency: Recency = Recency.HOUR,
     max_result_pages: int | None = None,
 ) -> tuple[list[NewsEntry], list[ScraperLog]]:
-    """Scrape news entries for a topic from one engine, across result pages.
+    """Scrape one vertical's results for a query from one engine, across pages.
 
     Iterates pages until no entries remain, an error occurs, or
-    ``max_result_pages`` is reached. Defaults reproduce the original behaviour
-    (newest-first, past hour).
+    ``max_result_pages`` is reached. Defaults reproduce the original news
+    behaviour (NEWS vertical, newest-first, past hour).
 
-    Returns (entries oldest-to-newest, one ScraperLog per page attempt).
+    For NEWS the entries are reversed to chronological order (oldest→newest) for
+    the feed; for WEB the engine's relevance rank is preserved, so the
+    most-relevant result stays first.
+
+    Returns (entries, one ScraperLog per page attempt).
     """
     result_page_number = 1
     all_entries: list[NewsEntry] = []
@@ -139,7 +144,7 @@ def scrape_news(
             break
 
         entries, scraper_log = _scrape_one_page(
-            page, source, topic, result_page_number, ordering, recency
+            page, source, topic, result_page_number, vertical, ordering, recency
         )
         scraper_logs.append(scraper_log)
         if len(entries) == 0 or not scraper_log.success:
@@ -148,9 +153,11 @@ def scrape_news(
         all_entries.extend(entries)
         result_page_number += 1
 
-    # Reverse to chronological order (oldest to newest).
-    all_entries.reverse()
-    scraper_logs.reverse()
+    if vertical is SearchVertical.NEWS:
+        # Reverse to chronological order (oldest to newest) for the feed; web
+        # results are relevance-ranked, so they keep their natural page order.
+        all_entries.reverse()
+        scraper_logs.reverse()
     return all_entries, scraper_logs
 
 
@@ -159,6 +166,7 @@ def _scrape_one_page(
     source: SearchSource,
     topic: str,
     result_page_number: int,
+    vertical: SearchVertical,
     ordering: Ordering,
     recency: Recency,
 ) -> tuple[list[NewsEntry], ScraperLog]:
@@ -167,7 +175,7 @@ def _scrape_one_page(
         page=result_page_number,
         sort=ordering,
         recency=recency,
-        vertical=SearchVertical.NEWS,
+        vertical=vertical,
     )
     parser = source.parser_for(request.vertical)
     url = parser.build_url(request)
