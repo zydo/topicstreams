@@ -50,10 +50,10 @@ success rate is high. A network-level block (no HTTP status) is recognized via
 `common/block_signals.is_network_block`. `parsing` requires a sustained run (≥3
 scrapes) so a single quiet hour for one topic doesn't trip it.
 
-`cooldown` is sourced differently from the others: it comes from the scraper's
-in-process `EngineCooldownTracker`, which the scraper snapshots to the
-`engine_cooldowns` table each cycle (the API can't see the live tracker across
-the process boundary). It overrides the log-derived label while an engine is
+`cooldown` is sourced differently from the others: each engine worker owns an
+in-process `EngineCooldownTracker`, and the scraper's supervisor snapshots them
+all to the `engine_cooldowns` table once per `scrape_interval` (the API can't see
+the live trackers across the process boundary). It overrides the log-derived label while an engine is
 benched — including engines that have produced no logs in the window and would
 otherwise drop off the table. A stale snapshot (scraper down) is ignored.
 
@@ -65,10 +65,11 @@ otherwise drop off the table. A stale snapshot (scraper down) is ignored.
   jitter, which would otherwise dominate the number with intentional delay.
   So it reflects real results-page fetch latency. Nullable for legacy rows and
   for attempts that failed before navigation completed.
-- **`scraper_cycles`** — one row per full pass over all topics: `started_at`,
-  `finished_at`, `duration_seconds`, `topics_count`, `entries_parsed`,
-  `new_events`, `success`, `error`. This is the cycle duration the scraper
-  already logged; it's now persisted so the monitor can plot it over time.
+- **`scraper_cycles`** — one row per engine worker's sweep over the topics:
+  `started_at`, `finished_at`, `duration_seconds`, `topics_count`,
+  `entries_parsed`, `new_events`, `success`, `error`, and `engine` (which
+  worker; null for legacy single-loop rows). Persisted so the monitor can plot
+  per-engine sweep durations over time.
 
 Both are purged on the same retention window as news/logs
 (`news_retention_days`, each scrape cycle).

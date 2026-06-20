@@ -28,99 +28,168 @@ found by both Google and Bing is stored once but attributed to both. The feed
 API and UI expose an **engine filter** (orthogonal to the topic filter), and
 each feed entry carries the full list of engines that found it.
 
-### Combine strategy
+## Execution model: one worker per engine
 
-When more than one engine is enabled (the `scraper.engines` list), the
-`scraper.engine_strategy` setting controls how they combine per cycle:
-
-- **`all`** (default): scrape every enabled engine each cycle for maximum
-  coverage (and to populate the per-engine feed filter).
-- **`fallback`**: try engines in priority order, stop at the first that returns
-  items — a resilient backup chain if one engine is blocked.
-- **`rotate`**: use one engine per cycle, rotating through the list, to spread
-  per-engine request volume.
-
-Per-engine scrape health is recorded (`engine` column on `scraper_logs`), so a
-topic served by a second engine stays "live" even if its primary engine breaks.
-
-## Sequential Execution
-
-Topics are scraped **one after another sequentially**, not concurrently:
-
-```python
-for topic in topics:
-    scrape_topic(context.new_page, sources, topic, strategy=strategy, cycle=cycle)
-    # Next topic starts after previous completes
-```
-
-### Why Sequential?
-
-- Avoids unusually high QPS (queries per second) that could trigger search-engine rate limiting
-- Reduces the chance of being blocked
-- Simulates natural browsing behavior (humans don't open 10 searches simultaneously)
-
-### Topic Order
-
-- Topics are **randomized** at the start of each cycle (`shuffle(topics)`) to avoid deterministic request pattern
-- Different loop iterations scrape topics in different orders
-- Further mimics human behavior and distributes load
-- Configurable via `randomized_order.enabled` in `config.yml`
-
-## Scrape Interval Behavior
-
-The `scrape_interval` setting in `config.yml` (default: 60 seconds) controls how often to scrape **all topics**:
-
-### Normal Case (scraping finishes within interval)
+Each enabled engine runs in its **own worker thread** with its own Playwright
+instance and its own persistent browser context (`scraper/worker.py`,
+`scraper/browser.py`). The workers run **in parallel** and don't know about each
+other — the only shared state is the database (cross-engine duplicates resolve
+there via the URL-derived news id) and a small in-memory snapshot the supervisor
+reads for the saturation signal.
 
 ```plaintext
-Cycle 1: Scrape all topics (30s) → Wait 30s → Cycle 2 starts at exactly 60s
+supervisor (scraper/main.py)
+├── worker:google ─ sweep topics → sleep → repeat   ┐
+├── worker:bing   ─ sweep topics → sleep → repeat   │ run concurrently,
+├── worker:yahoo  ─ sweep topics → sleep → repeat   │ each at its own pace
+└── worker:brave  ─ sweep topics → sleep → repeat   ┘
 ```
 
-### Long-Running Case (scraping exceeds interval)
+**Why per-engine workers?** Engines can't see each other's traffic, so running
+them concurrently does **not** raise any single engine's request rate — parallel
+across engines is detection-neutral. Mapping one worker to one engine also lines
+up with the per-engine cooldown (each worker is the sole owner of its own
+cooldown state), and gives graceful degradation: a struggling engine benches
+itself while the others keep going.
 
-```plaintext
-Cycle 1: Scrape all topics (90s) → No wait → Cycle 2 starts immediately at 90s
+Within a single engine, topics are still scraped **one at a time and paced** (see
+below) — the parallelism is *across* engines, never across topics on the same
+engine (two topics hitting Google at once from one IP is a burst pattern that
+engine *can* see).
+
+> The `scraper.engine_strategy` setting (`all` / `fallback` / `rotate`) predates
+> this model and no longer governs execution: every enabled engine now runs in
+> its own worker. The key is retained for back-compat and may be removed.
+
+### Topic order and coverage fairness
+
+- Each worker **reshuffles** the topic list at the start of every sweep
+  (`randomized_order.enabled` in `config.yml`), so a slow or benched engine
+  doesn't always cover the head of the list — coverage averages out across
+  sweeps.
+- A benched engine skips its topics **without** spending pacing time, then
+  probes once when its cooldown window expires (see [cooldown](#proactive-pacing-vs-reactive-cooldown)).
+
+## Proactive pacing vs. reactive cooldown
+
+Pacing is the **primary** throttle; cooldown is the **reactive backstop**.
+
+- **Proactive pacing** (`scraper.pacing`): each worker enforces a per-engine
+  *floor* on the interval between requests (`default_min_interval`, with
+  `per_engine` overrides and a `jitter_ratio`). This keeps each engine at a
+  known-safe rate by design.
+- **Adaptive cooldown** (`scraper.cooldown`): if the pace is still too fast and a
+  429/403/503/block lands, the engine benches itself for an exponential backoff
+  window and probes once before resuming.
+
+**Why pace proactively instead of relying on cooldown alone?** Cooldown only acts
+*after* a block. Leaning on it as the throttle means oscillating across the
+block line — and sustained tripping can promote a soft 429 into a hard CAPTCHA or
+IP-level ban, which is attached to the **shared exit IP** and would poison *every*
+engine on that machine. Pacing keeps you under the line; cooldown catches the
+misjudgment.
+
+Set a longer floor for engines that throttle sooner (Brave is the usual one)
+rather than discovering their limit by getting blocked:
+
+```yaml
+scraper:
+  pacing:
+    default_min_interval: 2.0   # seconds between requests, per engine
+    jitter_ratio: 0.25
+    per_engine:
+      brave: 4.0
 ```
 
-### Result Pages
+## Scrape interval behavior
 
-During each cycle, only the first `max_pages` (default: 1) pages of each topic are scraped. This strategy assumes that between scrape intervals, the number of new articles per topic doesn't exceed one page (typically up to 10 entries).
+`scrape_interval` (default 60s) is the **sweep period each worker targets**: one
+full pass over the topics per interval.
 
-**If you have high-volume topics or longer intervals** (e.g., >5 minutes), increase `max_pages` to 2-3 to avoid missing articles.
+- **Few topics** — the sweep finishes early and the worker waits out the
+  remainder of the interval (≈ one sweep per interval).
+- **Many topics** — the per-request pace floor dominates, the sweep runs longer
+  than the interval, and the engine simply falls behind at its safe rate (best
+  effort). No worker is ever forced to exceed its safe pace to "keep up."
 
-### Key Points
+So if you have, say, 120 topics and a 60s interval, an engine paced at 0.5s/topic
+can complete a sweep in ~60s, but one paced at 4s/topic (Brave) cannot — it'll
+sweep more slowly and cover fewer topics per minute. That's expected. When the
+*robust* engines (not just the canary) start falling behind and blocking, the
+[saturation signal](#exit-ip-saturation-signal) tells you the exit IP is at
+capacity and it's time to scale out.
 
-- The interval is **from the start of one cycle to the start of the next**
-- If scraping takes longer than the interval, the next cycle starts **immediately** after completion
-- No cycles are skipped - every topic gets scraped eventually
+### Result pages
+
+Each sweep scrapes only the first `max_pages` (default 1) pages per topic. This
+assumes that between an engine's sweeps, the new articles per topic don't exceed
+one page (~10 entries). For high-volume topics or long intervals (>5 min),
+increase `max_pages` to 2–3.
+
+## Exit-IP saturation signal
+
+All workers share one exit IP, so there's a ceiling on how many topics that IP
+can serve before engines start getting throttled. The supervisor watches the
+per-engine cooldown snapshots and flags **saturation** — but it *weights* them:
+
+- **Canary engines** (`saturation.canary_engines`, default `[brave]`) trip first
+  by nature, so their cooling is a signal about *that engine*, not the IP. They
+  are excluded from the count.
+- Saturation is flagged only when at least `saturation.robust_threshold`
+  (default 2) **robust** (non-canary) engines are cooling at the same time. That
+  is the cue to **scale horizontally** — divide traffic across machines with
+  different exit IPs — rather than to slow everything down.
+
+When saturated, the scraper logs a loud `EXIT IP SATURATION SUSPECTED` warning
+naming the throttled robust engines.
+
+```yaml
+scraper:
+  saturation:
+    canary_engines: [brave]
+    robust_threshold: 2
+```
+
+## Per-engine cycle accounting
+
+Each worker records its sweep as a row in `scraper_cycles`, tagged with its
+`engine` (the `/monitor` cycle timeline shows one row per engine per sweep). The
+supervisor handles the cross-engine housekeeping that must happen once: purging
+old rows, publishing the per-engine cooldown snapshot for the monitor, and
+evaluating the saturation signal.
 
 ## Monitoring Scrape Performance
 
-To monitor how long each cycle takes:
+Each worker logs a per-engine summary at the end of every sweep:
 
 ```bash
-# Watch scraping performance in real-time
-docker compose logs -f scraper | grep 'topics took'
+# Watch per-engine sweeps in real-time
+docker compose logs -f scraper | grep 'swept'
 ```
 
 ### Example Output
 
 ```plaintext
-topicstreams-scraper  | 2025-12-03 22:47:50,978 - INFO - 50 topics took 72.1s (exceeds 60s interval), starting next cycle immediately
+topicstreams-scraper  | INFO - [google] swept 50 topics, 312 entries, 47 new events
+topicstreams-scraper  | INFO - [brave] swept 18 topics, 41 entries, 6 new events
 ```
 
-```plaintext
-topicstreams-scraper  | 2025-12-03 22:49:27,978 - INFO - 5 topics took 8.3s, waiting 51.7s until next scrape...
-```
+The richer view is the `/monitor` page (per-engine health, latency percentiles,
+and the per-engine cycle timeline) — see [OBSERVABILITY.md](OBSERVABILITY.md).
 
 ### What to Look For
 
-If cycles consistently exceed the interval, consider:
+If a robust engine consistently falls behind (few topics/sweep) or you see an
+`EXIT IP SATURATION SUSPECTED` warning, the exit IP is at capacity — consider:
 - Increasing `scrape_interval` in `config.yml`
 - Reducing `max_pages` (scrape fewer pages per topic)
 - Reducing the number of tracked topics
+- **Scaling out to another machine/exit IP** (the saturation signal's intent)
 
-If you see frequent HTTP 429 or 403 errors in logs (check via [scraper logs API](../API_REFERENCE.md#get-scraper-logs)), you're being rate-limited or blocked:
+If only the **canary** engine (Brave) throttles, that's expected for it alone —
+give it a longer `pacing.per_engine` floor rather than scaling out.
+
+If you see frequent HTTP 429 or 403 errors in logs (check via [scraper logs API](../API_REFERENCE.md#get-scraper-logs)), tune the per-engine `pacing` floor and/or:
 - For high-volume needs, see [Proxy Rotation](#proxy-rotation) below
 - Review anti-detection settings in `config.yml`
 
@@ -136,11 +205,17 @@ If you see frequent HTTP 429 or 403 errors in logs (check via [scraper logs API]
 
 ## How It Works
 
-The scraper reads a proxy from configuration and routes its persistent browser
-context through it (`scraper/main.py:_build_proxy`). One endpoint is chosen per
-browser launch — residential gateways rotate their exit IP server-side, so a
-single sticky endpoint is the common setup, while a longer list varies the
-identity across container restarts.
+The scraper reads a proxy from configuration once and routes **every** engine
+worker's browser context through it (`scraper/browser.py:build_proxy`). One
+endpoint is chosen per run — residential gateways rotate their exit IP
+server-side, so a single sticky endpoint is the common setup, while a longer list
+varies the identity across container restarts.
+
+All engine workers currently share **one** exit IP. That is what the
+[saturation signal](#exit-ip-saturation-signal) measures the capacity of: when
+the robust engines start throttling, the remedy is more exit IPs (today: run
+additional scraper instances on separate machines/proxies), since each
+additional IP is an independent per-engine rate budget.
 
 ## Configuration
 
@@ -167,9 +242,10 @@ the mismatch itself becomes a detection signal.
 
 ## Advanced: Different Personas per Proxy
 
-> **Illustrative / not implemented.** The scraper currently runs a single
-> persistent identity. Per-proxy personas are a possible future enhancement;
-> the snippet below is conceptual.
+> **Illustrative / not implemented.** Each engine worker has its own persistent
+> context (so cookies don't mix), but they all share one fingerprint and one
+> exit IP. Per-proxy personas are a possible future enhancement; the snippet
+> below is conceptual.
 
 For maximum stealth, pair each proxy with a unique browser fingerprint ("persona"):
 
@@ -209,9 +285,11 @@ through it. Residential gateways rotate their exit IP server-side, so a single
 sticky endpoint already varies the apparent IP.
 
 **Not implemented** (would be future work if ever needed): in-app proxy-pool
-health checks / failover, per-proxy personas, and concurrent multi-proxy
-scraping. The scraper is sequential and runs one identity, so these aren't wired
-up — the snippets above marked *illustrative* are conceptual.
+health checks / failover, per-proxy personas, and binding different engine
+workers to different exit IPs from one process. Engine workers run concurrently
+but all share a single exit IP and one fingerprint identity, so these snippets
+marked *illustrative* are conceptual. Horizontal scale-out today means running
+additional scraper instances, each with its own proxy.
 
 ## When You Need This
 

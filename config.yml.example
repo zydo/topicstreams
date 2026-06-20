@@ -52,6 +52,25 @@ scraper:
     enabled: true
     base_seconds: 300   # window after the first block; doubles per consecutive block
     max_seconds: 3600   # cap on the exponential window (1h)
+  # Proactive per-engine pacing. Each engine runs in its own worker (its own
+  # browser context/identity on the shared exit IP) and paces itself to a
+  # known-safe rate — this is the primary throttle; cooldown above is only the
+  # reactive backstop. Set per-engine floors instead of discovering them by
+  # getting blocked: a deliberate floor keeps soft 429s from escalating into
+  # CAPTCHA/IP-level blocks that would poison the IP for every engine.
+  pacing:
+    default_min_interval: 2.0   # min seconds between requests for one engine
+    jitter_ratio: 0.25          # random extra fraction per interval (avoid regular cadence)
+    per_engine:                 # overrides for engines that throttle sooner
+      brave: 4.0
+  # Weighted saturation signal: when to scale traffic onto another exit IP.
+  # Strict engines (canaries, e.g. brave) trip first and are NOT evidence the IP
+  # is saturated, so they're excluded. Saturation is flagged only when this many
+  # *robust* engines are cooling at once — the cue to divide load across machines
+  # with different IPs.
+  saturation:
+    canary_engines: [brave]
+    robust_threshold: 2
 
 # -----------------------------------------------------------------------------
 # Anti-detection (scraper)
@@ -82,6 +101,8 @@ anti_detection:
       - "--window-size=1920,1080"
       - "--disable-blink-features=AutomationControlled"
 
+  # SUPERSEDED by scraper.pacing (the per-engine worker model paces each engine
+  # itself). Kept for back-compat; no longer consulted by the scraper.
   random_delays:
     enabled: true
     min_seconds: 2

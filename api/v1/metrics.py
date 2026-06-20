@@ -179,6 +179,10 @@ class CycleMetrics(BaseModel):
     new_events: int = Field(..., description="New feed events filed this cycle")
     success: bool
     error: str | None = None
+    engine: str | None = Field(
+        None,
+        description="Engine whose worker produced this sweep (None for legacy rows)",
+    )
 
 
 class FailureRow(BaseModel):

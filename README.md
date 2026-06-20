@@ -108,9 +108,9 @@ TopicStreams consists of three main components:
 ┌─────────────────────────┐    ┌──────────────────────────────┐
 │     FastAPI Server      │    │      Scraper Service         │
 │                         │    │                              │
-│  - REST endpoints       │    │  - Playwright browser        │
-│  - WebSocket streams    │    │  - BeautifulSoup parser      │
-│  - PostgreSQL listener  │    │  - Continuous scraping loop  │
+│  - REST endpoints       │    │  - Per-engine parallel       │
+│  - WebSocket streams    │    │    workers (Playwright)      │
+│  - PostgreSQL listener  │    │  - BeautifulSoup parser      │
 └────────────┬────────────┘    └─────────────┬────────────────┘
              │                               │
              ▼                               ▼
@@ -126,7 +126,7 @@ TopicStreams consists of three main components:
 
 ### Data Flow
 
-1. **Scraper Service** continuously scrapes the configured search engines (Google's News tab by default, plus Bing/Yahoo/Brave) for tracked topics
+1. **Scraper Service** runs one parallel worker per configured search engine (Google's News tab by default, plus Bing/Yahoo/Brave), each continuously sweeping the tracked topics at its own paced rate
 2. New articles are inserted into **PostgreSQL** with automatic deduplication
 3. Database triggers send **NOTIFY** events on new inserts
 4. **FastAPI Server** listens for these events via PostgreSQL's LISTEN/NOTIFY
@@ -291,7 +291,7 @@ For complete configuration documentation including environment variables, YAML f
 **Quick links:**
 
 - [**Environment variables**](docs/CONFIGURATION.md#environment-variables-env) - Database and API settings in .env
-- [**Scraper settings**](docs/CONFIGURATION.md#scraper-settings-configyml) - scrape_interval, max_pages, engines, cooldown
+- [**Scraper settings**](docs/CONFIGURATION.md#scraper-settings-configyml) - scrape_interval, max_pages, engines, pacing, cooldown, saturation
 - [**Anti-detection settings**](docs/CONFIGURATION.md#anti-detection-settings-configyml) - Browser fingerprinting and stealth strategies
 - [**Reloading config**](docs/CONFIGURATION.md#reloading-configuration) - How to apply configuration changes
 
@@ -311,8 +311,10 @@ For detailed information about scraping behavior, monitoring, and scaling strate
 
 **Quick links:**
 
-- [**Sequential execution**](docs/SCRAPING_BEHAVIOR.md#sequential-execution) - How topics are scraped one after another
-- [**Scrape interval**](docs/SCRAPING_BEHAVIOR.md#scrape-interval-behavior) - How scrape_interval controls timing
+- [**Per-engine parallel workers**](docs/SCRAPING_BEHAVIOR.md#execution-model-one-worker-per-engine) - Each engine runs concurrently in its own worker; topics within an engine stay sequential and paced
+- [**Proactive pacing vs. cooldown**](docs/SCRAPING_BEHAVIOR.md#proactive-pacing-vs-reactive-cooldown) - Per-engine pace floor is the primary throttle; cooldown is the reactive backstop
+- [**Scrape interval**](docs/SCRAPING_BEHAVIOR.md#scrape-interval-behavior) - How scrape_interval sets each worker's sweep period
+- [**Exit-IP saturation**](docs/SCRAPING_BEHAVIOR.md#exit-ip-saturation-signal) - When the signal says to scale out to another IP
 - [**Monitoring**](docs/SCRAPING_BEHAVIOR.md#monitoring-scrape-performance) - Track scraper performance
 - [**Proxy support**](docs/SCRAPING_BEHAVIOR.md#proxy-rotation) - Route the scraper through residential/mobile proxies (in practice required — Google blocks direct automated access to the News tab)
 

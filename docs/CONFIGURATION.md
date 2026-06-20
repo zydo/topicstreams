@@ -97,23 +97,40 @@ scraper:
     - bing
     - yahoo
     - brave
-  engine_strategy: all  # How enabled engines combine: all | fallback | rotate
-  cooldown:             # Adaptive per-engine backoff after a throttle/block
+  engine_strategy: all  # superseded by per-engine workers (kept for back-compat)
+  cooldown:             # Reactive backstop: per-engine backoff after a throttle/block
     enabled: true
     base_seconds: 300   # window after the first block; doubles per consecutive block
     max_seconds: 3600   # cap on the exponential window (1h)
+  pacing:               # Primary throttle: per-engine min seconds between requests
+    default_min_interval: 2.0
+    jitter_ratio: 0.25
+    per_engine:
+      brave: 4.0        # engines that throttle sooner get a longer floor
+  saturation:           # When to scale to another exit IP
+    canary_engines: [brave]  # excluded from the IP-saturation count (trip first)
+    robust_threshold: 2      # this many robust engines cooling at once => saturated
 ```
+
+Each enabled engine runs in its **own parallel worker** (see
+[Execution model](SCRAPING_BEHAVIOR.md#execution-model-one-worker-per-engine));
+`pacing` is the primary rate control and `cooldown` is the reactive backstop.
 
 | Setting                  | Default                        | Description                                                                                                                                                                                                                                                                                |
 | ------------------------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `scrape_interval`        | `60`                           | Interval in seconds between scrape cycles (measured from start to start). Set to `0` or negative for continuous scraping with no delay. See [Scrape Interval Behavior](SCRAPING_BEHAVIOR.md#scrape-interval-behavior).                                                                     |
+| `scrape_interval`        | `60`                           | Per-engine **sweep period**: each worker targets one full pass over the topics per interval (finishing early → waits the remainder; running long → falls behind at its safe pace). See [Scrape Interval Behavior](SCRAPING_BEHAVIOR.md#scrape-interval-behavior).                          |
 | `max_pages`              | `1`                            | Number of result pages to scrape. Increase if you have high-volume topics or longer intervals.                                                                                                                                                                                             |
-| `engines`                | `[google, bing, yahoo, brave]` | Search engines to scrape, as a list in priority order. Available: `google`, `bing`, `yahoo`, `brave`. (DuckDuckGo is not supported — it hard-blocks scraping; see [docs/DUCKDUCKGO_UNSUPPORTED.md](DUCKDUCKGO_UNSUPPORTED.md).) See [Search Engines](SCRAPING_BEHAVIOR.md#search-engines). |
-| `engine_strategy`        | `all`                          | How enabled engines combine per cycle: `all` (scrape every engine each cycle), `fallback` (try in order, stop at the first that returns items), or `rotate` (one engine per cycle, rotating).                                                                                              |
-| `browser_recycle_cycles` | `50`                           | Recycle the Chromium context every N cycles to release accumulated memory (the on-disk persistent profile survives). Guards against unbounded context growth; see [postmortem](POSTMORTEM_2026-06-13_OOM_HANG.md).                                                                         |
-| `cooldown.enabled`       | `true`                         | Adaptive per-engine cooldown: when an engine throttles/blocks (HTTP 429/403/503 or a detected block page), bench it for an exponential backoff window and send one probe before resuming, instead of hitting it every cycle. The `/monitor` health label reflects it.                      |
+| `engines`                | `[google, bing, yahoo, brave]` | Search engines to scrape, as a list. Each runs in its own parallel worker. Available: `google`, `bing`, `yahoo`, `brave`. (DuckDuckGo is not supported — it hard-blocks scraping; see [docs/DUCKDUCKGO_UNSUPPORTED.md](DUCKDUCKGO_UNSUPPORTED.md).) See [Search Engines](SCRAPING_BEHAVIOR.md#search-engines). |
+| `engine_strategy`        | `all`                          | **Superseded** by per-engine workers — every enabled engine now runs in its own worker regardless of this value. Retained for back-compat; may be removed.                                                                                                                                  |
+| `browser_recycle_cycles` | `50`                           | Recycle each engine's Chromium context every N sweeps to release accumulated memory (the on-disk persistent profile survives). Guards against unbounded context growth; see [postmortem](POSTMORTEM_2026-06-13_OOM_HANG.md).                                                                |
+| `cooldown.enabled`       | `true`                         | **Reactive backstop.** When an engine throttles/blocks (HTTP 429/403/503 or a detected block page), bench it for an exponential backoff window and send one probe before resuming. `pacing` (below) is the primary throttle. The `/monitor` health label reflects it.                       |
 | `cooldown.base_seconds`  | `300`                          | Backoff window after an engine's first block; doubles per consecutive block.                                                                                                                                                                                                               |
 | `cooldown.max_seconds`   | `3600`                         | Cap on the exponential cooldown window.                                                                                                                                                                                                                                                    |
+| `pacing.default_min_interval` | `2.0`                     | **Primary throttle.** Floor on seconds between consecutive requests for one engine. Pacing under a known-safe rate avoids tripping blocks that would escalate on the shared exit IP. See [Proactive pacing](SCRAPING_BEHAVIOR.md#proactive-pacing-vs-reactive-cooldown).                    |
+| `pacing.jitter_ratio`    | `0.25`                         | Random extra fraction (0..1) added per interval so the cadence isn't perfectly regular.                                                                                                                                                                                                    |
+| `pacing.per_engine`      | `{brave: 4.0}` (example)       | Per-engine overrides of the min interval (engine → seconds). Give strict engines a longer floor instead of discovering it by getting blocked.                                                                                                                                               |
+| `saturation.canary_engines` | `[brave]`                   | Engines excluded from the exit-IP saturation count (they trip first by nature, so their cooling isn't evidence the IP is saturated). See [Saturation signal](SCRAPING_BEHAVIOR.md#exit-ip-saturation-signal).                                                                              |
+| `saturation.robust_threshold` | `2`                       | How many **robust** (non-canary) engines must be cooling at once before the exit IP is flagged as saturated — the cue to scale to another machine/IP.                                                                                                                                       |
 
 ### API Tuning Settings (`config.yml`, `api:` section)
 
@@ -173,13 +190,15 @@ anti_detection:
       - "--window-size=1920,1080"
       - "--disable-blink-features=AutomationControlled"  # navigator.webdriver = false
 
+  # SUPERSEDED by scraper.pacing — the per-engine worker model paces each engine
+  # itself, so this is no longer consulted (kept for back-compat).
   random_delays:
     enabled: true
     min_seconds: 2   # Minimum delay between topics
     max_seconds: 5   # Maximum delay between topics
 
   randomized_order:
-    enabled: true    # Shuffle topic order each cycle
+    enabled: true    # Shuffle topic order each sweep
 
   # Page-interaction timings (speed vs. block-risk) and the human-simulation
   # scroll/mouse jitter applied after each page loads. Every key is optional.
@@ -195,7 +214,7 @@ anti_detection:
 
   browser_fingerprint:
     # NOTE: the user agent and Sec-CH-UA are derived at RUNTIME from the
-    # installed Chromium version (scraper/main.py:_detect_fingerprint), so there
+    # installed Chromium version (scraper/browser.py:detect_fingerprint), so there
     # is no static user_agent key here — a stale hardcoded UA is an instant
     # CAPTCHA. Only the context/identity values below are configured.
     viewport_width: 1920

@@ -172,6 +172,12 @@ def ensure_schema() -> None:
                 )
                 """
             )
+            # Engines now run as independent per-engine workers (scraper/main.py),
+            # so each "cycle" row is one engine's sweep over the topics. Older
+            # volumes pre-date this; the column is nullable for those rows.
+            cursor.execute(
+                "ALTER TABLE scraper_cycles ADD COLUMN IF NOT EXISTS engine VARCHAR(32)"
+            )
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_scraper_cycles_started_at "
                 "ON scraper_cycles(started_at DESC)"
@@ -642,15 +648,20 @@ def insert_cycle(
     new_events: int,
     success: bool,
     error: str | None = None,
+    engine: str | None = None,
 ) -> None:
-    """Record one scrape cycle (a full pass over all topics)."""
+    """Record one scrape cycle (one engine worker's sweep over the topics).
+
+    ``engine`` identifies which per-engine worker produced the sweep; None for
+    rows written by the legacy single-loop scraper.
+    """
     with _Connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO scraper_cycles "
             "(started_at, finished_at, duration_seconds, topics_count, "
-            " entries_parsed, new_events, success, error) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            " entries_parsed, new_events, success, error, engine) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 started_at,
                 finished_at,
@@ -660,6 +671,7 @@ def insert_cycle(
                 new_events,
                 success,
                 error,
+                engine,
             ),
         )
 
@@ -683,7 +695,7 @@ def get_recent_cycles(limit: int = 24) -> list[dict]:
         cursor = conn.cursor()
         cursor.execute(
             "SELECT started_at, finished_at, duration_seconds, topics_count, "
-            "       entries_parsed, new_events, success, error "
+            "       entries_parsed, new_events, success, error, engine "
             "FROM scraper_cycles ORDER BY started_at DESC LIMIT %s",
             (limit,),
         )

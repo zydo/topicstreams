@@ -130,6 +130,59 @@ class ScraperConfig(_BaseConfig):
         """Cap on the exponential cooldown window."""
         return self._get("scraper", "cooldown", "max_seconds", default=3600)
 
+    # ----- Proactive per-engine pacing -----
+    # Each engine runs in its own worker (see scraper/main.py) and paces *itself*
+    # to a known-safe request rate. This is the primary throttle; cooldown is
+    # only the reactive backstop for when the pace is misjudged. Operating at a
+    # deliberate floor (rather than hammering until a 429) avoids promoting soft
+    # throttles into hard CAPTCHA/IP-level blocks on the shared exit IP.
+
+    @property
+    def pacing_default_min_interval(self) -> float:
+        """Floor on seconds between consecutive requests for one engine."""
+        return self._get("scraper", "pacing", "default_min_interval", default=2.0)
+
+    @property
+    def pacing_per_engine(self) -> dict[str, float]:
+        """Per-engine override of the min request interval (engine -> seconds).
+
+        Some engines (notably Brave) throttle far sooner than others, so give
+        them a longer floor instead of discovering it by getting blocked.
+        """
+        return self._get("scraper", "pacing", "per_engine", default={}) or {}
+
+    @property
+    def pacing_jitter_ratio(self) -> float:
+        """Random fraction (0..1) added on top of each pace interval, so the
+        cadence isn't perfectly regular (itself a bot signal)."""
+        return self._get("scraper", "pacing", "jitter_ratio", default=0.25)
+
+    def min_interval_for(self, engine: str) -> float:
+        """Resolve the proactive pace floor for one engine."""
+        return float(
+            self.pacing_per_engine.get(engine, self.pacing_default_min_interval)
+        )
+
+    # ----- Weighted saturation signal (when to scale to another exit IP) -----
+
+    @property
+    def saturation_canary_engines(self) -> list[str]:
+        """Engines excluded from the IP-saturation signal.
+
+        Strict engines (e.g. Brave) trip first by nature, so their cooling is a
+        canary about *that engine*, not evidence the exit IP is saturated.
+        """
+        return (
+            self._get("scraper", "saturation", "canary_engines", default=["brave"])
+            or []
+        )
+
+    @property
+    def saturation_robust_threshold(self) -> int:
+        """How many *robust* (non-canary) engines must be cooling at once before
+        the exit IP is flagged as saturated (the signal to scale horizontally)."""
+        return self._get("scraper", "saturation", "robust_threshold", default=2)
+
 
 class AntiDetectionConfig(_BaseConfig):
     """Anti-detection configuration loader and accessor."""

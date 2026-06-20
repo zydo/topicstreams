@@ -53,15 +53,19 @@ Default arguments (configurable in YAML):
 
 ### 2. Realistic Browser Context
 
-A single **persistent** browser context is launched and reused for the whole
-run, configured to match a real Chrome user (all values configurable in YAML).
-A persistent context keeps cookies/cache on disk across container restarts and
-runs one consistent identity (see [Single identity by design](#5-single-identity-by-design)):
+One **persistent** browser context **per engine** is launched and reused for the
+whole run (each engine runs in its own worker — see
+[Execution model](SCRAPING_BEHAVIOR.md#execution-model-one-worker-per-engine)),
+configured to match a real Chrome user (all values configurable in YAML). Each
+worker's persistent context keeps that engine's cookies/cache on disk across
+container restarts under its own profile directory
+(`.browser_profiles/<engine>`); all engines share one fingerprint and one exit
+IP (see [Single identity by design](#5-single-identity-by-design)):
 
 ```python
-# All values loaded from config.yml (see scraper/main.py:_launch_context)
+# All values loaded from config.yml (see scraper/browser.py:_launch_context)
 context = p.chromium.launch_persistent_context(
-    str(USER_DATA_DIR),                     # on-disk profile, survives restarts
+    str(profile_dir),                       # per-engine on-disk profile, survives restarts
     headless=True,
     user_agent=profile.user_agent,
     viewport={
@@ -82,7 +86,7 @@ context = p.chromium.launch_persistent_context(
 
 **Key points:**
 
-- **User Agent**: Derived at startup from the installed browser version (see `_detect_fingerprint` in `scraper/main.py`) — a stale hardcoded UA is an instant CAPTCHA
+- **User Agent**: Derived at startup from the installed browser version (see `detect_fingerprint` in `scraper/browser.py`) — a stale hardcoded UA is an instant CAPTCHA
 - **Permissions**: Configurable browser permissions (default: geolocation)
 - **Timezone & Geolocation**: Recommended to match your server's IP location (see [Configuration](CONFIGURATION.md))
 - **HTTP Headers**: Only the Sec-CH-UA trio matching the derived UA (see below)
@@ -117,29 +121,31 @@ The signals stealth used to mask are covered without JS patching:
 | Detection Vector      | Covered by                                          |
 | --------------------- | --------------------------------------------------- |
 | `navigator.webdriver` | `--disable-blink-features=AutomationControlled`     |
-| User agent / brands   | Runtime-derived fingerprint (`_detect_fingerprint`) |
+| User agent / brands   | Runtime-derived fingerprint (`detect_fingerprint`) |
 
 ### 4. Memory Management
 
-The scraper runs one long-lived persistent context, which would otherwise grow
-unbounded over thousands of cycles — on a swap-less host this once exhausted RAM
-and livelocked the box (see [postmortem](POSTMORTEM_2026-06-13_OOM_HANG.md)). Two
-measures bound that growth:
+Each engine worker runs one long-lived persistent context, which would otherwise
+grow unbounded over thousands of sweeps — on a swap-less host this once exhausted
+RAM and livelocked the box (see [postmortem](POSTMORTEM_2026-06-13_OOM_HANG.md)).
+Two measures bound that growth:
 
-- **Fresh page per engine/topic**: each scrape opens a new page and closes it in
-  a `finally`, so per-page DOM/JS state never accumulates (`scrape_topic` in
+- **Fresh page per topic**: each scrape opens a new page and closes it in a
+  `finally`, so per-page DOM/JS state never accumulates (`scrape_topic` in
   `scraper/scraper.py`).
-- **Context recycling**: the whole Chromium context is closed and relaunched
-  every `scraper.browser_recycle_cycles` cycles (default 50). The on-disk
+- **Context recycling**: each worker closes and relaunches its Chromium context
+  every `scraper.browser_recycle_cycles` sweeps (default 50). The on-disk
   persistent profile (cookies/cache) survives the recycle, so identity is
-  preserved while accumulated memory is released (`scraper/main.py`).
+  preserved while accumulated memory is released (`scraper/worker.py`).
 
 **Other configurable behaviours:**
 
-- **Random Delays** (`random_delays.enabled`): random pause between topics to
-  mimic human pacing.
-- **Randomized Order** (`randomized_order.enabled`): shuffle topic order each
-  cycle to avoid a deterministic request pattern.
+- **Proactive pacing** (`scraper.pacing`): a per-engine floor on the interval
+  between requests, the primary throttle (see
+  [Proactive pacing](SCRAPING_BEHAVIOR.md#proactive-pacing-vs-reactive-cooldown)).
+- **Randomized Order** (`randomized_order.enabled`): each worker shuffles topic
+  order every sweep to avoid a deterministic request pattern and to keep a
+  benched engine from always covering the head of the list.
 - **Human-Like Behaviour** (`page_interaction.human_simulation`): random
   scrolling and mouse movement during page loads to simulate reading; the ranges
   are tunable in `config.yml`.
@@ -148,7 +154,7 @@ measures bound that growth:
 
 The scraper deliberately runs **one** consistent fingerprint, not a rotating
 pool. The single identity is derived at startup from the installed Chromium
-version (`_detect_fingerprint` in `scraper/main.py`) so the claimed UA always
+version (`detect_fingerprint` in `scraper/browser.py`) so the claimed UA always
 matches the real browser — the property Google actually checks. UA/profile
 rotation is **not** used: against a single residential IP it adds little (the IP,
 not the UA, is the dominant signal) and a mismatched or implausible rotated
