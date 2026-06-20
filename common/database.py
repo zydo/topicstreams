@@ -150,12 +150,41 @@ def ensure_schema() -> None:
             return
         with _Connection() as conn:
             cursor = conn.cursor()
+            # news.snippet — descriptive excerpt added after the normalized-storage
+            # baseline (commit 4d52257).
+            cursor.execute("ALTER TABLE news ADD COLUMN IF NOT EXISTS snippet TEXT")
+            # scraper_logs columns added post-baseline: entry_count (selector-rot
+            # detection), engine (per-engine health), duration_ms (fetch latency).
+            # `engine` must precede the engine index below, which references it.
+            cursor.execute(
+                "ALTER TABLE scraper_logs ADD COLUMN IF NOT EXISTS entry_count INTEGER DEFAULT 0"
+            )
+            cursor.execute(
+                "ALTER TABLE scraper_logs ADD COLUMN IF NOT EXISTS engine VARCHAR(32) "
+                "DEFAULT 'google'"
+            )
             cursor.execute(
                 "ALTER TABLE scraper_logs ADD COLUMN IF NOT EXISTS duration_ms INTEGER"
             )
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_scraper_logs_engine_scraped_at "
                 "ON scraper_logs(engine, scraped_at DESC)"
+            )
+            # Per-engine feed attribution (commit ce9f99a), also post-baseline.
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS topic_news_engines (
+                    topic_news_id BIGINT NOT NULL,
+                    engine VARCHAR(32) NOT NULL,
+                    seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (topic_news_id, engine),
+                    FOREIGN KEY (topic_news_id) REFERENCES topic_news(id) ON DELETE CASCADE
+                )
+                """
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tne_engine "
+                "ON topic_news_engines(engine)"
             )
             cursor.execute(
                 """

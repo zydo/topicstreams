@@ -74,9 +74,11 @@ CREATE INDEX IF NOT EXISTS idx_scraper_logs_topic_scraped_at ON scraper_logs(top
 -- Engine-scoped recency index for the per-engine metrics aggregation.
 CREATE INDEX IF NOT EXISTS idx_scraper_logs_engine_scraped_at ON scraper_logs(engine, scraped_at DESC);
 
--- One row per scrape cycle (a full pass over all topics). Captures the
--- wall-clock cycle duration and per-pass counts that scraper_logs (one row per
--- page-attempt) can't cleanly express. Purged on the same retention window as
+-- One row per engine per metrics window. Each per-engine worker (scraper/main.py)
+-- accumulates a rolling window and flushes one row every scrape_interval, tagged
+-- with its `engine` (NULL only for rows from the legacy single-loop scraper).
+-- Captures wall-clock duration and per-window counts that scraper_logs (one row
+-- per page-attempt) can't cleanly express. Purged on the same retention window as
 -- news/logs. No unique constraint, so inserts aren't retried (see insert_cycle).
 CREATE TABLE IF NOT EXISTS scraper_cycles (
     id SERIAL PRIMARY KEY,
@@ -87,7 +89,8 @@ CREATE TABLE IF NOT EXISTS scraper_cycles (
     entries_parsed INTEGER NOT NULL,
     new_events INTEGER NOT NULL,
     success BOOLEAN NOT NULL DEFAULT TRUE,
-    error TEXT
+    error TEXT,
+    engine VARCHAR(32)
 );
 CREATE INDEX IF NOT EXISTS idx_scraper_cycles_started_at ON scraper_cycles(started_at DESC);
 
