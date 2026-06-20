@@ -143,9 +143,11 @@ Two measures bound that growth:
 - **Proactive pacing** (`scraper.pacing`): a per-engine floor on the interval
   between requests, the primary throttle (see
   [Proactive pacing](SCRAPING_BEHAVIOR.md#proactive-pacing-vs-reactive-cooldown)).
-- **Randomized Order** (`randomized_order.enabled`): each worker shuffles topic
-  order every sweep to avoid a deterministic request pattern and to keep a
-  benched engine from always covering the head of the list.
+- **Randomized scheduling**: each worker schedules topics on a per-topic-interval
+  min-heap with boot stagger and per-reschedule jitter (see
+  [Scheduling](SCRAPING_BEHAVIOR.md)), so the request pattern is non-deterministic
+  and a benched engine simply resumes its due topics rather than re-covering a
+  fixed head-of-list order.
 - **Human-Like Behaviour** (`page_interaction.human_simulation`): random
   scrolling and mouse movement during page loads to simulate reading; the ranges
   are tunable in `config.yml`.

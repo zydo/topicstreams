@@ -9,11 +9,13 @@ exponentially growing window (capped). When the window expires it permits a
 single *probe* request: a clean probe lifts the cooldown, another block deepens
 it.
 
-State is intentionally in-process and lives for the lifetime of the scraper
-loop. It is consulted and updated synchronously inside ``scrape_topic`` (see
-scraper.py), so a probe sent for one topic immediately governs the next topic in
-the same cycle — that synchrony is what keeps a probe to a *single* request per
-window even across many topics. The per-engine *health label* shown in the UI is
+State is intentionally in-process and lives for the lifetime of one engine
+worker. The worker consults ``decide`` at *schedule time*: while an engine is
+benched it hands it no work at all (see scraper/worker.py), so the backoff window
+is honored without spending the pacing budget, and the single probe permitted on
+expiry governs the next topic the scheduler surfaces. ``record`` is updated
+synchronously inside ``scrape_topic`` (see scraper.py) right after each request.
+The per-engine *health label* shown in the UI is
 derived separately from persisted ``scraper_logs``
 (``api/v1/metrics.classify_engine``); this tracker only decides whether to send
 the next request.

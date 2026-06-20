@@ -109,10 +109,6 @@ anti_detection:
     max_seconds: 5
     description: "Random delay between topics"
 
-  randomized_order:
-    enabled: true
-    description: "Shuffle topics each scrape cycle"
-
   # Page-interaction timings — the speed vs. block-risk trade-off. All keys are
   # optional; any omitted value falls back to the default shown.
   page_interaction:

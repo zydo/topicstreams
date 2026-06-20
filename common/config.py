@@ -209,11 +209,6 @@ class AntiDetectionConfig(_BaseConfig):
         return self._get("anti_detection", "random_delays", "enabled", default=True)
 
     @property
-    def randomized_order_enabled(self) -> bool:
-        """Check if randomized topic order is enabled."""
-        return self._get("anti_detection", "randomized_order", "enabled", default=True)
-
-    @property
     def captcha_detection_enabled(self) -> bool:
         """Check if CAPTCHA detection is enabled."""
         return self._get("anti_detection", "captcha_detection", "enabled", default=True)

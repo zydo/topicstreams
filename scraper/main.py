@@ -2,7 +2,8 @@
 
 Each configured search engine runs in its own worker thread (see
 ``scraper/worker.py``): its own Playwright instance, its own persistent browser
-context/identity, sweeping the topic list at its own proactively-paced rate. The
+context/identity, scheduling each topic on a per-topic interval via a min-heap
+and scraping due topics at its own proactively-paced rate. The
 workers share only the database (cross-engine duplicates resolve there via the
 URL-derived news id) and a small in-memory snapshot the supervisor reads.
 
@@ -24,9 +25,9 @@ Scraping strategy:
       articles always appear on the first few pages.
 
 IMPORTANT assumption:
-    Each engine targets one full sweep per scrape_interval. If more new articles
-    are published for a topic between an engine's sweeps than fit on the
-    configured pages, older articles will be missed for that engine.
+    Each engine re-scrapes a given topic about once per scrape_interval. If more
+    new articles are published for a topic between two of an engine's scrapes than
+    fit on the configured pages, older articles will be missed for that engine.
 """
 
 import atexit

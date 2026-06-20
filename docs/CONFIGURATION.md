@@ -197,9 +197,6 @@ anti_detection:
     min_seconds: 2   # Minimum delay between topics
     max_seconds: 5   # Maximum delay between topics
 
-  randomized_order:
-    enabled: true    # Shuffle topic order each sweep
-
   # Page-interaction timings (speed vs. block-risk) and the human-simulation
   # scroll/mouse jitter applied after each page loads. Every key is optional.
   page_interaction:

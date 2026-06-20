@@ -39,10 +39,10 @@ reads for the saturation signal.
 
 ```plaintext
 supervisor (scraper/main.py)
-├── worker:google ─ sweep topics → sleep → repeat   ┐
-├── worker:bing   ─ sweep topics → sleep → repeat   │ run concurrently,
-├── worker:yahoo  ─ sweep topics → sleep → repeat   │ each at its own pace
-└── worker:brave  ─ sweep topics → sleep → repeat   ┘
+├── worker:google ─ scrape due topic → re-arm → repeat   ┐
+├── worker:bing   ─ scrape due topic → re-arm → repeat   │ run concurrently,
+├── worker:yahoo  ─ scrape due topic → re-arm → repeat   │ each at its own pace
+└── worker:brave  ─ scrape due topic → re-arm → repeat   ┘
 ```
 
 **Why per-engine workers?** Engines can't see each other's traffic, so running
@@ -61,14 +61,22 @@ engine *can* see).
 > this model and no longer governs execution: every enabled engine now runs in
 > its own worker. The key is retained for back-compat and may be removed.
 
-### Topic order and coverage fairness
+### Topic scheduling and coverage fairness
 
-- Each worker **reshuffles** the topic list at the start of every sweep
-  (`randomized_order.enabled` in `config.yml`), so a slow or benched engine
-  doesn't always cover the head of the list — coverage averages out across
-  sweeps.
-- A benched engine skips its topics **without** spending pacing time, then
-  probes once when its cooldown window expires (see [cooldown](#proactive-pacing-vs-reactive-cooldown)).
+- Each worker keeps a **min-heap of topics** keyed by each topic's *next eligible
+  scrape time* (`scraper/worker.py`, `_TopicSchedule`). It always scrapes the
+  topic whose time has come, then re-arms it for `scrape_interval` later; when
+  nothing is due it sleeps until the heap's head comes due.
+- The access pattern is non-deterministic without an explicit shuffle: topics are
+  **staggered across one interval at boot** and re-armed with **per-reschedule
+  jitter** (reusing `scraper.pacing.jitter_ratio`), so no engine settles into a
+  fixed order or a perfectly regular tick.
+- A benched engine schedules **nothing** while cooling — its topics keep their
+  heap times and simply wait — then it sends a single probe when its cooldown
+  window expires (see [cooldown](#proactive-pacing-vs-reactive-cooldown)).
+- Topics added/removed in the DB are reconciled on a timer (once per
+  `scrape_interval`): new active topics are scheduled, deactivated ones are
+  dropped lazily when their heap entry surfaces.
 
 ## Proactive pacing vs. reactive cooldown
 
@@ -103,28 +111,28 @@ scraper:
 
 ## Scrape interval behavior
 
-`scrape_interval` (default 60s) is the **sweep period each worker targets**: one
-full pass over the topics per interval.
+`scrape_interval` (default 60s) is the **per-topic re-scrape interval**: each
+engine re-scrapes a given topic about once per interval.
 
-- **Few topics** — the sweep finishes early and the worker waits out the
-  remainder of the interval (≈ one sweep per interval).
-- **Many topics** — the per-request pace floor dominates, the sweep runs longer
-  than the interval, and the engine simply falls behind at its safe rate (best
-  effort). No worker is ever forced to exceed its safe pace to "keep up."
+- **Few topics** — the heap head is usually in the future, so the worker idles
+  until a topic comes due (≈ one scrape per topic per interval).
+- **Many topics** — the per-request pace floor dominates, the worker scrapes
+  continuously at its safe rate, and topics simply cycle slower than the interval
+  (best effort). No worker is ever forced to exceed its safe pace to "keep up."
 
 So if you have, say, 120 topics and a 60s interval, an engine paced at 0.5s/topic
-can complete a sweep in ~60s, but one paced at 4s/topic (Brave) cannot — it'll
-sweep more slowly and cover fewer topics per minute. That's expected. When the
+can cover every topic within ~60s, but one paced at 4s/topic (Brave) cannot — it
+cycles more slowly and covers fewer topics per minute. That's expected. When the
 *robust* engines (not just the canary) start falling behind and blocking, the
 [saturation signal](#exit-ip-saturation-signal) tells you the exit IP is at
 capacity and it's time to scale out.
 
 ### Result pages
 
-Each sweep scrapes only the first `max_pages` (default 1) pages per topic. This
-assumes that between an engine's sweeps, the new articles per topic don't exceed
-one page (~10 entries). For high-volume topics or long intervals (>5 min),
-increase `max_pages` to 2–3.
+Each scrape fetches only the first `max_pages` (default 1) pages per topic. This
+assumes that between two of an engine's scrapes of a topic, the new articles
+don't exceed one page (~10 entries). For high-volume topics or long intervals
+(>5 min), increase `max_pages` to 2–3.
 
 ## Exit-IP saturation signal
 
@@ -152,19 +160,22 @@ scraper:
 
 ## Per-engine cycle accounting
 
-Each worker records its sweep as a row in `scraper_cycles`, tagged with its
-`engine` (the `/monitor` cycle timeline shows one row per engine per sweep). The
-supervisor handles the cross-engine housekeeping that must happen once: purging
-old rows, publishing the per-engine cooldown snapshot for the monitor, and
-evaluating the saturation signal.
+Since the scheduler has no sweep boundary, each worker accumulates a **rolling
+window** and flushes one row to `scraper_cycles` per `scrape_interval`, tagged
+with its `engine` — `topics_count` is the number of topic-scrapes completed in
+that window (the `/monitor` cycle timeline shows one row per engine per window).
+Buffered entries/logs flush on the same cadence (one batch per window, not per
+topic). The supervisor handles the cross-engine housekeeping that must happen
+once: purging old rows, publishing the per-engine cooldown snapshot for the
+monitor, and evaluating the saturation signal.
 
 ## Monitoring Scrape Performance
 
-Each worker logs a per-engine summary at the end of every sweep:
+Each worker logs a per-engine summary every window:
 
 ```bash
-# Watch per-engine sweeps in real-time
-docker compose logs -f scraper | grep 'swept'
+# Watch per-engine scrape windows in real-time
+docker compose logs -f scraper | grep 'window:'
 ```
 
 ### Example Output
