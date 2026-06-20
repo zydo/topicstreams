@@ -19,7 +19,13 @@ from common.config import anti_detection_config
 from common.model import NewsEntry, ScraperLog
 
 from .cooldown import EngineCooldownTracker
-from .sources import Ordering, Recency, SearchSource
+from .sources import (
+    Ordering,
+    Recency,
+    SearchRequest,
+    SearchSource,
+    SearchVertical,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +162,15 @@ def _scrape_one_page(
     ordering: Ordering,
     recency: Recency,
 ) -> tuple[list[NewsEntry], ScraperLog]:
-    url = source.build_url(
-        topic, ordering=ordering, recency=recency, page=result_page_number
+    request = SearchRequest(
+        query=topic,
+        page=result_page_number,
+        sort=ordering,
+        recency=recency,
+        vertical=SearchVertical.NEWS,
     )
+    parser = source.parser_for(request.vertical)
+    url = parser.build_url(request)
     logger.info(f"Scraping {source.name} for topic: {topic}")
 
     # Fetch latency: wall-clock of the navigation itself (page.goto through
@@ -263,7 +275,7 @@ def _scrape_one_page(
         # Wait for the engine's results container, but don't fail if missing.
         try:
             page.wait_for_selector(
-                source.ready_selector,
+                parser.ready_selector,
                 timeout=anti_detection_config.selector_timeout_ms,
             )
         except Exception as e:
@@ -290,13 +302,13 @@ def _scrape_one_page(
             )
 
         soup = BeautifulSoup(content, "lxml")
-        items = source.find_items(soup)
+        items = parser.find_items(soup)
         logger.info(f"Found {len(items)} potential news items")
 
         entries: list[NewsEntry] = []
         for item in items:
             try:
-                entry = source.parse_item(item, topic)
+                entry = parser.parse(item, request)
                 if entry:
                     # Stamp the producing engine so the insert can attribute
                     # this (topic, article) match to it in topic_news_engines.

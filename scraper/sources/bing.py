@@ -5,14 +5,20 @@ card element (``data-url`` / ``data-title`` / ``data-author``), so extraction is
 attribute-based — more robust than nested text selectors.
 """
 
-import re
-
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
 from common.model import NewsEntry
 
-from .base import Ordering, Recency, SearchSource
+from .base import (
+    Ordering,
+    Recency,
+    ResultParser,
+    SearchRequest,
+    SearchSource,
+    SearchVertical,
+    format_query,
+)
 
 # Bing News freshness codes for the qft `interval` filter, verified 2026-06-17
 # against bing.com/news/search?...&qft=interval%3d"<N>":
@@ -33,25 +39,19 @@ _RECENCY_INTERVAL = {
 _ITEM_SELECTORS = ("div.news-card.newsitem", "div.newsitem")
 
 
-class BingSource(SearchSource):
-    name = "bing"
+class BingNewsParser(ResultParser):
     ready_selector = "div.newsitem, #algocore"
-    results_host = "bing.com"
-    results_path_prefix = "/news"
 
-    def build_url(
-        self, topic: str, *, ordering: Ordering, recency: Recency, page: int
-    ) -> str:
-        q = re.sub(r"\s+", "+", topic.strip())
-        first = (page - 1) * 10 + 1  # Bing paginates by 1-based result offset
-        params = [f"q={q}", f"first={first}"]
+    def build_url(self, request: SearchRequest) -> str:
+        first = (request.page - 1) * 10 + 1  # Bing paginates by 1-based offset
+        params = [f"q={format_query(request.query)}", f"first={first}"]
         # Date sorting and freshness are both expressed as qft filter tokens
         # (e.g. qft=interval%3d"7"+sortbydate%3d"1").
         qft: list[str] = []
-        interval = _RECENCY_INTERVAL.get(recency)
+        interval = _RECENCY_INTERVAL.get(request.recency)
         if interval:
             qft.append(f'interval%3d"{interval}"')
-        if ordering is Ordering.DATE:
+        if request.sort is Ordering.DATE:
             qft.append('sortbydate%3d"1"')
         if qft:
             params.append("qft=" + "+".join(qft))
@@ -64,7 +64,7 @@ class BingSource(SearchSource):
                 return items
         return []
 
-    def parse_item(self, item: Tag, topic: str) -> NewsEntry | None:
+    def parse(self, item: Tag, request: SearchRequest) -> NewsEntry | None:
         title = item.get("data-title") or item.get("title")
         url = item.get("data-url") or item.get("url")
         if not title or not url:
@@ -73,12 +73,21 @@ class BingSource(SearchSource):
         snippet = snippet_el.get_text(" ", strip=True) if snippet_el else None
         author = item.get("data-author")
         return NewsEntry.create_new(
-            topic=topic,
+            topic=request.query,
             title=str(title).strip(),
             url=str(url).strip(),
             source=str(author).strip() if author else None,
             snippet=snippet or None,
         )
+
+
+class BingSource(SearchSource):
+    name = "bing"
+    results_host = "bing.com"
+    results_path_prefix = "/news"
+
+    def _build_parsers(self) -> dict[SearchVertical, ResultParser]:
+        return {SearchVertical.NEWS: BingNewsParser()}
 
     def detect_block(self, final_url: str, html: str) -> str | None:
         del final_url, html  # no body signal to inspect; see below

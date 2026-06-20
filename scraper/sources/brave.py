@@ -6,14 +6,19 @@ article (no redirector). The publisher name and relative time share a
 ``.site-name`` element ("CoinDesk•18 hours ago").
 """
 
-import re
-
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
 from common.model import NewsEntry
 
-from .base import Ordering, Recency, SearchSource
+from .base import (
+    Recency,
+    ResultParser,
+    SearchRequest,
+    SearchSource,
+    SearchVertical,
+    format_query,
+)
 
 # Brave "freshness" codes for the tf query parameter.
 _RECENCY_TF = {
@@ -24,32 +29,26 @@ _RECENCY_TF = {
 }
 
 
-class BraveSource(SearchSource):
-    name = "brave"
+class BraveNewsParser(ResultParser):
     ready_selector = "div.snippet[data-type='news'], #news-results"
-    results_host = "brave.com"  # search.brave.com
-    results_path_prefix = "/news"
 
-    def build_url(
-        self, topic: str, *, ordering: Ordering, recency: Recency, page: int
-    ) -> str:
-        q = re.sub(r"\s+", "+", topic.strip())
-        params = [f"q={q}"]
-        if page > 1:
-            params.append(f"offset={page - 1}")
-        tf = _RECENCY_TF.get(recency)
+    def build_url(self, request: SearchRequest) -> str:
+        params = [f"q={format_query(request.query)}"]
+        if request.page > 1:
+            params.append(f"offset={request.page - 1}")
+        tf = _RECENCY_TF.get(request.recency)
         if tf:
             params.append(f"tf={tf}")
-        # Brave news has no documented date-sort parameter, so `ordering` is
-        # not applied (results stay relevance-ranked); only recency filtering
-        # via `tf` is honored. Date sort is a nice-to-have left for further
+        # Brave news has no documented date-sort parameter, so `sort` is not
+        # applied (results stay relevance-ranked); only recency filtering via
+        # `tf` is honored. Date sort is a nice-to-have left for further
         # exploration.
         return "https://search.brave.com/news?" + "&".join(params)
 
     def find_items(self, soup: BeautifulSoup) -> list[Tag]:
         return soup.select("div.snippet[data-type='news']")
 
-    def parse_item(self, item: Tag, topic: str) -> NewsEntry | None:
+    def parse(self, item: Tag, request: SearchRequest) -> NewsEntry | None:
         link = item.select_one("a[href]")
         title_el = item.select_one(".title")
         if link is None or title_el is None:
@@ -75,12 +74,21 @@ class BraveSource(SearchSource):
         snippet = snippet_el.get_text(" ", strip=True) if snippet_el else None
 
         return NewsEntry.create_new(
-            topic=topic,
+            topic=request.query,
             title=title,
             url=str(url).strip(),
             source=source,
             snippet=snippet or None,
         )
+
+
+class BraveSource(SearchSource):
+    name = "brave"
+    results_host = "brave.com"  # search.brave.com
+    results_path_prefix = "/news"
+
+    def _build_parsers(self) -> dict[SearchVertical, ResultParser]:
+        return {SearchVertical.NEWS: BraveNewsParser()}
 
     def detect_block(self, final_url: str, html: str) -> str | None:
         # When Brave flags/rate-limits traffic it serves a CAPTCHA interstitial.

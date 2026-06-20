@@ -3,6 +3,10 @@
 Each engine has a synthetic fixture mirroring its real result markup. These
 guard our parsing logic against regressions; the *runtime* selector-rot
 detection (parse-0 health signal) covers an engine changing its markup live.
+
+URL/selector/parse logic now lives on a per-vertical ``ResultParser`` reached
+via ``source.parser_for(vertical)``; block/redirect detection stays on the
+``SearchSource``.
 """
 
 from bs4 import BeautifulSoup
@@ -13,6 +17,8 @@ from scraper.sources import (
     GoogleSource,
     Ordering,
     Recency,
+    SearchRequest,
+    SearchVertical,
     YahooSource,
 )
 
@@ -20,6 +26,18 @@ _GOOGLE = GoogleSource()
 _BING = BingSource()
 _YAHOO = YahooSource()
 _BRAVE = BraveSource()
+
+# News-vertical parsers (the only vertical implemented today).
+_NEWS = SearchVertical.NEWS
+_GOOGLE_NEWS = _GOOGLE.parser_for(_NEWS)
+_BING_NEWS = _BING.parser_for(_NEWS)
+_YAHOO_NEWS = _YAHOO.parser_for(_NEWS)
+_BRAVE_NEWS = _BRAVE.parser_for(_NEWS)
+
+
+def _req(query, **kwargs):
+    return SearchRequest(query=query, **kwargs)
+
 
 _FIXTURE = """
 <html><body>
@@ -45,7 +63,7 @@ def _soup(html):
 
 
 def _items(html=_FIXTURE):
-    return _GOOGLE.find_items(_soup(html))
+    return _GOOGLE_NEWS.find_items(_soup(html))
 
 
 def test_find_news_items_finds_all():
@@ -53,7 +71,7 @@ def test_find_news_items_finds_all():
 
 
 def test_parse_unwraps_google_redirect_and_extracts_fields():
-    entry = _GOOGLE.parse_item(_items()[0], topic="spacex")
+    entry = _GOOGLE_NEWS.parse(_items()[0], _req("spacex"))
     assert entry is not None
     assert entry.title == "Starship clears static-fire test"
     assert entry.url == "https://www.spacenews.com/article-1"  # /url?q= unwrapped
@@ -67,13 +85,13 @@ def test_parse_unwraps_google_redirect_and_extracts_fields():
 
 
 def test_google_snippet_none_when_only_title_and_source():
-    entry = _GOOGLE.parse_item(_items()[1], topic="bitcoin")  # no snippet div
+    entry = _GOOGLE_NEWS.parse(_items()[1], _req("bitcoin"))  # no snippet div
     assert entry is not None
     assert entry.snippet is None
 
 
 def test_parse_direct_url():
-    entry = _GOOGLE.parse_item(_items()[1], topic="bitcoin")
+    entry = _GOOGLE_NEWS.parse(_items()[1], _req("bitcoin"))
     assert entry is not None
     assert entry.url == "https://coindesk.com/story-2"
     assert entry.domain == "coindesk.com"
@@ -83,24 +101,24 @@ def test_parse_resolves_relative_url():
     html = (
         '<div class="WCv1we"><a href="/foo/bar"><div role="heading">T</div></a></div>'
     )
-    entry = _GOOGLE.parse_item(_items(html)[0], topic="t")
+    entry = _GOOGLE_NEWS.parse(_items(html)[0], _req("t"))
     assert entry is not None
     assert entry.url == "https://www.google.com/foo/bar"
 
 
 def test_parse_returns_none_without_title():
     html = '<div class="WCv1we"><a href="https://x.com/a"></a></div>'
-    assert _GOOGLE.parse_item(_items(html)[0], topic="t") is None
+    assert _GOOGLE_NEWS.parse(_items(html)[0], _req("t")) is None
 
 
 def test_parse_returns_none_without_url():
     html = '<div class="WCv1we"><div role="heading">Title only</div></div>'
-    assert _GOOGLE.parse_item(_items(html)[0], topic="t") is None
+    assert _GOOGLE_NEWS.parse(_items(html)[0], _req("t")) is None
 
 
 def test_build_url_default_is_date_past_hour():
-    url = _GOOGLE.build_url(
-        "us iran", ordering=Ordering.DATE, recency=Recency.HOUR, page=1
+    url = _GOOGLE_NEWS.build_url(
+        _req("us iran", sort=Ordering.DATE, recency=Recency.HOUR, page=1)
     )
     assert "tbm=nws" in url
     assert "sbd:1" in url and "qdr:h" in url and "nsd:1" in url
@@ -109,8 +127,8 @@ def test_build_url_default_is_date_past_hour():
 
 
 def test_build_url_relevance_drops_sort_by_date():
-    url = _GOOGLE.build_url(
-        "x", ordering=Ordering.RELEVANCE, recency=Recency.DAY, page=2
+    url = _GOOGLE_NEWS.build_url(
+        _req("x", sort=Ordering.RELEVANCE, recency=Recency.DAY, page=2)
     )
     assert "sbd:1" not in url
     assert "qdr:d" in url
@@ -118,8 +136,26 @@ def test_build_url_relevance_drops_sort_by_date():
 
 
 def test_build_url_any_recency_drops_date_range():
-    url = _GOOGLE.build_url("x", ordering=Ordering.DATE, recency=Recency.ANY, page=1)
+    url = _GOOGLE_NEWS.build_url(
+        _req("x", sort=Ordering.DATE, recency=Recency.ANY, page=1)
+    )
     assert "qdr:" not in url
+
+
+def test_request_defaults_are_date_past_hour_news():
+    # The canonical request defaults mirror the live pipeline.
+    req = SearchRequest("x")
+    assert req.sort is Ordering.DATE
+    assert req.recency is Recency.HOUR
+    assert req.vertical is SearchVertical.NEWS
+    assert req.page == 1
+
+
+def test_unsupported_vertical_raises():
+    import pytest
+
+    with pytest.raises(ValueError):
+        _GOOGLE.parser_for(SearchVertical.WEB)
 
 
 # --- Bing -----------------------------------------------------------------
@@ -145,7 +181,7 @@ _BING_FIXTURE = """
 
 
 def _bing_items(html=_BING_FIXTURE):
-    return _BING.find_items(_soup(html))
+    return _BING_NEWS.find_items(_soup(html))
 
 
 def test_bing_find_items():
@@ -153,7 +189,7 @@ def test_bing_find_items():
 
 
 def test_bing_parse_from_card_attributes():
-    entry = _BING.parse_item(_bing_items()[0], topic="bitcoin")
+    entry = _BING_NEWS.parse(_bing_items()[0], _req("bitcoin"))
     assert entry is not None
     assert entry.title == "Economist reveals next Bitcoin target"
     assert entry.url == "https://www.thestreet.com/crypto/x"
@@ -166,12 +202,12 @@ def test_bing_parse_from_card_attributes():
 
 def test_bing_parse_returns_none_without_url():
     html = '<div class="newsitem" data-title="No url"></div>'
-    assert _BING.parse_item(_bing_items(html)[0], topic="t") is None
+    assert _BING_NEWS.parse(_bing_items(html)[0], _req("t")) is None
 
 
 def test_bing_build_url_date_and_recency():
-    url = _BING.build_url(
-        "us iran", ordering=Ordering.DATE, recency=Recency.DAY, page=2
+    url = _BING_NEWS.build_url(
+        _req("us iran", sort=Ordering.DATE, recency=Recency.DAY, page=2)
     )
     assert "q=us+iran" in url
     assert 'sortbydate%3d"1"' in url  # date sort as a qft token
@@ -182,7 +218,9 @@ def test_bing_build_url_date_and_recency():
 def test_bing_build_url_hour_is_past_hour_interval():
     # Past hour is interval "4" (not "7" = past 24h); this is the window the
     # live pipeline actually uses.
-    url = _BING.build_url("x", ordering=Ordering.DATE, recency=Recency.HOUR, page=1)
+    url = _BING_NEWS.build_url(
+        _req("x", sort=Ordering.DATE, recency=Recency.HOUR, page=1)
+    )
     assert 'interval%3d"4"' in url
 
 
@@ -217,7 +255,7 @@ _YAHOO_FIXTURE = """
 
 
 def _yahoo_items(html=_YAHOO_FIXTURE):
-    return _YAHOO.find_items(_soup(html))
+    return _YAHOO_NEWS.find_items(_soup(html))
 
 
 def test_yahoo_find_items():
@@ -225,7 +263,7 @@ def test_yahoo_find_items():
 
 
 def test_yahoo_unwraps_redirect_and_extracts_fields():
-    entry = _YAHOO.parse_item(_yahoo_items()[0], topic="bitcoin")
+    entry = _YAHOO_NEWS.parse(_yahoo_items()[0], _req("bitcoin"))
     assert entry is not None
     assert entry.title == "Bitcoin bottom signal flashes"
     assert entry.url == "https://www.coindesk.com/markets/story"
@@ -237,16 +275,16 @@ def test_yahoo_unwraps_redirect_and_extracts_fields():
 
 
 def test_yahoo_cleans_source_suffix():
-    entry = _YAHOO.parse_item(_yahoo_items()[1], topic="t")
+    entry = _YAHOO_NEWS.parse(_yahoo_items()[1], _req("t"))
     assert entry is not None
     assert entry.source == "BeInCrypto"  # "· via Yahoo Finance" stripped
 
 
 def test_yahoo_build_url_query_and_offset():
-    # Yahoo has no reliable date-sort/freshness param, so ordering/recency are
+    # Yahoo has no reliable date-sort/freshness param, so sort/recency are
     # intentionally not reflected in the URL (engine-default ranking).
-    url = _YAHOO.build_url(
-        "us iran", ordering=Ordering.DATE, recency=Recency.DAY, page=2
+    url = _YAHOO_NEWS.build_url(
+        _req("us iran", sort=Ordering.DATE, recency=Recency.DAY, page=2)
     )
     assert "p=us+iran" in url
     assert "b=11" in url  # page 2 -> 1-based offset 11
@@ -283,7 +321,7 @@ _BRAVE_FIXTURE = """
 
 
 def _brave_items(html=_BRAVE_FIXTURE):
-    return _BRAVE.find_items(_soup(html))
+    return _BRAVE_NEWS.find_items(_soup(html))
 
 
 def test_brave_find_items():
@@ -291,7 +329,7 @@ def test_brave_find_items():
 
 
 def test_brave_extracts_title_url_and_source():
-    entry = _BRAVE.parse_item(_brave_items()[0], topic="bitcoin")
+    entry = _BRAVE_NEWS.parse(_brave_items()[0], _req("bitcoin"))
     assert entry is not None
     assert entry.title == "BlackRock launches bitcoin income fund"
     assert entry.url == "https://www.coindesk.com/markets/story"
@@ -302,12 +340,12 @@ def test_brave_extracts_title_url_and_source():
 
 def test_brave_returns_none_without_title():
     html = '<div class="snippet" data-type="news"><a href="https://x.com/a">x</a></div>'
-    assert _BRAVE.parse_item(_brave_items(html)[0], topic="t") is None
+    assert _BRAVE_NEWS.parse(_brave_items(html)[0], _req("t")) is None
 
 
 def test_brave_build_url_recency_and_offset():
-    url = _BRAVE.build_url(
-        "us iran", ordering=Ordering.DATE, recency=Recency.WEEK, page=2
+    url = _BRAVE_NEWS.build_url(
+        _req("us iran", sort=Ordering.DATE, recency=Recency.WEEK, page=2)
     )
     assert "q=us+iran" in url
     assert "tf=pw" in url  # week

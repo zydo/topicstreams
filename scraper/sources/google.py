@@ -4,15 +4,21 @@ Scrapes Google Search's News tab (https://google.com/search?tbm=nws), NOT the
 Google News site. Results are paginated (~10 per page).
 """
 
-import re
-
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
 from common.config import anti_detection_config
 from common.model import NewsEntry
 
-from .base import Ordering, Recency, SearchSource
+from .base import (
+    Ordering,
+    Recency,
+    ResultParser,
+    SearchRequest,
+    SearchSource,
+    SearchVertical,
+    format_query,
+)
 
 # Google's "query date range" (qdr) codes.
 _RECENCY_QDR = {
@@ -32,33 +38,27 @@ _ITEM_SELECTORS = (
 )
 
 
-class GoogleSource(SearchSource):
-    name = "google"
+class GoogleNewsParser(ResultParser):
     ready_selector = "#search, #rso, div[data-sokoban-container]"
-    results_host = "google.com"
-    results_path_prefix = "/search"  # a block redirects to /sorry/
 
-    def build_url(
-        self, topic: str, *, ordering: Ordering, recency: Recency, page: int
-    ) -> str:
-        formatted_topic = re.sub(r"\s+", "+", topic.strip())
-        start = (page - 1) * 10  # 10 results per Google result page
+    def build_url(self, request: SearchRequest) -> str:
+        start = (request.page - 1) * 10  # 10 results per Google result page
 
         # tbs ("to be sorted") flags:
         #   sbd:1  - sort by date (newest first); omitted for relevance ordering
         #   qdr:X  - query date range (h/d/w/m); omitted for "any"
         #   nsd:1  - show the same news from different sources
         tbs = []
-        if ordering is Ordering.DATE:
+        if request.sort is Ordering.DATE:
             tbs.append("sbd:1")
-        qdr = _RECENCY_QDR.get(recency)
+        qdr = _RECENCY_QDR.get(request.recency)
         if qdr:
             tbs.append(f"qdr:{qdr}")
         tbs.append("nsd:1")
 
         return (
             "https://www.google.com/search?tbm=nws"
-            f"&tbs={','.join(tbs)}&start={start}&q={formatted_topic}"
+            f"&tbs={','.join(tbs)}&start={start}&q={format_query(request.query)}"
         )
 
     def find_items(self, soup: BeautifulSoup) -> list[Tag]:
@@ -68,7 +68,7 @@ class GoogleSource(SearchSource):
                 return items
         return []
 
-    def parse_item(self, item: Tag, topic: str) -> NewsEntry | None:
+    def parse(self, item: Tag, request: SearchRequest) -> NewsEntry | None:
         title = self._get_title(item)
         if not title:
             return None
@@ -77,7 +77,7 @@ class GoogleSource(SearchSource):
             return None
         source = self._get_source(item)
         return NewsEntry.create_new(
-            topic=topic,
+            topic=request.query,
             title=title,
             url=url,
             source=source,
@@ -131,6 +131,15 @@ class GoogleSource(SearchSource):
                 continue
             best = text
         return best or None
+
+
+class GoogleSource(SearchSource):
+    name = "google"
+    results_host = "google.com"
+    results_path_prefix = "/search"  # a block redirects to /sorry/
+
+    def _build_parsers(self) -> dict[SearchVertical, ResultParser]:
+        return {SearchVertical.NEWS: GoogleNewsParser()}
 
     def detect_block(self, final_url: str, html: str) -> str | None:
         # The definitive signal is the /sorry/ redirect; keyword matching alone

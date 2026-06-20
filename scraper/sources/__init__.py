@@ -4,7 +4,14 @@ Add a new engine by implementing ``SearchSource`` (see ``base.py``) and
 registering it in ``_SOURCES``.
 """
 
-from .base import Ordering, Recency, SearchSource
+from .base import (
+    Ordering,
+    Recency,
+    ResultParser,
+    SearchRequest,
+    SearchSource,
+    SearchVertical,
+)
 from .bing import BingSource
 from .brave import BraveSource
 from .google import GoogleSource
@@ -39,5 +46,8 @@ __all__ = [
     "BraveSource",
     "Ordering",
     "Recency",
+    "ResultParser",
+    "SearchRequest",
+    "SearchVertical",
     "get_source",
 ]

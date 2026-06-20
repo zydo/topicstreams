@@ -13,34 +13,34 @@ from bs4.element import Tag
 
 from common.model import NewsEntry
 
-from .base import Ordering, Recency, SearchSource
+from .base import (
+    ResultParser,
+    SearchRequest,
+    SearchSource,
+    SearchVertical,
+    format_query,
+)
 
 # The real destination is URL-encoded between ``/RU=`` and the next ``/``.
 _REDIRECT_RE = re.compile(r"/RU=([^/]+)/")
 
 
-class YahooSource(SearchSource):
-    name = "yahoo"
+class YahooNewsParser(ResultParser):
     ready_selector = "ol.searchCenterMiddle, #web"
-    results_host = "yahoo.com"  # news.search.yahoo.com
-    results_path_prefix = "/search"
 
-    def build_url(
-        self, topic: str, *, ordering: Ordering, recency: Recency, page: int
-    ) -> str:
-        q = re.sub(r"\s+", "+", topic.strip())
+    def build_url(self, request: SearchRequest) -> str:
         # Yahoo paginates by 1-based result offset (b=1, 11, 21, ...).
-        b = (page - 1) * 10 + 1
+        b = (request.page - 1) * 10 + 1
         # Yahoo news search exposes no reliable date-sort or freshness
-        # parameter, so `ordering`/`recency` are not applied here (results are
+        # parameter, so `sort`/`recency` are not applied here (results are
         # engine-default ranked). Date sort is a nice-to-have left for further
         # exploration; a short scrape interval keeps the feed fresh regardless.
-        return f"https://news.search.yahoo.com/search?p={q}&b={b}"
+        return f"https://news.search.yahoo.com/search?p={format_query(request.query)}&b={b}"
 
     def find_items(self, soup: BeautifulSoup) -> list[Tag]:
         return soup.select("ol.searchCenterMiddle li")
 
-    def parse_item(self, item: Tag, topic: str) -> NewsEntry | None:
+    def parse(self, item: Tag, request: SearchRequest) -> NewsEntry | None:
         link = item.select_one("h4.s-title a") or item.select_one("h4 a")
         if link is None:
             return None
@@ -62,12 +62,21 @@ class YahooSource(SearchSource):
         snippet = desc_el.get_text(" ", strip=True) if desc_el else None
 
         return NewsEntry.create_new(
-            topic=topic,
+            topic=request.query,
             title=title,
             url=url.strip(),
             source=source,
             snippet=snippet or None,
         )
+
+
+class YahooSource(SearchSource):
+    name = "yahoo"
+    results_host = "yahoo.com"  # news.search.yahoo.com
+    results_path_prefix = "/search"
+
+    def _build_parsers(self) -> dict[SearchVertical, ResultParser]:
+        return {SearchVertical.NEWS: YahooNewsParser()}
 
     def detect_block(self, final_url: str, html: str) -> str | None:
         del final_url, html  # no body signal to inspect; see below
