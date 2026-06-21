@@ -12,9 +12,9 @@ The engine-specific parts of scraping split along two axes so the runner
 A request is described canonically by ``SearchRequest`` (modeled on Google's
 search params, the most expressive). Each engine's parser maps the canonical
 request onto its own URL and silently drops dimensions it can't express (e.g.
-Yahoo has no date sort). Today only the NEWS vertical is implemented;
-``SearchVertical.WEB`` is reserved so a general web-search parser can slot in
-without touching this contract.
+Yahoo has no date sort). Both the NEWS and WEB verticals are implemented for
+every engine; a parser slots in per (engine × vertical) without touching this
+contract.
 """
 
 import re
@@ -44,8 +44,9 @@ class Recency(str, Enum):
 
 class SearchVertical(str, Enum):
     NEWS = "news"
-    # Reserved extension point: no engine implements a web parser yet. Adding one
-    # is a new ResultParser plus one line in that engine's _build_parsers.
+    # General web search. Implemented for all engines (Google/Bing/Yahoo/Brave);
+    # adding it to another engine is a new ResultParser plus one line in that
+    # engine's _build_parsers.
     WEB = "web"
 
 
@@ -68,6 +69,42 @@ class SearchRequest:
 def format_query(query: str) -> str:
     """Collapse whitespace to '+' for a URL query value ('us iran' → 'us+iran')."""
     return re.sub(r"\s+", "+", query.strip())
+
+
+# ── Shared WEB-vertical helpers (used by every engine's web parser) ───────────
+
+# Social / forum / blogging hosts whose result cards are discussions, not news.
+# Matched against the registrable host and any subdomain (e.g. user.medium.com).
+DISCUSSION_DOMAINS = frozenset(
+    {
+        "reddit.com",
+        "x.com",
+        "twitter.com",
+        "medium.com",
+        "facebook.com",
+        "tiktok.com",
+        "threads.com",
+        "threads.net",
+        "instagram.com",
+        "linkedin.com",
+        "quora.com",
+        "substack.com",
+        "stackexchange.com",
+        "stackoverflow.com",
+        "ycombinator.com",
+    }
+)
+
+
+def domain_of(url: str) -> str:
+    """Registrable host of a URL, lowercased and without a leading ``www.``."""
+    host = urlsplit(url).netloc.lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def is_discussion(domain: str) -> bool:
+    """True if ``domain`` is (a subdomain of) a known social/forum host."""
+    return any(domain == d or domain.endswith("." + d) for d in DISCUSSION_DOMAINS)
 
 
 class ResultParser(ABC):

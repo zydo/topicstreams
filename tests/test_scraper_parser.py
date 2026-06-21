@@ -154,9 +154,21 @@ def test_request_defaults_are_date_past_hour_news():
 def test_unsupported_vertical_raises():
     import pytest
 
-    # Bing implements only the news vertical; asking for web is a ValueError.
+    from scraper.sources.base import ResultParser, SearchSource
+
+    # All real engines now support both verticals, so use a throwaway source that
+    # supports only NEWS to exercise the unsupported-vertical contract.
+    class _NewsOnlySource(SearchSource):
+        name = "newsonly"
+
+        def _build_parsers(self):
+            return {SearchVertical.NEWS: _BRAVE_NEWS}
+
+        def detect_block(self, final_url, html):
+            return None
+
     with pytest.raises(ValueError):
-        _BING.parser_for(SearchVertical.WEB)
+        _NewsOnlySource().parser_for(SearchVertical.WEB)
 
 
 # --- Google WEB vertical --------------------------------------------------
@@ -620,3 +632,449 @@ def test_redirect_check_flags_off_path_and_foreign_host():
     assert _YAHOO.redirected_off_results("https://login.yahoo.com/account")
     # Entirely different host.
     assert _BRAVE.redirected_off_results("https://challenge.example.com/news?q=x")
+
+
+# --- Bing WEB vertical -----------------------------------------------------
+
+_BING_WEB = _BING.parser_for(SearchVertical.WEB)
+
+# Mirrors the real bing.com/search?q= DOM (captured live, 2026-06-21). Bing's web
+# SERP is cleaner than Google's: organic results are a stable li.b_algo list and
+# news-pack cards carry a class-marked anchor (a.nslite_card_link). Every result
+# href is wrapped in a /ck/a?...&u=a1<base64> redirect — the real URL is base64
+# in u=. We parse only the two reliably-followable, text-bearing kinds — organic
+# and news cards — and deliberately drop the rest (see BING_WEB_SERP_PARSING.md):
+#   - the video pack: its tiles use a non-news class AND their u= decodes to a
+#     relative /videos/riverview player path, not a real source.
+#   - the #b_context "Deep dive" Copilot promo, the l_genai generative answer, ads.
+# The CNN card appears in BOTH the news pack and the organic list -> deduped.
+_CK = "https://www.bing.com/ck/a?!&&p=abc&u=a1"
+_BING_WEB_FIXTURE = """
+<html><body>
+  <ol id="b_results">
+    <li class="b_ad b_adTop"><div class="sb_add"><h2><a href="%(ck)saHR0cHM6Ly9hZHMuZXhhbXBsZS5jb20v">Buy Iran tickets</a></h2></div></li>
+    <li class="b_ans b_top b_topborder"><h2>News about US Iran</h2>
+      <div class="b_slidesContainer">
+        <a class="nslite_card_link" href="%(ck)saHR0cHM6Ly93d3cubmJjbmV3cy5jb20vd29ybGQvaXJhbi9zdG9yeQ=="
+           title="· 3h US and Iran set to meet for talks in Switzerland"></a>
+        <a class="nslist_card_link" href="%(ck)saHR0cHM6Ly93d3cucmVkZGl0LmNvbS9yL3dvcmxkbmV3cy9wb3N0"
+           title="· 45m · on MSN Reddit megathread on the Strait of Hormuz"></a>
+        <a class="nslite_card_link" href="%(ck)saHR0cHM6Ly93d3cuY25uLmNvbS8yMDI2LzA2LzIwL3dvcmxkL3N0cmFpdA=="
+           title="· 2h CNN duplicate of the organic result"></a>
+      </div>
+    </li>
+    <li class="b_algo">
+      <h2><a href="%(ck)saHR0cHM6Ly93d3cuY25uLmNvbS8yMDI2LzA2LzIwL3dvcmxkL3N0cmFpdA==">Iran and US make opposing claims on Strait of Hormuz</a></h2>
+      <div class="b_tpcn"><div class="tptt">CNN</div></div>
+      <div class="b_caption"><p>2 hours ago. The US military denied Iran's claim.</p></div>
+    </li>
+    <li class="b_algo">
+      <h2><a href="%(ck)saHR0cHM6Ly9lbi53aWtpcGVkaWEub3JnL3dpa2kvMjAyNl9JcmFuX3dhcg==">2026 Iran war</a></h2>
+      <div class="b_tpcn"><div class="tptt">Wikipedia</div></div>
+    </li>
+    <li class="b_ans b_mop b_vidAns"><h2>Videos of US Iran</h2>
+      <div class="mc_vtvc"><a class="mc_vtvc_link" href="%(ck)saHR0cHM6Ly93d3cuYmluZy5jb20vdmlkZW9zL3JpdmVydmlldy9yZWxhdGVkdmlkZW8/cT11cytpcmFu"
+        title="· 1d Strait of Hormuz explained"></a></div>
+    </li>
+    <li class="b_pag"></li>
+  </ol>
+  <div id="b_context">
+    <div class="b_acard"><h2>Deep dive into us iran</h2>
+      <div class="copans_container"><div class="l_genaibdy"><p>Tensions between the US and Iran...</p></div></div>
+    </div>
+  </div>
+</body></html>
+""" % {
+    "ck": _CK
+}
+
+
+def _bing_web_entries(html=_BING_WEB_FIXTURE):
+    return [
+        e
+        for e in (
+            _BING_WEB.parse(it, _req("us iran"))
+            for it in _BING_WEB.find_items(_soup(html))
+        )
+        if e is not None
+    ]
+
+
+def _bing_by_kind(kind):
+    return [e for e in _bing_web_entries() if e.kind is kind]
+
+
+def test_bing_source_supports_web_vertical():
+    assert SearchVertical.WEB in _BING.verticals
+
+
+def test_bing_web_parses_organic_and_news_only():
+    from collections import Counter
+
+    # 2 organic + 1 top_story (NBC) + 1 discussion (Reddit). CNN news card is a
+    # dup of the CNN organic. The ad, video pack, and #b_context are all dropped.
+    counts = Counter(e.kind for e in _bing_web_entries())
+    assert dict(counts) == {
+        WebResultKind.ORGANIC: 2,
+        WebResultKind.TOP_STORY: 1,
+        WebResultKind.DISCUSSION: 1,
+    }
+
+
+def test_bing_web_organic_decodes_redirect_and_extracts_fields():
+    cnn = _bing_by_kind(WebResultKind.ORGANIC)[0]
+    assert cnn.title == "Iran and US make opposing claims on Strait of Hormuz"
+    assert cnn.url == "https://www.cnn.com/2026/06/20/world/strait"  # ck/a decoded
+    assert cnn.domain == "cnn.com"
+    assert cnn.source == "CNN"  # .tptt publisher name
+    assert cnn.snippet == "2 hours ago. The US military denied Iran's claim."
+
+
+def test_bing_web_organic_snippet_optional():
+    wiki = _bing_by_kind(WebResultKind.ORGANIC)[1]
+    assert wiki.domain == "en.wikipedia.org"
+    assert wiki.snippet is None
+
+
+def test_bing_web_news_card_strips_age_meta_and_sets_source_by_host():
+    nbc = _bing_by_kind(WebResultKind.TOP_STORY)[0]
+    # The leading "· 3h " age stamp is stripped from the headline.
+    assert nbc.title == "US and Iran set to meet for talks in Switzerland"
+    assert nbc.url == "https://www.nbcnews.com/world/iran/story"
+    assert nbc.domain == "nbcnews.com"
+
+
+def test_bing_web_discussion_split_by_host():
+    # A reddit card in the news pack is a DISCUSSION (and "· 45m · on MSN" meta stripped).
+    disc = _bing_by_kind(WebResultKind.DISCUSSION)
+    assert [d.domain for d in disc] == ["reddit.com"]
+    assert disc[0].title == "Reddit megathread on the Strait of Hormuz"
+
+
+def test_bing_web_drops_video_pack_internal_links():
+    # The video card's u= decodes to a bing.com/videos player -> not a real source.
+    assert all("bing.com" not in (e.domain or "") for e in _bing_web_entries())
+
+
+def test_bing_web_drops_ads_and_deep_dive_promo():
+    titles = [e.title for e in _bing_web_entries()]
+    assert "Buy Iran tickets" not in titles
+    assert all("Deep dive" not in t for t in titles)
+
+
+def test_bing_web_dedupes_url_across_news_and_organic():
+    # cnn.com appears in both the news pack and the organic list -> once only.
+    assert sum(e.domain == "cnn.com" for e in _bing_web_entries()) == 1
+
+
+def test_bing_web_build_url_is_raw_query_only():
+    url = _BING_WEB.build_url(_req("us iran", sort=Ordering.DATE, recency=Recency.HOUR))
+    assert url == "https://www.bing.com/search?q=us+iran"
+
+
+def test_bing_web_build_url_pagination_adds_first_only():
+    url = _BING_WEB.build_url(_req("us iran", page=3))
+    assert url == "https://www.bing.com/search?q=us+iran&first=21"
+    assert "qft=" not in url
+
+
+def test_bing_real_url_decoding_and_rejection():
+    from scraper.sources.bing import _bing_real_url
+
+    ck = _CK + "aHR0cHM6Ly93d3cuY25uLmNvbS8yMDI2LzA2LzIwL3dvcmxkL3N0cmFpdA=="
+    assert _bing_real_url(ck) == "https://www.cnn.com/2026/06/20/world/strait"
+    # A direct absolute href passes straight through.
+    assert _bing_real_url("https://example.com/x") == "https://example.com/x"
+    # Relative chrome links and Bing-internal destinations are rejected.
+    assert (
+        _bing_real_url(_CK + "L3ZpZGVvcy9yaXZlcnZpZXc=") is None
+    )  # "/videos/riverview"
+    assert _bing_real_url("https://www.bing.com/videos/riverview?q=x") is None
+    assert _bing_real_url(None) is None
+
+
+# --- Yahoo WEB vertical ----------------------------------------------------
+
+_YAHOO_WEB = _YAHOO.parser_for(SearchVertical.WEB)
+
+# Mirrors the real search.yahoo.com/search?p= DOM (captured live, 2026-06-21).
+# Yahoo's web SERP has one clean signal — the organic div.algo list — so the
+# parser keeps ONLY organic results (see YAHOO_WEB_SERP_PARSING.md). Each carries
+# a *direct* destination URL (no redirect wrapper), a title in div.compTitle a h3,
+# the brand in the breadcrumb (text before the URL), and a snippet in .compText.
+# Excluded: ads (data-matarget="ad" reusing the algo markup), the yahoo.com/news
+# carousel (Yahoo-internal aggregator), and the right rail. Reuters appears twice
+# -> deduped by URL.
+_YAHOO_WEB_FIXTURE = """
+<html><body>
+  <div id="web"><ol class="searchCenterMiddle">
+    <li><div class="algo">
+      <div class="compTitle"><a class="d-ib" data-matarget="algo" href="https://www.reuters.com/world/iran/">
+        <div class="p-abs"><span class="fc-141414">Reuters</span><span>https://www.reuters.com &#8250; world &#8250; iran</span></div>
+        <h3 class="title">Iran War: Latest Breaking News</h3></a></div>
+      <div class="compText"><p>Real-time Reuters coverage of the Iran war.</p></div>
+    </div></li>
+    <li><div class="algo">
+      <div class="compTitle"><a data-matarget="algo" href="https://www.reuters.com/world/iran/">
+        <div class="p-abs"><span>Reuters</span><span>https://www.reuters.com</span></div>
+        <h3 class="title">Reuters duplicate of the first result</h3></a></div>
+    </div></li>
+    <li><div class="algo">
+      <div class="compTitle"><a data-matarget="algo" href="https://en.wikipedia.org/wiki/2026_Iran_war">
+        <div class="p-abs"><span>Wikipedia</span><span>https://en.wikipedia.org &#8250; wiki</span></div>
+        <h3 class="title">2026 Iran war</h3></a></div>
+    </div></li>
+    <li class="ads"><div class="algo">
+      <div class="compTitle"><a data-matarget="ad" href="https://ads.example.com/iran">
+        <h3 class="title">Buy Iran tickets</h3></a></div>
+    </div></li>
+  </ol></div>
+  <div class="dd tn-carousel sys_news_auto"><h3 class="title">Top Stories</h3>
+    <ul><li><a href="https://www.yahoo.com/news/articles/us-iran-talks-123.html"
+      title="US-Iran peace talks to begin">Reuters via Yahoo</a></li></ul>
+  </div>
+  <div id="right"><div class="dd disambiguation"><h2>See results about</h2>
+    <p>Ongoing armed conflict in West Asia</p></div></div>
+</body></html>
+"""
+
+
+def _yahoo_web_entries(html=_YAHOO_WEB_FIXTURE):
+    return [
+        e
+        for e in (
+            _YAHOO_WEB.parse(it, _req("us iran"))
+            for it in _YAHOO_WEB.find_items(_soup(html))
+        )
+        if e is not None
+    ]
+
+
+def test_yahoo_source_supports_web_vertical():
+    assert SearchVertical.WEB in _YAHOO.verticals
+
+
+def test_yahoo_web_parses_only_organic():
+    from collections import Counter
+
+    # 2 organic (Reuters once after dedup + Wikipedia). Ad, news carousel, and
+    # right rail are all excluded.
+    counts = Counter(e.kind for e in _yahoo_web_entries())
+    assert dict(counts) == {WebResultKind.ORGANIC: 2}
+
+
+def test_yahoo_web_organic_has_direct_url_title_source_snippet():
+    reuters = _yahoo_web_entries()[0]
+    assert reuters.title == "Iran War: Latest Breaking News"
+    assert reuters.url == "https://www.reuters.com/world/iran/"  # direct, no redirect
+    assert reuters.domain == "reuters.com"
+    assert reuters.source == "Reuters"  # brand from the breadcrumb, before the URL
+    assert reuters.snippet == "Real-time Reuters coverage of the Iran war."
+
+
+def test_yahoo_web_organic_snippet_optional():
+    wiki = _yahoo_web_entries()[1]
+    assert wiki.domain == "en.wikipedia.org"
+    assert wiki.snippet is None
+
+
+def test_yahoo_web_excludes_ads():
+    assert all(e.title != "Buy Iran tickets" for e in _yahoo_web_entries())
+    assert all("ads.example.com" not in (e.domain or "") for e in _yahoo_web_entries())
+
+
+def test_yahoo_web_excludes_news_carousel_and_right_rail():
+    # The yahoo.com/news carousel and the #right disambiguation list aren't results.
+    assert all("yahoo.com" not in (e.domain or "") for e in _yahoo_web_entries())
+    assert all("West Asia" not in (e.snippet or "") for e in _yahoo_web_entries())
+
+
+def test_yahoo_web_dedupes_by_url():
+    assert sum(e.domain == "reuters.com" for e in _yahoo_web_entries()) == 1
+
+
+def test_yahoo_web_build_url_is_raw_query_only():
+    url = _YAHOO_WEB.build_url(
+        _req("us iran", sort=Ordering.DATE, recency=Recency.HOUR)
+    )
+    assert url == "https://search.yahoo.com/search?p=us+iran"
+
+
+def test_yahoo_web_build_url_pagination_adds_offset_only():
+    url = _YAHOO_WEB.build_url(_req("us iran", page=3))
+    assert url == "https://search.yahoo.com/search?p=us+iran&b=21"
+
+
+# --- Brave WEB vertical ----------------------------------------------------
+
+_BRAVE_WEB = _BRAVE.parser_for(SearchVertical.WEB)
+
+# Mirrors the real search.brave.com/search?q= DOM (captured live, 2026-06-21).
+# Brave's web SERP is server-rendered and clean: every result is a div.snippet
+# tagged by a stable data-type, and every href is the DIRECT destination (no
+# redirect wrapper). We parse the three text-bearing, real-source kinds (see
+# BRAVE_WEB_SERP_PARSING.md):
+#   - KNOWLEDGE_PANEL: section#infobox entity description + its Wikipedia source.
+#   - ORGANIC: div.snippet[data-type="web"] (.title, a.l1, .site-name-content
+#     brand, .generic-snippet .content with a leading "N ago -" date stripped).
+#   - TOP_STORY / DISCUSSION: a.enrichment-card-item cards in the "In the News"
+#     data-type="cluster" carousel (direct publisher links), split by host.
+#   Excluded: ads (data-type="ad") and the weather widget (.rich-weather-content).
+# The CNN card appears in BOTH the cluster and the organic list -> deduped.
+_BRAVE_WEB_FIXTURE = """
+<html><body>
+  <section id="infobox" class="svelte-c7jm64">
+    <header><a class="title-link" href="https://en.wikipedia.org/wiki/Strait_of_Hormuz">Strait of Hormuz</a></header>
+    <section class="svelte-1adoobh">The Strait of Hormuz is a strait between the Persian Gulf and the Gulf of Oman. …
+      <a class="svelte-1adoobh" href="https://en.wikipedia.org/wiki/Strait_of_Hormuz">Wikipedia</a></section>
+  </section>
+  <div id="results">
+    <div class="snippet" data-type="ad" id="search-ad" data-headline-text="Buy Iran tickets"
+         data-landing-page="https://ads.example.com/iran"><a href="https://ads.example.com/iran">Buy Iran tickets</a></div>
+    <div class="snippet" data-type="web" data-pos="1">
+      <a class="l1" href="https://www.cnn.com/2026/06/20/world/strait" target="_self">
+        <div class="site-name-wrapper">
+          <div class="favicon-wrapper"><img class="favicon"/></div>
+          <div class="site-name-content">
+            <div class="t-secondary text-ellipsis">CNN</div>
+            <div class="url-wrapper"><cite class="snippet-url">cnn.com<span>&#8250; world</span></cite></div>
+          </div>
+        </div>
+        <div class="title search-snippet-title" title="Iran and US make opposing claims on Strait of Hormuz">Iran and US make opposing claims on Strait of Hormuz</div>
+      </a>
+      <div class="generic-snippet"><div class="content"><span class="t-secondary">2 hours ago -</span> The US military denied Iran's claim.</div></div>
+    </div>
+    <div class="snippet" data-type="web" data-pos="2">
+      <a class="l1" href="https://en.wikipedia.org/wiki/2026_Iran_war">
+        <div class="site-name-wrapper"><div class="site-name-content">
+          <div class="t-secondary">Wikipedia</div>
+          <div class="url-wrapper"><cite class="snippet-url">en.wikipedia.org</cite></div>
+        </div></div>
+        <div class="title" title="2026 Iran war">2026 Iran war</div>
+      </a>
+    </div>
+    <div class="snippet standalone" data-type="cluster" data-pos="3">
+      <h5>In the News</h5>
+      <div class="news-cluster-carousel"><div class="carousel-items">
+        <a class="enrichment-card-item" href="https://www.nbcnews.com/world/iran/story" rel="noopener" target="_blank">
+          <div class="enrichment-card-content">
+            <div class="enrichment-card-site"><img class="favicon"/><span>nbcnews.com</span></div>
+            <div class="t-secondary line-clamp-2">Iran says Strait of Hormuz is closed</div>
+          </div></a>
+        <a class="enrichment-card-item" href="https://www.reddit.com/r/worldnews/post" rel="noopener" target="_blank">
+          <div class="enrichment-card-content">
+            <div class="enrichment-card-site"><span>reddit.com</span></div>
+            <div class="line-clamp-2">Reddit megathread on the Strait of Hormuz</div>
+          </div></a>
+        <a class="enrichment-card-item" href="https://www.cnn.com/2026/06/20/world/strait" rel="noopener" target="_blank">
+          <div class="enrichment-card-content">
+            <div class="enrichment-card-site"><span>cnn.com</span></div>
+            <div class="line-clamp-2">CNN duplicate of the organic result</div>
+          </div></a>
+      </div></div>
+    </div>
+    <div class="rich-weather-content">San Jose, CA clear sky 59° F</div>
+  </div>
+</body></html>
+"""
+
+
+def _brave_web_entries(html=_BRAVE_WEB_FIXTURE):
+    return [
+        e
+        for e in (
+            _BRAVE_WEB.parse(it, _req("us iran"))
+            for it in _BRAVE_WEB.find_items(_soup(html))
+        )
+        if e is not None
+    ]
+
+
+def _brave_by_kind(kind):
+    return [e for e in _brave_web_entries() if e.kind is kind]
+
+
+def test_brave_source_supports_web_vertical():
+    assert SearchVertical.WEB in _BRAVE.verticals
+
+
+def test_brave_web_parses_panel_organic_and_news_only():
+    from collections import Counter
+
+    # knowledge_panel + 2 organic + 1 top_story (NBC) + 1 discussion (Reddit).
+    # CNN cluster card dups the CNN organic; the ad and weather widget are dropped.
+    counts = Counter(e.kind for e in _brave_web_entries())
+    assert dict(counts) == {
+        WebResultKind.KNOWLEDGE_PANEL: 1,
+        WebResultKind.ORGANIC: 2,
+        WebResultKind.TOP_STORY: 1,
+        WebResultKind.DISCUSSION: 1,
+    }
+
+
+def test_brave_web_knowledge_panel_first_with_description_and_source():
+    entries = _brave_web_entries()
+    assert entries[0].kind is WebResultKind.KNOWLEDGE_PANEL  # most-direct answer
+    kp = entries[0]
+    assert kp.snippet.startswith("The Strait of Hormuz is a strait")
+    assert "Wikipedia" not in kp.snippet  # trailing attribution stripped
+    assert kp.domain == "en.wikipedia.org"
+    assert kp.source == "Wikipedia"
+
+
+def test_brave_web_organic_has_direct_url_title_source_snippet():
+    cnn = _brave_by_kind(WebResultKind.ORGANIC)[0]
+    assert cnn.title == "Iran and US make opposing claims on Strait of Hormuz"
+    assert (
+        cnn.url == "https://www.cnn.com/2026/06/20/world/strait"
+    )  # direct, no redirect
+    assert cnn.domain == "cnn.com"
+    assert cnn.source == "CNN"  # brand from .site-name-content
+    # The leading "2 hours ago -" date span is stripped from the snippet.
+    assert cnn.snippet == "The US military denied Iran's claim."
+
+
+def test_brave_web_organic_snippet_optional():
+    wiki = _brave_by_kind(WebResultKind.ORGANIC)[1]
+    assert wiki.domain == "en.wikipedia.org"
+    assert wiki.snippet is None
+
+
+def test_brave_web_news_card_extracts_headline_and_source_by_host():
+    nbc = _brave_by_kind(WebResultKind.TOP_STORY)[0]
+    assert nbc.title == "Iran says Strait of Hormuz is closed"
+    assert nbc.url == "https://www.nbcnews.com/world/iran/story"
+    assert nbc.domain == "nbcnews.com"
+    assert nbc.source == "nbcnews.com"  # the card's site label
+
+
+def test_brave_web_discussion_split_by_host():
+    # A reddit card in the news cluster is a DISCUSSION, not a TOP_STORY.
+    disc = _brave_by_kind(WebResultKind.DISCUSSION)
+    assert [d.domain for d in disc] == ["reddit.com"]
+    assert disc[0].title == "Reddit megathread on the Strait of Hormuz"
+
+
+def test_brave_web_drops_ads_and_weather_widget():
+    titles = [e.title for e in _brave_web_entries()]
+    assert "Buy Iran tickets" not in titles
+    assert all("ads.example.com" not in (e.domain or "") for e in _brave_web_entries())
+    assert all("clear sky" not in (e.snippet or "") for e in _brave_web_entries())
+
+
+def test_brave_web_dedupes_url_across_cluster_and_organic():
+    # cnn.com appears in both the cluster and the organic list -> once only.
+    assert sum(e.domain == "cnn.com" for e in _brave_web_entries()) == 1
+
+
+def test_brave_web_build_url_is_raw_query_only():
+    url = _BRAVE_WEB.build_url(
+        _req("us iran", sort=Ordering.DATE, recency=Recency.HOUR)
+    )
+    assert url == "https://search.brave.com/search?q=us+iran"
+
+
+def test_brave_web_build_url_pagination_adds_offset_only():
+    url = _BRAVE_WEB.build_url(_req("us iran", page=3))
+    assert url == "https://search.brave.com/search?q=us+iran&offset=2"
+    assert "tf=" not in url

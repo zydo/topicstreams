@@ -7,7 +7,6 @@ are paginated (~10 per page).
 """
 
 import re
-from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
@@ -22,7 +21,9 @@ from .base import (
     SearchRequest,
     SearchSource,
     SearchVertical,
+    domain_of as _domain_of,
     format_query,
+    is_discussion as _is_discussion,
 )
 
 # Google's "query date range" (qdr) codes.
@@ -164,28 +165,10 @@ _VIDEO_JUNK_TITLE_RE = re.compile(
     r"(?:\s+ago)?|[A-Z][a-z]{2,8}\s+\d{1,2},?\s+\d{4})$",
     re.IGNORECASE,
 )
-# Social / forum / blogging hosts whose cards are discussions, not news. Matched
-# against the registrable host and any subdomain (e.g. user.medium.com).
-_DISCUSSION_DOMAINS = frozenset({
-    "reddit.com", "x.com", "twitter.com", "medium.com", "facebook.com",
-    "tiktok.com", "threads.com", "threads.net", "instagram.com", "linkedin.com",
-    "quora.com", "substack.com", "stackexchange.com", "stackoverflow.com",
-    "ycombinator.com",
-})
 # Cap on discussion cards so a chatty query (e.g. "apple" → dozens of Reddit/X
-# posts) can't drown the substantive results.
+# posts) can't drown the substantive results. The social/forum host list and the
+# domain/discussion helpers are shared across engines (see base.py).
 _MAX_DISCUSSIONS = 5
-
-
-def _domain_of(url: str) -> str:
-    host = urlsplit(url).netloc.lower()
-    return host[4:] if host.startswith("www.") else host
-
-
-def _is_discussion(domain: str) -> bool:
-    return any(
-        domain == d or domain.endswith("." + d) for d in _DISCUSSION_DOMAINS
-    )
 
 
 class GoogleWebParser(ResultParser):
@@ -364,10 +347,12 @@ class GoogleWebParser(ResultParser):
             if block is None:
                 break
             candidates = [
-                t for t in (
+                t
+                for t in (
                     h.get_text(strip=True)
                     for h in block.select('div[role="heading"], h3')
-                ) if t
+                )
+                if t
             ]
             if candidates:
                 break
@@ -385,9 +370,9 @@ class GoogleWebParser(ResultParser):
             # up ("defragmenteur Sep 28, 2024" -> "defragmenteur"), and drop the
             # channel entirely if what's left is just such a token ("1w").
             channel = re.sub(
-                r"\s+(?:[A-Z][a-z]{2,8}\.?\s+\d{1,2},?\s+\d{4}"
-                r"|\d+\s+\w+\s+ago)$",
-                "", channel,
+                r"\s+(?:[A-Z][a-z]{2,8}\.?\s+\d{1,2},?\s+\d{4}" r"|\d+\s+\w+\s+ago)$",
+                "",
+                channel,
             ).strip()
             if not channel or _VIDEO_JUNK_TITLE_RE.match(channel):
                 channel = None
@@ -396,7 +381,9 @@ class GoogleWebParser(ResultParser):
         summary = block_text
         for chunk in (title, "YouTube", channel or ""):
             summary = summary.replace(chunk, " ")
-        summary = re.sub(r"[·•]|\b[\d.,KMB+]+\s+views?\b|\b\d+\s+\w+\s+ago\b", " ", summary)
+        summary = re.sub(
+            r"[·•]|\b[\d.,KMB+]+\s+views?\b|\b\d+\s+\w+\s+ago\b", " ", summary
+        )
         summary = re.sub(r"\s+", " ", summary).strip(" -|")
         return WebResult.create(
             kind=WebResultKind.VIDEO,
