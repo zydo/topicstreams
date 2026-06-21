@@ -316,7 +316,14 @@ def run_engine_worker(
         NewsTaskGenerator(
             _TopicSchedule(interval, jitter), max_pages=scraper_config.max_pages
         ),
-        web=WebSearchSource(web_queue) if web_queue is not None else None,
+        # Cap a web search at the same page budget as a news scrape: one keyword
+        # lookup shouldn't hammer the engine across many pages (an unbounded crawl
+        # invites a block — exactly what the refactor must not regress).
+        web=(
+            WebSearchSource(web_queue, max_pages=scraper_config.max_pages)
+            if web_queue is not None
+            else None
+        ),
         keepalive=KeepAliveGenerator(heartbeat) if heartbeat is not None else None,
     )
     logger.info(
