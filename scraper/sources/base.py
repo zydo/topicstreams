@@ -26,7 +26,7 @@ from urllib.parse import urlsplit
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
-from common.model import NewsEntry
+from common.model import NewsEntry, WebResult
 
 
 class Ordering(str, Enum):
@@ -93,8 +93,11 @@ class ResultParser(ABC):
         """The result-item containers on the page."""
 
     @abstractmethod
-    def parse(self, item: Tag, request: SearchRequest) -> NewsEntry | None:
-        """Extract a result from one item, or None if it's incomplete."""
+    def parse(self, item: Tag, request: SearchRequest) -> NewsEntry | WebResult | None:
+        """Extract a result from one item, or None if it's incomplete.
+
+        NEWS parsers return ``NewsEntry``; the WEB parser returns ``WebResult``
+        (uniform across the SERP's heterogeneous components)."""
 
 
 class SearchSource(ABC):

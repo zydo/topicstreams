@@ -7,6 +7,7 @@ This module defines Pydantic models for database entities:
 """
 
 from datetime import datetime
+from enum import Enum
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
@@ -91,6 +92,56 @@ class NewsEntry(BaseModel):
         if domain.startswith("www."):
             domain = domain[4:]
         return domain
+
+
+class WebResultKind(str, Enum):
+    """The SERP component a WebResult came from. A general web-search page is
+    heterogeneous, so each result carries the kind of block it was parsed from."""
+
+    ANSWER = "answer"  # featured snippet / direct answer box (text + source)
+    KNOWLEDGE_PANEL = "knowledge_panel"  # entity summary card
+    WIDGET = "widget"  # structured direct-answer widget (weather, etc.)
+    ORGANIC = "organic"  # a standard organic web result
+    TOP_STORY = "top_story"  # a card in the Top stories / Also in the news pack
+    DISCUSSION = "discussion"  # a forum/social post (Reddit, X, Medium, …)
+    VIDEO = "video"  # a video-carousel result
+
+
+class WebResult(BaseModel):
+    """One result parsed from a general web-search (WEB vertical) page.
+
+    Uniform across every SERP component (organic, top stories, videos, PAA) — the
+    ``kind`` discriminates which block it came from. Distinct from ``NewsEntry``:
+    web results are served on demand (a thin cache, not persisted to the feed),
+    can lack a URL (People-also-ask), and span more component types.
+    """
+
+    kind: WebResultKind = Field(..., description="Which SERP component this is")
+    title: str = Field(..., description="Result title / headline / question")
+    url: str | None = Field(None, description="Destination URL (None for PAA)")
+    domain: str | None = Field(None, description="Domain derived from the URL")
+    source: str | None = Field(None, description="Publisher or channel name")
+    snippet: str | None = Field(None, description="Description blurb, if any")
+    # Stamped by the runner: which engine produced this result.
+    engine: str | None = Field(None, description="Search engine that produced it")
+
+    @classmethod
+    def create(
+        cls,
+        kind: "WebResultKind",
+        title: str,
+        url: str | None = None,
+        source: str | None = None,
+        snippet: str | None = None,
+    ) -> "WebResult":
+        return cls(
+            kind=kind,
+            title=title,
+            url=url,
+            domain=NewsEntry._extract_domain(url) if url else None,
+            source=source,
+            snippet=snippet,
+        )
 
 
 class ScraperLog(BaseModel):
