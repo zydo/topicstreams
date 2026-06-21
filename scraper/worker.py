@@ -37,7 +37,6 @@ import logging
 import random
 import threading
 import time
-from concurrent.futures import InvalidStateError
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
@@ -57,14 +56,16 @@ from .keepalive import DEFAULT_QUERIES, KeepAliveHeartbeat
 from .saturation import SharedEngineState
 from .scraper import scrape_pages, scrape_topic
 from .sources import SearchSource, SearchVertical
-from .webqueue import WebSearchQueue
+from .webqueue import DbWebSearchQueue, WebSearchQueue
 
 logger = logging.getLogger(__name__)
 
 # When a web-search queue is attached, cap idle waits to this slice so a freshly
 # submitted (user-facing) web search is picked up promptly rather than slept
-# through. The deferred cross-process bridge can replace this poll with a proper
-# wakeup; in-process it's a cheap 1 Hz check while the worker is otherwise idle.
+# through. Each idle turn does one cheap ``poll()`` — a ``get_nowait`` in-process,
+# or one indexed claim query against ``web_search_jobs`` for the DB-backed
+# cross-process queue. A LISTEN/NOTIFY wakeup could replace this poll later to
+# trim claim latency, but ~1 Hz of indexed claims per engine is negligible.
 _WEB_POLL_SLICE = 1.0
 
 
@@ -284,7 +285,7 @@ def run_engine_worker(
     proxy: dict | None,
     shared_state: SharedEngineState,
     stop_event: threading.Event,
-    web_queue: WebSearchQueue | None = None,
+    web_queue: "WebSearchQueue | DbWebSearchQueue | None" = None,
 ) -> None:
     """Run one engine's scheduler loop until ``stop_event`` is set.
 
@@ -380,10 +381,12 @@ def run_engine_worker(
 
                 if job is not None:
                     # Priority 1 — on-demand web search preempts news. Serve one
-                    # queued job per turn (FCFS) and hand its results back.
-                    entries, err = [], None
+                    # queued job per turn (FCFS) and hand its results back. The job
+                    # owns delivery (set a future, or write the cross-process row);
+                    # it's passed the per-page logs so the producer can tell a block
+                    # from a genuinely empty result and fall back accordingly.
                     try:
-                        entries, _logs = _serve_oneoff(
+                        entries, logs = _serve_oneoff(
                             context,
                             source,
                             job.query,
@@ -395,17 +398,12 @@ def run_engine_worker(
                             max_pages=scraper_config.max_pages,
                         )
                     except Exception as e:
-                        err = e
                         logger.exception(
                             "[%s] web search '%s' failed", source.name, job.query
                         )
-                    try:  # never leave the caller's future hung
-                        if err is not None:
-                            job.future.set_exception(err)
-                        else:
-                            job.future.set_result(entries)
-                    except InvalidStateError:
-                        pass  # caller already cancelled/timed out
+                        job.fail(e)
+                    else:
+                        job.resolve(entries, logs)
                     if heartbeat is not None:
                         heartbeat.record_activity()
                     scrapes_since_recycle += 1

@@ -48,6 +48,7 @@ from .saturation import (
     log_saturation,
 )
 from .sources import get_source
+from .webqueue import DbWebSearchQueue
 from .worker import run_engine_worker
 
 atexit.register(db.close_pool)
@@ -80,6 +81,15 @@ def _purge_old() -> None:
             f"Purged {deleted_cycles} cycle rows older than "
             f"{settings.news_retention_days} days"
         )
+    # Sweep web-search jobs abandoned by a producer that timed out/crashed before
+    # deleting its row (independent of the news retention window — these are an
+    # ephemeral handoff, purged on a much shorter TTL).
+    if scraper_config.web_search_enabled:
+        deleted_jobs = db.purge_stale_web_search_jobs(
+            scraper_config.web_search_job_ttl_seconds
+        )
+        if deleted_jobs:
+            logger.info(f"Purged {deleted_jobs} stale web-search jobs")
 
 
 def _supervise(shared_state: SharedEngineState, stop_event: threading.Event) -> None:
@@ -136,11 +146,17 @@ def main():
     shared_state = SharedEngineState()
     stop_event = threading.Event()
 
+    # On-demand web search: give each worker its own cross-process queue so the
+    # API can dispatch a query to a specific (healthy) engine. Off unless enabled.
+    web_search_on = scraper_config.web_search_enabled
+    logger.info(f"On-demand web search: {'on' if web_search_on else 'off'}")
+
     workers: list[threading.Thread] = []
     for source in sources:
+        web_queue = DbWebSearchQueue(source.name) if web_search_on else None
         thread = threading.Thread(
             target=run_engine_worker,
-            args=(source, profile, proxy, shared_state, stop_event),
+            args=(source, profile, proxy, shared_state, stop_event, web_queue),
             name=f"worker-{source.name}",
             daemon=True,
         )

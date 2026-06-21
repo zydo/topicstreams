@@ -82,6 +82,17 @@ scraper:
     interval_seconds: 600   # idle gap before a warm-up fires (~10 min)
     jitter_ratio: 0.5       # random extra fraction per interval (avoid regular cadence)
     # queries: ["weather tomorrow", "local news", "breaking news"]  # optional override
+  # On-demand web search (cross-process bridge). When enabled, each engine worker
+  # drains a per-engine queue backed by the web_search_jobs table, and the API
+  # (api/websearch.py) dispatches each user query to a healthy, non-cooling engine,
+  # falling back to the next on a block/empty/timeout. OFF by default — turn on
+  # together with keepalive above so dispatched queries land on warm sessions.
+  web_search:
+    enabled: false
+    request_timeout_seconds: 25   # how long the API waits for one engine before falling back
+    poll_interval_seconds: 0.25   # how often the API polls the job row for its result
+    max_engine_attempts: 3        # max distinct healthy engines a query may fan out across
+    job_ttl_seconds: 120          # purge abandoned job rows older than this
 
 # -----------------------------------------------------------------------------
 # Anti-detection (scraper)

@@ -122,6 +122,30 @@ CREATE TABLE IF NOT EXISTS api_keys (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- On-demand web search job queue: the cross-process bridge between the API
+-- (producer) and the scraper's per-engine workers (consumers). The API inserts a
+-- 'pending' row targeted at a chosen healthy engine; that engine's worker claims
+-- it (FOR UPDATE SKIP LOCKED), runs the WEB-vertical scrape on its warm session,
+-- and writes the parsed results back as JSON. The API polls the row for the
+-- terminal state, reads it, then deletes it — these rows are an ephemeral handoff,
+-- never durable feed data. A periodic sweep (purge_stale_web_search_jobs) drops
+-- rows a crashed/timed-out producer abandoned. status: pending -> claimed -> done.
+CREATE TABLE IF NOT EXISTS web_search_jobs (
+    id BIGSERIAL PRIMARY KEY,
+    query TEXT NOT NULL,
+    engine VARCHAR(32) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+    outcome VARCHAR(16),            -- ok | empty | blocked | error (set when done)
+    results JSONB,                  -- parsed WebResult list, as JSON (when done)
+    error TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    claimed_at TIMESTAMP,
+    finished_at TIMESTAMP
+);
+-- Claim path: a worker pulls the oldest pending job for its engine.
+CREATE INDEX IF NOT EXISTS idx_web_search_jobs_claim
+    ON web_search_jobs(engine, created_at) WHERE status = 'pending';
+
 -- NOTIFY on each new feed event (topic match), not on news-content insert, so
 -- a topic referencing an already-stored article still streams to that topic.
 -- Format: "topic:topic_news_id".

@@ -7,7 +7,7 @@ from functools import wraps
 
 import psycopg2
 from psycopg2.extensions import connection as PgConnection
-from psycopg2.extras import RealDictCursor, execute_values
+from psycopg2.extras import Json, RealDictCursor, execute_values
 from psycopg2.pool import ThreadedConnectionPool
 
 from common.settings import settings
@@ -231,6 +231,29 @@ def ensure_schema() -> None:
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """
+            )
+            # Cross-process on-demand web search bridge (see init.sql). Ephemeral:
+            # the API deletes each row after reading its result; abandoned rows are
+            # swept by purge_stale_web_search_jobs.
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS web_search_jobs (
+                    id BIGSERIAL PRIMARY KEY,
+                    query TEXT NOT NULL,
+                    engine VARCHAR(32) NOT NULL,
+                    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+                    outcome VARCHAR(16),
+                    results JSONB,
+                    error TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    claimed_at TIMESTAMP,
+                    finished_at TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_web_search_jobs_claim "
+                "ON web_search_jobs(engine, created_at) WHERE status = 'pending'"
             )
         _schema_ready = True
 
@@ -851,6 +874,107 @@ def delete_api_key(key_id: int) -> bool:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM api_keys WHERE id = %s", (key_id,))
         return cursor.rowcount > 0
+
+
+# ── On-demand web search jobs (web_search_jobs) ──────────────────────────────
+#
+# The cross-process bridge for on-demand web search: the API (producer) enqueues
+# a job for a chosen engine, that engine's scraper worker claims and serves it,
+# and the API polls for the result. Rows are an ephemeral handoff — the producer
+# deletes each one after reading its terminal state, and purge_stale_web_search_jobs
+# sweeps any a crashed/timed-out producer left behind.
+
+
+@retry_on_transient_error()
+def enqueue_web_search(query: str, engine: str) -> int:
+    """Insert a pending web-search job targeted at one engine; return its id."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO web_search_jobs (query, engine) VALUES (%s, %s) RETURNING id",
+            (query, engine),
+        )
+        row = cursor.fetchone()
+        assert row is not None  # INSERT ... RETURNING always yields a row
+        return row["id"]
+
+
+@retry_on_transient_error()
+def claim_web_search_job(engine: str) -> dict | None:
+    """Atomically claim the oldest pending job for ``engine`` (FCFS).
+
+    ``FOR UPDATE SKIP LOCKED`` so concurrent claimers (e.g. multiple scraper
+    replicas) never grab the same row. Returns ``{id, query}`` or None when
+    nothing is pending for this engine.
+    """
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE web_search_jobs j SET status = 'claimed', claimed_at = NOW() "
+            "FROM ("
+            "  SELECT id FROM web_search_jobs "
+            "  WHERE engine = %s AND status = 'pending' "
+            "  ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED"
+            ") s WHERE j.id = s.id RETURNING j.id, j.query",
+            (engine,),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+# No retry: a dropped connection after a committed write would re-stamp the same
+# terminal row on retry. The producer treats a missing/late result as a timeout
+# and falls back, so losing the confirmation is safe either way.
+def complete_web_search_job(
+    job_id: int, outcome: str, results: "list[dict] | None", error: str | None
+) -> None:
+    """Mark a claimed job done with its parsed results JSON (or an error)."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE web_search_jobs SET status = 'done', outcome = %s, "
+            "results = %s, error = %s, finished_at = NOW() WHERE id = %s",
+            (outcome, Json(results) if results is not None else None, error, job_id),
+        )
+
+
+@retry_on_transient_error()
+def fetch_web_search_result(job_id: int) -> dict | None:
+    """Read a job's current state for the producer's poll.
+
+    Returns ``{status, outcome, results, error}`` (``results`` already decoded
+    from JSONB to a Python list), or None if the row is gone.
+    """
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT status, outcome, results, error FROM web_search_jobs WHERE id = %s",
+            (job_id,),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+@retry_on_transient_error()
+def delete_web_search_job(job_id: int) -> None:
+    """Drop a job row once the producer has read its terminal result."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM web_search_jobs WHERE id = %s", (job_id,))
+
+
+@retry_on_transient_error()
+def purge_stale_web_search_jobs(max_age_seconds: float) -> int:
+    """Delete job rows older than ``max_age_seconds`` — ones a producer abandoned
+    by timing out or crashing before deleting them. Returns the count deleted."""
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM web_search_jobs "
+            "WHERE created_at < NOW() - make_interval(secs => %s)",
+            (max_age_seconds,),
+        )
+        return cursor.rowcount
 
 
 # ── Scrape metrics aggregation (scraper_logs) ────────────────────────────────

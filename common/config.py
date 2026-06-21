@@ -190,6 +190,43 @@ class ScraperConfig(_BaseConfig):
         built-in defaults in scraper/keepalive.py are used)."""
         return self._get("scraper", "keepalive", "queries", default=None)
 
+    # ----- On-demand web search (cross-process bridge) -----
+    # When enabled, each engine worker drains a per-engine DB-backed queue
+    # (scraper/webqueue.py, web_search_jobs) and the API dispatches user queries
+    # to a healthy engine (api/websearch.py). Off by default so a deployment that
+    # only wants the news feed doesn't poll the queue table.
+
+    @property
+    def web_search_enabled(self) -> bool:
+        """Whether on-demand web search is served (per-engine queues + dispatcher)."""
+        return self._get("scraper", "web_search", "enabled", default=False)
+
+    @property
+    def web_search_request_timeout_seconds(self) -> float:
+        """How long the API waits for one engine to serve a query before it
+        gives up on that engine and falls back to the next healthy one."""
+        return self._get(
+            "scraper", "web_search", "request_timeout_seconds", default=25.0
+        )
+
+    @property
+    def web_search_poll_interval_seconds(self) -> float:
+        """How often the API polls the job row for its result while waiting."""
+        return self._get("scraper", "web_search", "poll_interval_seconds", default=0.25)
+
+    @property
+    def web_search_max_engine_attempts(self) -> int:
+        """Max distinct healthy engines a single query may fan out across before
+        the dispatcher gives up (bounds the worst-case latency/cost)."""
+        return self._get("scraper", "web_search", "max_engine_attempts", default=3)
+
+    @property
+    def web_search_job_ttl_seconds(self) -> float:
+        """Age past which an abandoned job row is purged (producer crashed/timed
+        out before deleting it). Generous vs. request_timeout so a slow-but-live
+        request is never swept out from under itself."""
+        return self._get("scraper", "web_search", "job_ttl_seconds", default=120)
+
     # ----- Weighted saturation signal (when to scale to another exit IP) -----
 
     @property

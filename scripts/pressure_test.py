@@ -234,7 +234,9 @@ def run(args) -> dict:
         "latency_ok_ms": {
             "count": len(latencies_ok),
             "min": min(latencies_ok) if latencies_ok else None,
-            "median": round(statistics.median(latencies_ok), 1) if latencies_ok else None,
+            "median": (
+                round(statistics.median(latencies_ok), 1) if latencies_ok else None
+            ),
             "p95": _percentile(latencies_ok, 0.95),
             "max": max(latencies_ok) if latencies_ok else None,
         },
