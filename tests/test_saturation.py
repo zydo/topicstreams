@@ -5,14 +5,22 @@ import threading
 from scraper.cooldown import CooldownSnapshot
 from scraper.saturation import (
     SharedEngineState,
+    evaluate_backlog,
     evaluate_saturation,
     log_saturation,
 )
+from scraper.tasks import SchedulerHealth
 from scraper.worker import _Pacer
 
 
 def _snap(engine: str, failures: int) -> CooldownSnapshot:
     return CooldownSnapshot(engine=engine, failures=failures, remaining_seconds=0.0)
+
+
+def _health(overdue=0, lateness=0.0, pending=0) -> SchedulerHealth:
+    return SchedulerHealth(
+        overdue_count=overdue, max_lateness_seconds=lateness, pending_oneoffs=pending
+    )
 
 
 # --- evaluate_saturation --------------------------------------------------
@@ -60,6 +68,42 @@ def test_log_saturation_emits_only_when_saturated(caplog):
     assert "SATURATION SUSPECTED" in caplog.text
 
 
+# --- evaluate_backlog -----------------------------------------------------
+
+
+def test_backlog_not_behind_when_caught_up():
+    # Oldest overdue topic is 30s late, well under 3 * 60s interval.
+    v = evaluate_backlog("google", _health(overdue=2, lateness=30.0), interval=60)
+    assert v.behind is False
+    assert v.overdue_count == 2
+    assert v.max_lateness_seconds == 30.0
+
+
+def test_backlog_behind_when_lateness_exceeds_factor():
+    # 200s late > 3 * 60s; the engine is cycling slower than its cadence.
+    v = evaluate_backlog("google", _health(overdue=8, lateness=200.0), interval=60)
+    assert v.behind is True
+
+
+def test_backlog_lateness_factor_is_configurable():
+    h = _health(overdue=1, lateness=120.0)
+    assert evaluate_backlog("g", h, interval=60, lateness_factor=1.0).behind is True
+    assert evaluate_backlog("g", h, interval=60, lateness_factor=3.0).behind is False
+
+
+def test_log_backlog_only_when_behind(caplog):
+    from scraper.saturation import log_backlog
+
+    with caplog.at_level("WARNING"):
+        log_backlog(evaluate_backlog("google", _health(lateness=10.0), interval=60))
+    assert "falling behind" not in caplog.text
+    with caplog.at_level("WARNING"):
+        log_backlog(
+            evaluate_backlog("brave", _health(overdue=9, lateness=999.0), interval=60)
+        )
+    assert "brave" in caplog.text and "falling behind" in caplog.text
+
+
 # --- SharedEngineState ----------------------------------------------------
 
 
@@ -70,6 +114,16 @@ def test_shared_state_keeps_latest_per_engine():
     state.update(_snap("bing", 0))
     by_engine = {s.engine: s.failures for s in state.all()}
     assert by_engine == {"google": 3, "bing": 0}
+
+
+def test_shared_state_keeps_latest_health_per_engine():
+    state = SharedEngineState()
+    state.update_health("google", _health(overdue=1))
+    state.update_health("google", _health(overdue=4))  # overwrites
+    state.update_health("bing", _health(overdue=0, pending=2))
+    by_engine = state.health_all()
+    assert by_engine["google"].overdue_count == 4
+    assert by_engine["bing"].pending_oneoffs == 2
 
 
 # --- _Pacer ---------------------------------------------------------------

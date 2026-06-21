@@ -22,20 +22,29 @@ import threading
 from dataclasses import dataclass
 
 from .cooldown import CooldownSnapshot
+from .tasks import SchedulerHealth
 
 logger = logging.getLogger(__name__)
 
+# An engine is "behind" when its oldest overdue topic is later than this many
+# per-topic intervals — i.e. it's cycling topics materially slower than
+# configured. A lagging capacity/throttle signal that complements the cooldown
+# one (which fires on a hard block); see docs/TASK_SCHEDULER.md.
+_BACKLOG_LATENESS_FACTOR = 3.0
+
 
 class SharedEngineState:
-    """Latest per-engine cooldown snapshot, written by each worker.
+    """Latest per-engine cooldown snapshot *and* scheduler-health read, written
+    by each worker.
 
     One writer per engine (the worker owning it) and one reader (the main
-    thread), so a single lock around a dict is ample.
+    thread), so a single lock around two dicts is ample.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._snapshots: dict[str, CooldownSnapshot] = {}
+        self._health: dict[str, SchedulerHealth] = {}
 
     def update(self, snapshot: CooldownSnapshot) -> None:
         with self._lock:
@@ -44,6 +53,14 @@ class SharedEngineState:
     def all(self) -> list[CooldownSnapshot]:
         with self._lock:
             return list(self._snapshots.values())
+
+    def update_health(self, engine: str, health: SchedulerHealth) -> None:
+        with self._lock:
+            self._health[engine] = health
+
+    def health_all(self) -> dict[str, SchedulerHealth]:
+        with self._lock:
+            return dict(self._health)
 
 
 @dataclass(frozen=True)
@@ -101,4 +118,51 @@ def log_saturation(verdict: SaturationVerdict) -> None:
             if verdict.cooling_canary
             else ""
         ),
+    )
+
+
+@dataclass(frozen=True)
+class BacklogVerdict:
+    """One engine's queue-backlog health read."""
+
+    engine: str
+    overdue_count: int
+    max_lateness_seconds: float
+    behind: bool  # cycling topics materially slower than the configured interval
+
+
+def evaluate_backlog(
+    engine: str,
+    health: SchedulerHealth,
+    *,
+    interval: float,
+    lateness_factor: float = _BACKLOG_LATENESS_FACTOR,
+) -> BacklogVerdict:
+    """Read an engine's scheduler health as a backlog signal.
+
+    ``behind`` is set when the oldest overdue topic is later than
+    ``lateness_factor`` × the per-topic ``interval`` — the engine is falling
+    behind its freshness cadence (capacity/throttle pressure), a *lagging*
+    complement to the direct cooldown signal. Pure for testability.
+    """
+    behind = health.max_lateness_seconds > lateness_factor * interval
+    return BacklogVerdict(
+        engine=engine,
+        overdue_count=health.overdue_count,
+        max_lateness_seconds=health.max_lateness_seconds,
+        behind=behind,
+    )
+
+
+def log_backlog(verdict: BacklogVerdict) -> None:
+    """Warn when an engine is materially behind its scrape cadence."""
+    if not verdict.behind:
+        return
+    logger.warning(
+        "[%s] falling behind — %d topics overdue, oldest %.0fs late. The engine "
+        "is cycling topics slower than its interval (pace floor/cooldown pressure "
+        "or too many topics for one engine on this IP).",
+        verdict.engine,
+        verdict.overdue_count,
+        verdict.max_lateness_seconds,
     )

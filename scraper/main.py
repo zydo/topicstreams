@@ -44,7 +44,9 @@ from common.settings import settings
 from .browser import build_proxy, detect_fingerprint
 from .saturation import (
     SharedEngineState,
+    evaluate_backlog,
     evaluate_saturation,
+    log_backlog,
     log_saturation,
 )
 from .sources import get_source
@@ -120,6 +122,15 @@ def _supervise(shared_state: SharedEngineState, stop_event: threading.Event) -> 
                 snapshots, canary_engines=canary, robust_threshold=threshold
             )
             log_saturation(verdict)
+
+        # Per-engine backlog signal: warn about any engine that's cycling topics
+        # materially slower than its interval (a lagging capacity cue).
+        for engine, health in shared_state.health_all().items():
+            log_backlog(
+                evaluate_backlog(
+                    engine, health, interval=scraper_config.scrape_interval
+                )
+            )
 
         stop_event.wait(scraper_config.scrape_interval)
 

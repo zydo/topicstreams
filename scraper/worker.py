@@ -352,6 +352,9 @@ def run_engine_worker(
                     except Exception:
                         logger.exception("[%s] topic reconcile failed", source.name)
                     _flush_window(window, source.name, window_start, time.monotonic)
+                    # Publish the queue's backlog health for the supervisor's
+                    # falling-behind signal (a lagging complement to cooldown).
+                    shared_state.update_health(source.name, queue.health())
                     window = _CycleWindow()
                     window_start = time.monotonic()
                     next_tick = time.monotonic() + interval
