@@ -32,6 +32,7 @@ import logging
 import random
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Callable
 
 from common.model import NewsEntry, ScraperLog
@@ -45,6 +46,11 @@ logger = logging.getLogger(__name__)
 CLASS_ONEOFF = 0
 CLASS_SCHEDULED = 1
 CLASS_IDLE = 2
+
+# With a web-search source attached, cap idle waits to this slice so a freshly
+# submitted (user-facing) one-off is claimed promptly rather than slept through.
+# Each re-entry does one cheap claim/poll; ~1 Hz per engine is negligible.
+WEB_POLL_INTERVAL = 1.0
 
 
 # ── Tasks ─────────────────────────────────────────────────────────────────────
@@ -338,3 +344,98 @@ class KeepAliveGenerator:
 
     def record_activity(self) -> None:
         self._heartbeat.record_activity()
+
+
+# ── The per-engine queue facade ───────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class SchedulerHealth:
+    """A point-in-time read of one engine's queue, for the saturation/health
+    signal. ``overdue_count``/``max_lateness_seconds`` come from the news timer
+    heap (a *lagging* "falling behind" signal); ``pending_oneoffs`` is best-effort
+    (0 when the backend can't report it cheaply)."""
+
+    overdue_count: int
+    max_lateness_seconds: float
+    pending_oneoffs: int
+
+
+class EngineTaskQueue:
+    """The single priority-queue facade for one engine's scheduler.
+
+    Merges the task sources — on-demand web (highest priority), scheduled news,
+    idle keep-alive (lowest) — behind one ``pop_ready``/``health`` surface, and
+    owns them so the scheduler talks to just this object. It is a *facade*, not a
+    literal heap: one-off web tasks arrive cross-process (a Postgres row) and are
+    *claimed into* the head on demand, so they can't share an in-memory heap with
+    the time-keyed news tasks. Priority is realised by polling the sources in
+    order rather than by a single ordering key.
+    """
+
+    def __init__(
+        self,
+        news: NewsTaskGenerator,
+        *,
+        web: WebSearchSource | None = None,
+        keepalive: KeepAliveGenerator | None = None,
+    ):
+        self._news = news
+        self._web = web
+        self._keepalive = keepalive
+
+    # -- topic lifecycle (delegated to the news generator) --
+    def seed(self, topics: set[str]) -> None:
+        self._news.seed(topics)
+
+    def reconcile(self, topics: set[str]) -> None:
+        self._news.reconcile(topics)
+
+    def pop_ready(self) -> tuple[Task | None, float | None]:
+        """The highest-priority ready task, or ``(None, wait)`` when nothing is
+        ready (``wait`` = soonest the queue could have work; ``None`` if never).
+
+        Order: a claimed one-off web task → a due news task → an idle keep-alive.
+        """
+        if self._web is not None:
+            task = self._web.poll()
+            if task is not None:
+                return task, 0.0
+        news_task, news_wait = self._news.poll()
+        if news_task is not None:
+            return news_task, 0.0
+        if self._keepalive is not None:
+            warmup = self._keepalive.poll()
+            if warmup is not None:
+                return warmup, 0.0
+        return None, self._idle_wait(news_wait)
+
+    def _idle_wait(self, news_wait: float | None) -> float | None:
+        """Soonest the queue could surface work: the news head, the next
+        keep-alive, and (with web attached) the one-off poll slice."""
+        waits: list[float] = []
+        if news_wait is not None:
+            waits.append(news_wait)
+        if self._keepalive is not None:
+            waits.append(self._keepalive.seconds_until_due())
+        if self._web is not None:
+            waits.append(WEB_POLL_INTERVAL)
+        return min(waits) if waits else None
+
+    def on_completed(self, task: Task) -> None:
+        """Post-run bookkeeping for any executed task: re-arm a news topic for
+        its next interval, and reset the keep-alive timer (any request, of any
+        kind, warms the session)."""
+        if isinstance(task, NewsScrapeTask):
+            self._news.complete(task)
+        if self._keepalive is not None:
+            self._keepalive.record_activity()
+
+    def health(self) -> SchedulerHealth:
+        overdue, lateness = self._news.backlog()
+        pending = self._web.pending() if self._web is not None else 0
+        return SchedulerHealth(
+            overdue_count=overdue,
+            max_lateness_seconds=lateness,
+            pending_oneoffs=pending,
+        )

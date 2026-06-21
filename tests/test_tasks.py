@@ -12,6 +12,8 @@ from scraper.tasks import (
     CLASS_IDLE,
     CLASS_ONEOFF,
     CLASS_SCHEDULED,
+    WEB_POLL_INTERVAL,
+    EngineTaskQueue,
     KeepAliveGenerator,
     KeepAliveTask,
     NewsScrapeTask,
@@ -248,3 +250,105 @@ def test_keepalive_generator_passes_through_timer():
     assert gen.seconds_until_due() == 42.0
     gen.record_activity()
     assert hb.activity == 1
+
+
+# ── EngineTaskQueue facade ────────────────────────────────────────────────────
+
+
+def _queue(clock, *, with_web=None, heartbeat=None, interval=60):
+    news = NewsTaskGenerator(_schedule(clock, interval=interval))
+    web = WebSearchSource(with_web) if with_web is not None else None
+    ka = KeepAliveGenerator(heartbeat) if heartbeat is not None else None
+    return news, EngineTaskQueue(news, web=web, keepalive=ka)
+
+
+def test_queue_oneoff_preempts_due_news():
+    clock = _Clock()
+    web_q = WebSearchQueue()
+    news, queue = _queue(clock, with_web=web_q)
+    queue.seed({"a"})  # a news topic is due now
+    web_q.submit("breaking")  # ...but a one-off is waiting
+    task, wait = queue.pop_ready()
+    assert isinstance(task, WebSearchTask) and task.query == "breaking"
+    assert wait == 0.0
+
+
+def test_queue_returns_due_news_when_no_oneoff():
+    clock = _Clock()
+    news, queue = _queue(clock, with_web=WebSearchQueue())
+    queue.seed({"a"})
+    task, wait = queue.pop_ready()
+    assert isinstance(task, NewsScrapeTask) and task.topic == "a"
+    assert wait == 0.0
+
+
+def test_queue_keepalive_only_when_nothing_due():
+    clock = _Clock()
+    _, queue = _queue(clock, heartbeat=_Heartbeat(True))
+    queue.seed(set())  # no topics
+    task, _ = queue.pop_ready()
+    assert isinstance(task, KeepAliveTask)
+
+
+def test_queue_idle_wait_is_min_of_sources():
+    clock = _Clock()
+    sched_clock = clock
+    web_q = WebSearchQueue()
+    news = NewsTaskGenerator(_schedule(sched_clock, interval=60))
+    queue = EngineTaskQueue(
+        news,
+        web=WebSearchSource(web_q),
+        keepalive=KeepAliveGenerator(_Heartbeat(False)),
+    )
+    queue.seed({"a"})
+    queue.pop_ready()  # consume the boot-due 'a'
+    news.complete(NewsScrapeTask("a"))  # 'a' now 60s out
+    task, wait = queue.pop_ready()
+    assert task is None
+    # news head is 60s out, keepalive 42s, web poll 1s -> min is the web slice.
+    assert wait == WEB_POLL_INTERVAL
+
+
+def test_queue_idle_wait_without_web_or_keepalive():
+    clock = _Clock()
+    news, queue = _queue(clock, interval=60)  # news only
+    queue.seed({"a"})
+    queue.pop_ready()
+    news.complete(NewsScrapeTask("a"))
+    task, wait = queue.pop_ready()
+    assert task is None and wait == 60
+
+
+def test_queue_on_completed_reschedules_news_and_warms_keepalive():
+    clock = _Clock()
+    hb = _Heartbeat(False)
+    news, queue = _queue(clock, heartbeat=hb, interval=60)
+    queue.seed({"a"})
+    task, _ = queue.pop_ready()
+    queue.on_completed(task)
+    # news 'a' re-armed 60s out...
+    nxt, wait = queue.pop_ready()
+    assert nxt is None and wait == min(60, hb.seconds_until_due())
+    # ...and the keep-alive timer was reset by the activity.
+    assert hb.activity == 1
+
+
+def test_queue_on_completed_ignores_non_news_for_reschedule():
+    clock = _Clock()
+    hb = _Heartbeat(False)
+    _, queue = _queue(clock, heartbeat=hb)
+    queue.on_completed(KeepAliveTask("weather"))  # not a news task
+    assert hb.activity == 1  # still warms the session
+
+
+def test_queue_health_reports_backlog_and_pending():
+    clock = _Clock()
+    web_q = WebSearchQueue()
+    web_q.submit("a")
+    web_q.submit("b")
+    news, queue = _queue(clock, with_web=web_q, interval=60)
+    queue.seed({"x", "y", "z"})  # all due now -> overdue backlog of 3
+    health = queue.health()
+    assert health.overdue_count == 3
+    assert health.max_lateness_seconds == 0.0
+    assert health.pending_oneoffs == 2
