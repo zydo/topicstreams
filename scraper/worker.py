@@ -32,7 +32,6 @@ new active topics are scheduled, deactivated ones are dropped lazily when their
 heap entry surfaces.
 """
 
-import heapq
 import logging
 import random
 import threading
@@ -56,6 +55,7 @@ from .keepalive import DEFAULT_QUERIES, KeepAliveHeartbeat
 from .saturation import SharedEngineState
 from .scraper import scrape_pages, scrape_topic
 from .sources import SearchSource, SearchVertical
+from .tasks import _TopicSchedule
 from .webqueue import DbWebSearchQueue, WebSearchQueue
 
 logger = logging.getLogger(__name__)
@@ -102,80 +102,6 @@ class _Pacer:
             if remaining > 0:
                 stop_event.wait(remaining)
         self._last = self._clock()
-
-
-class _TopicSchedule:
-    """Per-engine min-heap of ``(next_eligible_monotonic, topic)`` with lazy
-    deletion of deactivated topics.
-
-    The clock is monotonic and injectable for tests. ``_scheduled`` tracks which
-    topics currently have a live heap entry so reconciliation never double-pushes
-    a topic; ``_active`` is the authoritative set of topics that should be scraped
-    (a topic dropped from it is removed from the heap the next time it surfaces).
-    """
-
-    def __init__(
-        self,
-        interval: float,
-        jitter_ratio: float,
-        clock: Callable[[], float] = time.monotonic,
-        rng: random.Random | None = None,
-    ):
-        self._interval = interval
-        self._jitter_ratio = max(0.0, jitter_ratio)
-        self._clock = clock
-        self._rng = rng or random
-        self._heap: list[tuple[float, str]] = []
-        self._scheduled: set[str] = set()
-        self._active: set[str] = set()
-
-    def _push(self, topic: str, when: float) -> None:
-        heapq.heappush(self._heap, (when, topic))
-        self._scheduled.add(topic)
-
-    def seed(self, topics: set[str]) -> None:
-        """Initial population: stagger every topic across one interval so a fresh
-        worker doesn't fire every topic at boot (thundering herd on the engine)."""
-        self._active = set(topics)
-        now = self._clock()
-        for topic in topics:
-            self._push(topic, now + self._rng.uniform(0.0, self._interval))
-
-    def reconcile(self, active: set[str]) -> None:
-        """Sync to the latest active set: schedule newly-added topics (spread
-        across an interval) and drop vanished ones lazily on pop."""
-        self._active = set(active)
-        now = self._clock()
-        for topic in self._active:
-            if topic not in self._scheduled:
-                self._push(topic, now + self._rng.uniform(0.0, self._interval))
-
-    def reschedule(self, topic: str) -> None:
-        """Re-arm a just-scraped topic for ``interval`` (plus jitter) from now."""
-        when = self._clock() + self._interval * (
-            1.0 + self._rng.uniform(0.0, self._jitter_ratio)
-        )
-        self._push(topic, when)
-
-    def next_due(self) -> tuple[str | None, float | None]:
-        """What the worker should do next.
-
-        Returns ``(topic, 0.0)`` for a topic to scrape now, ``(None, seconds)`` to
-        wait that long for the head to come due, or ``(None, None)`` when the heap
-        is empty (no active topics). Deactivated topics are dropped here.
-        """
-        while self._heap:
-            when, topic = self._heap[0]
-            if topic not in self._active:
-                heapq.heappop(self._heap)
-                self._scheduled.discard(topic)
-                continue
-            if when > self._clock():
-                return None, when - self._clock()
-            heapq.heappop(self._heap)
-            self._scheduled.discard(topic)
-            return topic, 0.0
-        return None, None
 
 
 @dataclass

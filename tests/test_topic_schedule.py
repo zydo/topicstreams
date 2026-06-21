@@ -1,4 +1,4 @@
-"""Tests for the per-engine topic scheduler (scraper/worker._TopicSchedule).
+"""Tests for the per-engine topic scheduler (scraper/tasks._TopicSchedule).
 
 The scheduler is a min-heap of (next_eligible_time, topic) with lazy deletion of
 deactivated topics. These exercise the cadence guarantee, sleep-to-head, and
@@ -7,7 +7,7 @@ add/remove reconciliation with an injectable clock and deterministic RNG.
 
 import random
 
-from scraper.worker import _TopicSchedule
+from scraper.tasks import _TopicSchedule
 
 
 class _Clock:

@@ -33,6 +33,13 @@ from common.model import NewsEntry, ScraperLog, WebResult
 logger = logging.getLogger(__name__)
 
 
+class EngineCoolingError(RuntimeError):
+    """Raised to an in-process web-search producer when the target engine is
+    benched (cooling down) and won't serve the request now — the caller should
+    fail fast / fall back rather than wait. The cross-process backend records the
+    equivalent ``"cooling"`` outcome on the job row instead."""
+
+
 def classify_outcome(
     results: "list[WebResult]", logs: "list[ScraperLog] | None"
 ) -> str:
@@ -41,7 +48,9 @@ def classify_outcome(
     ``blocked`` — any page attempt failed (a throttle/block signal or error page;
     these surface as an unsuccessful ScraperLog). ``empty`` — the scrape succeeded
     but parsed nothing. ``ok`` — succeeded with at least one result. The producer
-    falls back to another healthy engine on anything but ``ok``.
+    falls back to another healthy engine on anything but ``ok``. (A request that
+    never ran because the engine was cooling is recorded separately as
+    ``"cooling"`` — see ``cooling()`` on the job types.)
     """
     if logs and any(not log.success for log in logs):
         return "blocked"
@@ -69,6 +78,11 @@ class WebSearchJob:
             self.future.set_exception(exc)
         except InvalidStateError:
             pass
+
+    def cooling(self) -> None:
+        """Fail the request fast because the engine is benched (cooling down),
+        with a distinct error the producer can route on."""
+        self.fail(EngineCoolingError("engine cooling down"))
 
 
 class WebSearchQueue:
@@ -121,6 +135,15 @@ class DbWebSearchJob:
             db.complete_web_search_job(self.id, "error", None, str(exc))
         except Exception:
             logger.exception("failed to record web search failure (job %s)", self.id)
+
+    def cooling(self) -> None:
+        """Record a fail-fast terminal state because the engine is benched, so
+        the API producer can return a distinct "engine cooling" response rather
+        than wait out its timeout."""
+        try:
+            db.complete_web_search_job(self.id, "cooling", None, "engine cooling down")
+        except Exception:
+            logger.exception("failed to record web search cooling (job %s)", self.id)
 
 
 class DbWebSearchQueue:
