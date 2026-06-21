@@ -1,13 +1,21 @@
 """One engine = one worker.
 
 Each worker owns a Playwright instance and a persistent browser context for a
-single search engine, and runs an event-driven scheduler: it keeps a per-engine
-min-heap of topics keyed by each topic's *next eligible scrape time*, always
-scrapes the topic whose time has come, then re-arms it for ``scrape_interval``
-later. When nothing is due it sleeps until the heap's head comes due. Workers
-don't know about each other — the only shared state is the DB (cross-engine
-duplicates resolve there, via the URL-derived news id) and a ``SharedEngineState``
-the main thread reads for the saturation signal.
+single search engine, and runs an event-driven scheduler over one per-engine
+``EngineTaskQueue`` (``scraper/tasks.py``). Every "web page access" is a Task; the
+queue merges three sources — an on-demand web search (highest priority), a due
+news scrape (a timer heap keyed by each topic's *next eligible scrape time*), and
+an idle keep-alive warm-up — and the worker runs the highest-priority ready task,
+then re-arms the news topic for ``scrape_interval`` later. When nothing is ready
+it sleeps until the soonest task comes due. Workers don't know about each other —
+the only shared state is the DB (cross-engine duplicates resolve there, via the
+URL-derived news id) and a ``SharedEngineState`` the main thread reads for the
+saturation signal.
+
+What happens to a task's result is the task's own business: a tracked news scrape
+feeds the metrics window → Postgres; a one-off web search is handed straight back
+to its waiting caller and not persisted. The worker doesn't branch on that — it
+calls the task's ``deliver_*`` hook.
 
 Two independent throttles, deliberately distinct:
     - **Per-topic interval** (the heap key): a topic is never re-scraped by this
@@ -55,18 +63,23 @@ from .keepalive import DEFAULT_QUERIES, KeepAliveHeartbeat
 from .saturation import SharedEngineState
 from .scraper import scrape_pages, scrape_topic
 from .sources import SearchSource, SearchVertical
-from .tasks import _TopicSchedule
+from .tasks import (
+    WEB_POLL_INTERVAL,
+    EngineTaskQueue,
+    KeepAliveGenerator,
+    NewsScrapeTask,
+    NewsTaskGenerator,
+    Task,
+    WebSearchSource,
+    _TopicSchedule,
+)
 from .webqueue import DbWebSearchQueue, WebSearchQueue
 
 logger = logging.getLogger(__name__)
 
-# When a web-search queue is attached, cap idle waits to this slice so a freshly
-# submitted (user-facing) web search is picked up promptly rather than slept
-# through. Each idle turn does one cheap ``poll()`` — a ``get_nowait`` in-process,
-# or one indexed claim query against ``web_search_jobs`` for the DB-backed
-# cross-process queue. A LISTEN/NOTIFY wakeup could replace this poll later to
-# trim claim latency, but ~1 Hz of indexed claims per engine is negligible.
-_WEB_POLL_SLICE = 1.0
+# Cap how many benched one-offs to fail-fast per loop turn, so a flood of queued
+# web searches against a cooling engine can't spin the loop draining them.
+_MAX_COOLING_DRAIN = 50
 
 
 def _naive_utc_now() -> datetime:
@@ -205,6 +218,55 @@ def _serve_oneoff(
     return entries, logs
 
 
+def _execute_task(
+    context,
+    source: SearchSource,
+    task: Task,
+    *,
+    pacer: _Pacer,
+    stop_event: threading.Event,
+    cooldown: EngineCooldownTracker | None,
+    shared_state: SharedEngineState,
+) -> tuple[list[NewsEntry], list[ScraperLog]]:
+    """Run one task on the engine's live context and return its (entries, logs).
+
+    A news task goes through ``scrape_topic`` (single source, strategy="all") so
+    the tracked-topic path is byte-identical to before; a one-off web search or a
+    keep-alive warm-up goes through ``_serve_oneoff``. Both ride the same pace
+    floor and feed their outcome into the same cooldown tracker.
+    """
+    if isinstance(task, NewsScrapeTask):
+        pacer.wait(stop_event)
+        if stop_event.is_set():
+            return [], []
+        entries, logs = scrape_topic(
+            context.new_page,
+            [source],
+            task.topic,
+            strategy="all",
+            max_result_pages=task.max_pages,
+            cooldown=cooldown,
+        )
+        # scrape_topic recorded the outcome into the cooldown tracker already;
+        # publish the refreshed snapshot for the saturation reader.
+        if cooldown is not None:
+            for snap in cooldown.snapshot():
+                shared_state.update(snap)
+        return entries, logs
+    # One-off web search or keep-alive warm-up (_serve_oneoff paces + records).
+    return _serve_oneoff(
+        context,
+        source,
+        task.query,
+        task.vertical,
+        pacer=pacer,
+        stop_event=stop_event,
+        cooldown=cooldown,
+        shared_state=shared_state,
+        max_pages=task.max_pages,
+    )
+
+
 def run_engine_worker(
     source: SearchSource,
     profile: FingerprintProfile,
@@ -230,7 +292,6 @@ def run_engine_worker(
     jitter = scraper_config.pacing_jitter_ratio
     min_interval = scraper_config.min_interval_for(source.name)
     pacer = _Pacer(min_interval, jitter)
-    schedule = _TopicSchedule(interval, jitter)
     cooldown = (
         EngineCooldownTracker(
             base_seconds=scraper_config.cooldown_base_seconds,
@@ -248,6 +309,16 @@ def run_engine_worker(
         if scraper_config.keepalive_enabled
         else None
     )
+    # Assemble the engine's single task queue from its sources: scheduled news (a
+    # timer heap), the optional on-demand web search, and the optional idle
+    # keep-alive warm-up.
+    queue = EngineTaskQueue(
+        NewsTaskGenerator(
+            _TopicSchedule(interval, jitter), max_pages=scraper_config.max_pages
+        ),
+        web=WebSearchSource(web_queue) if web_queue is not None else None,
+        keepalive=KeepAliveGenerator(heartbeat) if heartbeat is not None else None,
+    )
     logger.info(
         f"[{source.name}] worker starting (topic interval {interval}s, pace floor "
         f"{min_interval:.1f}s/request, cooldown {'on' if cooldown else 'off'}, "
@@ -256,7 +327,7 @@ def run_engine_worker(
     )
 
     try:
-        schedule.seed(_active_topic_names())
+        queue.seed(_active_topic_names())
     except Exception:
         logger.exception(
             "[%s] initial topic load failed; relying on reconcile", source.name
@@ -277,7 +348,7 @@ def run_engine_worker(
                 # publishes cycles and picks up topic changes.
                 if now >= next_tick:
                     try:
-                        schedule.reconcile(_active_topic_names())
+                        queue.reconcile(_active_topic_names())
                     except Exception:
                         logger.exception("[%s] topic reconcile failed", source.name)
                     _flush_window(window, source.name, window_start, time.monotonic)
@@ -285,116 +356,70 @@ def run_engine_worker(
                     window_start = time.monotonic()
                     next_tick = time.monotonic() + interval
 
-                # Engine-level cooldown gate: while benched, schedule nothing —
-                # sleep until the backoff window allows a probe (or the next
-                # tick). This also defers web/keep-alive: a benched session would
-                # only CAPTCHA, and (once wired) the dispatcher routes the web
-                # request to a healthy engine instead.
+                # Engine-level cooldown gate. While benched: reject any queued
+                # one-off fast (a user-facing request gets a prompt 'cooling'
+                # answer instead of waiting out the bench), run no news (it stays
+                # scheduled), and sleep until the backoff window allows a probe —
+                # bounded by the web-poll slice so newly-arrived one-offs are
+                # rejected promptly too.
                 if cooldown is not None and cooldown.decide(source.name) == "skip":
+                    rejected = queue.reject_pending_oneoffs(_MAX_COOLING_DRAIN)
+                    if rejected:
+                        logger.info(
+                            "[%s] rejected %d queued web search(es) — cooling",
+                            source.name,
+                            rejected,
+                        )
                     wait = min(
                         cooldown.remaining(source.name), next_tick - time.monotonic()
                     )
+                    if queue.has_web:
+                        wait = min(wait, WEB_POLL_INTERVAL)
                     stop_event.wait(max(wait, 0.0))
                     continue
 
-                # Pick exactly one action this turn, in priority order, then
-                # converge on the shared post-scrape (recycle) handling. The
-                # idle branch is the only one that sleeps and skips it.
-                job = web_queue.poll() if web_queue is not None else None
-                topic, sleep_for = (None, None)
-                if job is None:
-                    topic, sleep_for = schedule.next_due()
+                # Run the highest-priority ready task (one-off → due news → idle
+                # keep-alive), or idle until the queue next has work. A cooldown
+                # probe runs here too: whatever surfaces first while
+                # decide()=="probe" is the single probe request.
+                task, idle_wait = queue.pop_ready()
+                if task is None:
+                    waits = [next_tick - time.monotonic()]
+                    if idle_wait is not None:
+                        waits.append(idle_wait)
+                    stop_event.wait(max(min(waits), 0.0))
+                    continue
 
-                if job is not None:
-                    # Priority 1 — on-demand web search preempts news. Serve one
-                    # queued job per turn (FCFS) and hand its results back. The job
-                    # owns delivery (set a future, or write the cross-process row);
-                    # it's passed the per-page logs so the producer can tell a block
-                    # from a genuinely empty result and fall back accordingly.
-                    try:
-                        entries, logs = _serve_oneoff(
-                            context,
-                            source,
-                            job.query,
-                            SearchVertical.WEB,
-                            pacer=pacer,
-                            stop_event=stop_event,
-                            cooldown=cooldown,
-                            shared_state=shared_state,
-                            max_pages=scraper_config.max_pages,
-                        )
-                    except Exception as e:
-                        logger.exception(
-                            "[%s] web search '%s' failed", source.name, job.query
-                        )
-                        job.fail(e)
-                    else:
-                        job.resolve(entries, logs)
-                    if heartbeat is not None:
-                        heartbeat.record_activity()
-                    scrapes_since_recycle += 1
-
-                elif topic is not None:
-                    # Priority 2 — a due news topic.
-                    pacer.wait(stop_event)
-                    if stop_event.is_set():
-                        break
-                    try:
-                        entries, logs = scrape_topic(
-                            context.new_page,
-                            [source],
-                            topic,
-                            strategy="all",
-                            max_result_pages=scraper_config.max_pages,
-                            cooldown=cooldown,
-                        )
-                        window.add(entries, logs)
-                    except Exception as e:
-                        window.error = f"{type(e).__name__}: {e}"
-                        window.success = False
-                        logger.exception(
-                            "[%s] scrape of '%s' failed", source.name, topic
-                        )
-                    finally:
-                        schedule.reschedule(topic)
-                    if cooldown is not None:
-                        for snap in cooldown.snapshot():
-                            shared_state.update(snap)
-                    if heartbeat is not None:
-                        heartbeat.record_activity()
-                    scrapes_since_recycle += 1
-
-                elif heartbeat is not None and heartbeat.due():
-                    # Priority 3 — nothing due; fire an idle keep-alive warm-up.
-                    query = heartbeat.next_query()
-                    logger.info(f"[{source.name}] keep-alive warm-up: '{query}'")
-                    _serve_oneoff(
+                # Execute it; the task delivers its own result — a one-off back to
+                # its caller, a tracked news scrape into the metrics window below.
+                # The worker doesn't branch on the kind beyond that.
+                try:
+                    entries, logs = _execute_task(
                         context,
                         source,
-                        query,
-                        SearchVertical.NEWS,
+                        task,
                         pacer=pacer,
                         stop_event=stop_event,
                         cooldown=cooldown,
                         shared_state=shared_state,
-                        max_pages=1,  # one page is enough to warm the session
                     )
-                    heartbeat.record_activity()
-                    scrapes_since_recycle += 1
-
+                except Exception as e:
+                    logger.exception(
+                        "[%s] %s task '%s' failed",
+                        source.name,
+                        task.kind,
+                        task.query,
+                    )
+                    task.deliver_failure(e)
+                    if task.tracked:
+                        window.error = f"{type(e).__name__}: {e}"
+                        window.success = False
                 else:
-                    # Idle: wait for the head topic to come due, but never past
-                    # the next housekeeping tick, the next keep-alive, or (with
-                    # web search enabled) a short web-poll slice.
-                    waits = [next_tick - time.monotonic()]
-                    if sleep_for is not None:
-                        waits.append(sleep_for)
-                    if heartbeat is not None:
-                        waits.append(heartbeat.seconds_until_due())
-                    if web_queue is not None:
-                        waits.append(_WEB_POLL_SLICE)
-                    stop_event.wait(max(min(waits), 0.0))
-                    continue
+                    task.deliver_success(entries, logs)
+                    if task.tracked:
+                        window.add(entries, logs)
+                queue.on_completed(task)
+                scrapes_since_recycle += 1
 
                 if stop_event.is_set():
                     break

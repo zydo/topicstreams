@@ -431,6 +431,27 @@ class EngineTaskQueue:
         if self._keepalive is not None:
             self._keepalive.record_activity()
 
+    @property
+    def has_web(self) -> bool:
+        """Whether on-demand web search is attached to this queue."""
+        return self._web is not None
+
+    def reject_pending_oneoffs(self, limit: int) -> int:
+        """Fail-fast up to ``limit`` queued one-off web searches because the
+        engine is benched — each gets a prompt 'cooling' answer instead of
+        waiting out the cooldown window. News tasks stay scheduled and just wait.
+        Returns how many were rejected (0 if no web source)."""
+        if self._web is None:
+            return 0
+        rejected = 0
+        for _ in range(limit):
+            task = self._web.poll()
+            if task is None:
+                break
+            task.deliver_cooling()
+            rejected += 1
+        return rejected
+
     def health(self) -> SchedulerHealth:
         overdue, lateness = self._news.backlog()
         pending = self._web.pending() if self._web is not None else 0

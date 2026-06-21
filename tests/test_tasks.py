@@ -352,3 +352,44 @@ def test_queue_health_reports_backlog_and_pending():
     assert health.overdue_count == 3
     assert health.max_lateness_seconds == 0.0
     assert health.pending_oneoffs == 2
+
+
+def test_queue_has_web_reflects_attachment():
+    clock = _Clock()
+    _, with_web = _queue(clock, with_web=WebSearchQueue())
+    _, without = _queue(clock)
+    assert with_web.has_web is True
+    assert without.has_web is False
+
+
+def test_reject_pending_oneoffs_fails_them_fast():
+    clock = _Clock()
+    web_q = WebSearchQueue()
+    f1 = web_q.submit("a")
+    f2 = web_q.submit("b")
+    _, queue = _queue(clock, with_web=web_q)
+    rejected = queue.reject_pending_oneoffs(limit=50)
+    assert rejected == 2
+    for f in (f1, f2):
+        assert f.done()
+        try:
+            f.result()
+            assert False, "expected EngineCoolingError"
+        except EngineCoolingError:
+            pass
+
+
+def test_reject_pending_oneoffs_respects_limit():
+    clock = _Clock()
+    web_q = WebSearchQueue()
+    web_q.submit("a")
+    web_q.submit("b")
+    web_q.submit("c")
+    _, queue = _queue(clock, with_web=web_q)
+    assert queue.reject_pending_oneoffs(limit=2) == 2  # only two this turn
+    assert queue.reject_pending_oneoffs(limit=2) == 1  # the rest next turn
+
+
+def test_reject_pending_oneoffs_noop_without_web():
+    _, queue = _queue(_Clock())  # news only
+    assert queue.reject_pending_oneoffs(limit=50) == 0
