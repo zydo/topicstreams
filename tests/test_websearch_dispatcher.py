@@ -101,7 +101,9 @@ def _install(monkeypatch, bridge: _FakeBridge, engines: list[str], cooldowns=Non
     monkeypatch.setattr(websearch.db, "enqueue_web_search", bridge.enqueue)
     monkeypatch.setattr(websearch.db, "fetch_web_search_result", bridge.fetch)
     monkeypatch.setattr(websearch.db, "delete_web_search_job", bridge.delete)
-    _set_prop(monkeypatch, "engines", engines)
+    # The dispatcher draws its candidates from web_search.engines (Google-only by
+    # default); these tests pass a list explicitly to exercise the fan-out.
+    _set_prop(monkeypatch, "web_search_engines", engines)
     # Tight, deterministic timing so timeout cases don't actually wait long.
     _set_prop(monkeypatch, "web_search_request_timeout_seconds", 0.05)
     _set_prop(monkeypatch, "web_search_poll_interval_seconds", 0.01)

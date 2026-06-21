@@ -4,12 +4,17 @@ The counterpart to ``scraper/webqueue.py``: turns one user query into parsed WEB
 results by routing it across the cross-process ``web_search_jobs`` bridge.
 
 For one query it:
-  1. picks the healthy (non-cooling) engines, in configured priority order, from
-     the cooldown snapshot the scraper publishes (``engine_cooldowns``);
+  1. picks the healthy (non-cooling) engines from ``scraper.web_search.engines``
+     (priority order), using the cooldown snapshot the scraper publishes
+     (``engine_cooldowns``);
   2. enqueues a job for the first such engine and polls the row for the result
      its worker writes back;
   3. on a block, empty result, error, or timeout, falls back to the next healthy
      engine — so a search still succeeds while one engine is benched.
+
+``web_search.engines`` defaults to **Google only**, so today this is effectively a
+single-engine search; the fan-out/fallback machinery is already here for when
+more engines are added to that list.
 
 Stateless and replica-safe: any API process can dispatch, and the job is served
 by whichever scraper owns that engine's worker. Job rows are deleted once read
@@ -94,7 +99,7 @@ async def dispatch_web_search(query: str) -> WebSearchResult:
         return WebSearchResult(query=query, status="empty")
 
     cooldowns = await run_in_threadpool(db.get_engine_cooldowns)
-    healthy = _healthy_engines(scraper_config.engines, cooldowns)
+    healthy = _healthy_engines(scraper_config.web_search_engines, cooldowns)
     attempts: list[str] = []
     if not healthy:
         logger.warning("web search '%s': no healthy engine available", query)

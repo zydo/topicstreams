@@ -20,6 +20,25 @@ def test_engine_defaults_when_unset(tmp_path):
     assert cfg.engine_strategy == "fallback"
 
 
+def test_web_search_engines_default_is_google_only(tmp_path):
+    path = tmp_path / "config.yml"
+    path.write_text("scraper:\n  scrape_interval: 60\n")
+    cfg = ScraperConfig(config_path=path)
+    assert cfg.web_search_engines == ["google"]  # single-engine web search for now
+
+
+def test_web_search_engines_override(tmp_path):
+    path = tmp_path / "config.yml"
+    path.write_text("scraper:\n  web_search:\n    engines: [google, bing, yahoo]\n")
+    cfg = ScraperConfig(config_path=path)
+    assert cfg.web_search_engines == ["google", "bing", "yahoo"]
+
+
+def test_example_config_web_search_is_google_only(tmp_path):
+    cfg = ScraperConfig(config_path=EXAMPLE)
+    assert cfg.web_search_engines == ["google"]
+
+
 def test_pacing_per_engine_override_and_default(tmp_path):
     path = tmp_path / "config.yml"
     path.write_text(

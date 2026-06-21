@@ -89,6 +89,7 @@ scraper:
   # together with keepalive above so dispatched queries land on warm sessions.
   web_search:
     enabled: false
+    engines: [google]             # web-search engines, priority order; Google-only for now (add others later — each must be a running engine above)
     request_timeout_seconds: 25   # how long the API waits for one engine before falling back
     poll_interval_seconds: 0.25   # how often the API polls the job row for its result
     max_engine_attempts: 3        # max distinct healthy engines a query may fan out across

@@ -202,6 +202,16 @@ class ScraperConfig(_BaseConfig):
         return self._get("scraper", "web_search", "enabled", default=False)
 
     @property
+    def web_search_engines(self) -> list[str]:
+        """Engines the web-search dispatcher may use, in priority order.
+
+        Defaults to Google only (single-engine web search for now); add more here
+        to turn on cross-engine fan-out/fallback. Each must also be a running
+        ``scraper.engines`` worker so a worker drains its web-search queue.
+        """
+        return self._get("scraper", "web_search", "engines", default=["google"])
+
+    @property
     def web_search_request_timeout_seconds(self) -> float:
         """How long the API waits for one engine to serve a query before it
         gives up on that engine and falls back to the next healthy one."""
