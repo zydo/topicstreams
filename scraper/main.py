@@ -123,14 +123,25 @@ def _supervise(shared_state: SharedEngineState, stop_event: threading.Event) -> 
             )
             log_saturation(verdict)
 
-        # Per-engine backlog signal: warn about any engine that's cycling topics
-        # materially slower than its interval (a lagging capacity cue).
-        for engine, health in shared_state.health_all().items():
-            log_backlog(
-                evaluate_backlog(
-                    engine, health, interval=scraper_config.scrape_interval
+        # Per-engine backlog: publish it for the /monitor page, and warn about any
+        # engine cycling topics materially slower than its interval (lagging cue).
+        healths = shared_state.health_all()
+        if healths:
+            try:
+                db.upsert_engine_backlog(
+                    [
+                        (engine, h.overdue_count, h.max_lateness_seconds)
+                        for engine, h in healths.items()
+                    ]
                 )
-            )
+            except Exception:
+                logger.exception("Failed to publish engine backlog state")
+            for engine, health in healths.items():
+                log_backlog(
+                    evaluate_backlog(
+                        engine, health, interval=scraper_config.scrape_interval
+                    )
+                )
 
         stop_event.wait(scraper_config.scrape_interval)
 

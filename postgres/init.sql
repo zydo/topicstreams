@@ -101,10 +101,15 @@ CREATE INDEX IF NOT EXISTS idx_scraper_cycles_started_at ON scraper_cycles(start
 -- absolute UTC wall-clock (the tracker's monotonic clock can't cross processes),
 -- so the API derives the remaining seconds freshly. failures = 0 / NULL probe
 -- means the engine is not currently benched.
+-- Per-engine scraper state snapshot for the /monitor page: the adaptive cooldown
+-- (failures / next_probe_at) AND the task-queue backlog (overdue topics + how
+-- late the oldest one is — the "falling behind" signal from scraper/tasks.py).
 CREATE TABLE IF NOT EXISTS engine_cooldowns (
     engine VARCHAR(32) PRIMARY KEY,
     failures INTEGER NOT NULL DEFAULT 0,
     next_probe_at TIMESTAMP,
+    overdue_count INTEGER NOT NULL DEFAULT 0,
+    max_lateness_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

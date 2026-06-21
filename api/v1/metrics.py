@@ -15,6 +15,7 @@ from starlette.concurrency import run_in_threadpool
 
 from common import database as db
 from common.block_signals import is_network_block
+from common.config import scraper_config
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
@@ -33,6 +34,11 @@ _BLOCK_STATUSES = (429, 403, 503)
 # timeline surfaces that) and the cooldown countdown is meaningless. Generous
 # vs. the scrape interval so a slow cycle doesn't blink the indicator off.
 _COOLDOWN_STALE_SECONDS = 600
+
+# An engine is flagged "behind" when its oldest overdue topic is later than this
+# many scrape intervals — mirrors scraper/saturation._BACKLOG_LATENESS_FACTOR so
+# the badge matches the scraper's own "falling behind" log line.
+_BEHIND_LATENESS_FACTOR = 3.0
 
 
 def _naive_utc_now() -> datetime:
@@ -138,7 +144,8 @@ class EngineMetrics(BaseModel):
         ...,
         description=(
             "healthy | degraded | blocked | parsing | idle (see classify_engine), "
-            "or cooldown when the scraper has the engine benched"
+            "cooldown when the scraper has the engine benched, or behind when its "
+            "scrape backlog is materially late"
         ),
     )
     scrapes: int
@@ -167,6 +174,15 @@ class EngineMetrics(BaseModel):
     cooldown_failures: int = Field(
         0,
         description="Consecutive block signals driving the current cooldown (0 if none)",
+    )
+    backlog_overdue: int = Field(
+        0,
+        description="Tracked topics past their next-eligible scrape time, queued "
+        "and not yet scraped (0 when caught up)",
+    )
+    backlog_lateness_seconds: float = Field(
+        0.0,
+        description="How late the oldest overdue topic is, in seconds (0 when caught up)",
     )
 
 
@@ -238,10 +254,23 @@ def _build_overall(row: dict) -> OverallMetrics:
     )
 
 
-def _build_engine(row: dict, cooldown: dict | None = None) -> EngineMetrics:
-    """Shape one engine row. ``cooldown`` is its live ``{failures, remaining}``
-    when currently benched, which overrides the log-derived health label."""
-    health = classify_engine(row)
+def _build_engine(
+    row: dict,
+    cooldown: dict | None = None,
+    backlog: dict | None = None,
+    behind_threshold: float | None = None,
+) -> EngineMetrics:
+    """Shape one engine row.
+
+    ``cooldown`` is its live ``{failures, remaining}`` when currently benched,
+    which overrides the log-derived health label. ``backlog`` is its fresh
+    ``{overdue_count, max_lateness_seconds}``; when the oldest overdue topic is
+    later than ``behind_threshold`` seconds (and the engine isn't already cooling
+    or failing) the label becomes ``behind``.
+    """
+    base = classify_engine(row)
+    overdue = backlog["overdue_count"] if backlog else 0
+    lateness = backlog["max_lateness_seconds"] if backlog else 0.0
     cooldown_remaining = None
     cooldown_failures = 0
     if cooldown is not None:
@@ -250,11 +279,23 @@ def _build_engine(row: dict, cooldown: dict | None = None) -> EngineMetrics:
         # The engine is benched right now; that supersedes a stale log-based
         # label (often "idle" — no logs are produced while skipped).
         health = "cooldown"
+    elif (
+        behind_threshold is not None
+        and lateness > behind_threshold
+        and base in ("healthy", "idle")
+    ):
+        # Cycling topics materially slower than its interval — flag it, but don't
+        # mask a more serious blocked/degraded/parsing state.
+        health = "behind"
+    else:
+        health = base
     return EngineMetrics(
         engine=row["engine"],
         health=health,
         cooldown_seconds_remaining=cooldown_remaining,
         cooldown_failures=cooldown_failures,
+        backlog_overdue=overdue,
+        backlog_lateness_seconds=lateness,
         scrapes=row["scrapes"],
         successes=row["successes"],
         success_rate=_rate(row["successes"], row["scrapes"]),
@@ -291,20 +332,35 @@ async def get_metrics(
 
     overall = _build_overall(metrics["overall"])
 
-    # Resolve which engines are *currently* benched (fresh snapshot, probe still
-    # in the future), then overlay that onto the per-engine rows.
+    # Resolve fresh per-engine state (a stale snapshot means the scraper is down,
+    # which the cycle timeline shows). From the fresh rows: which engines are
+    # *currently* benched (probe still in the future) and each one's queue backlog.
     now = _naive_utc_now()
+    fresh = {
+        engine: cd
+        for engine, cd in cooldowns.items()
+        if (now - cd["updated_at"]).total_seconds() <= _COOLDOWN_STALE_SECONDS
+    }
     live = {
         engine: {"remaining": remaining, "failures": cd["failures"]}
-        for engine, cd in cooldowns.items()
+        for engine, cd in fresh.items()
         if (remaining := _live_cooldown_seconds(cd, now)) is not None
     }
+    behind_threshold = scraper_config.scrape_interval * _BEHIND_LATENESS_FACTOR
     rows = {row["engine"]: row for row in metrics["engines"]}
     # A long cooldown means no scrapes in the window, so a benched engine may be
     # absent from the aggregates entirely — synthesize a row so it still shows.
     for engine in live:
         rows.setdefault(engine, _empty_engine_row(engine))
-    engines = [_build_engine(rows[engine], live.get(engine)) for engine in sorted(rows)]
+    engines = [
+        _build_engine(
+            rows[engine],
+            cooldown=live.get(engine),
+            backlog=fresh.get(engine),
+            behind_threshold=behind_threshold,
+        )
+        for engine in sorted(rows)
+    ]
 
     return MetricsResponse(
         active_topics=len(topics),

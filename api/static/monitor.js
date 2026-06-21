@@ -121,7 +121,7 @@ class MonitorApp {
         body.replaceChildren();
         if (!engines.length) {
             const td = document.createElement('td');
-            td.colSpan = 11;
+            td.colSpan = 12;
             td.className = 'muted center';
             td.textContent = 'no scrapes in this window';
             body.appendChild(this.rowFromCells(td));
@@ -166,6 +166,19 @@ class MonitorApp {
             const fl = row.querySelector('.c-fails');
             fl.textContent = e.failures || '';
             fl.classList.toggle('warm', e.failures > 0);
+
+            // Backlog: overdue topic count, with how late the oldest one is. Hot
+            // when the engine is flagged "behind" (cycling slower than its cadence).
+            const bl = row.querySelector('.c-backlog');
+            const overdue = e.backlog_overdue || 0;
+            bl.textContent = overdue
+                ? `${overdue} (${this.fmtCountdown(e.backlog_lateness_seconds)})`
+                : '';
+            bl.title = overdue
+                ? `${overdue} topic${overdue === 1 ? '' : 's'} overdue; oldest ~${this.fmtCountdown(e.backlog_lateness_seconds)} late`
+                : '';
+            bl.classList.toggle('hot', e.health === 'behind');
+            bl.classList.toggle('warm', overdue > 0 && e.health !== 'behind');
 
             const st = row.querySelector('.estatus');
             st.textContent = e.last_http_status == null ? '–' : String(e.last_http_status);

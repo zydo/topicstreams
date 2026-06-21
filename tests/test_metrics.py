@@ -10,6 +10,8 @@ import pytest
 
 from api.v1.metrics import (
     _COOLDOWN_STALE_SECONDS,
+    _build_engine,
+    _empty_engine_row,
     _live_cooldown_seconds,
     _rate,
     classify_engine,
@@ -191,3 +193,56 @@ def test_cooldown_none_when_snapshot_stale():
     # Scraper hasn't refreshed the snapshot recently → ignore (likely down).
     stale = _cd(probe_in=300, updated_ago=_COOLDOWN_STALE_SECONDS + 60)
     assert _live_cooldown_seconds(stale, _NOW) is None
+
+
+# ── _build_engine: backlog + "behind" health ─────────────────────────────────
+
+
+def _erow(**over):
+    """A healthy per-engine aggregate row (overridable)."""
+    row = _empty_engine_row("google")
+    row.update(scrapes=10, successes=10, last_success=True, last_http_status=200)
+    row.update(over)
+    return row
+
+
+def _backlog(overdue, lateness):
+    return {"overdue_count": overdue, "max_lateness_seconds": lateness}
+
+
+def test_engine_flagged_behind_when_oldest_topic_too_late():
+    e = _build_engine(_erow(), backlog=_backlog(5, 300.0), behind_threshold=180.0)
+    assert e.health == "behind"
+    assert e.backlog_overdue == 5
+    assert e.backlog_lateness_seconds == 300.0
+
+
+def test_engine_not_behind_under_threshold_but_numbers_surface():
+    e = _build_engine(_erow(), backlog=_backlog(2, 60.0), behind_threshold=180.0)
+    assert e.health == "healthy"
+    assert e.backlog_overdue == 2  # the count is still reported
+    assert e.backlog_lateness_seconds == 60.0
+
+
+def test_cooldown_takes_precedence_over_behind():
+    e = _build_engine(
+        _erow(scrapes=0, successes=0),
+        cooldown={"remaining": 100.0, "failures": 2},
+        backlog=_backlog(9, 999.0),
+        behind_threshold=180.0,
+    )
+    assert e.health == "cooldown"
+    assert e.backlog_overdue == 9  # backlog still reported alongside
+
+
+def test_behind_does_not_mask_a_blocked_engine():
+    blocked = _erow(successes=0, last_success=False, last_http_status=429)
+    e = _build_engine(blocked, backlog=_backlog(9, 999.0), behind_threshold=180.0)
+    assert e.health == "blocked"
+
+
+def test_no_backlog_defaults_to_zero():
+    e = _build_engine(_erow())
+    assert e.health == "healthy"
+    assert e.backlog_overdue == 0
+    assert e.backlog_lateness_seconds == 0.0

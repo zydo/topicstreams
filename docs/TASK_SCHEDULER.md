@@ -96,6 +96,12 @@ the direct signals — `detect_block`/429 → cooldown and the parse-0 selector-
 health — not a replacement for them; backlog only grows *after* an engine is
 already slow.
 
+It's surfaced on **`/monitor`** too: each worker publishes its backlog to the
+`engine_cooldowns` state row (`db.upsert_engine_backlog`), the metrics API returns
+`backlog_overdue` / `backlog_lateness_seconds` per engine, and the engine table
+shows a `backlog` column plus a **`behind`** health badge when an engine is past
+the same 3× threshold (`api/v1/metrics._build_engine`).
+
 ## Deliberately out of scope (future work)
 
 - **Cross-engine dispatch / engine selection** for one-offs (primary+fallback,
@@ -104,4 +110,3 @@ already slow.
 - **Postgres → WebSocket/pubsub fan-out** of new news entries — downstream of the
   scheduler, which stops at "results produced / entries written."
 - **A result cache** for one-offs (today they're purely transient).
-- Surfacing the backlog signal on the `/monitor` UI (today it's logs only).

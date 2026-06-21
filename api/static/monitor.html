@@ -70,12 +70,13 @@
                             <th title="Successful scrapes that parsed 0 items — selector-rot signal">0-parse</th>
                             <th title="Failures with a 429/403/503 status">blocks</th>
                             <th>fails</th>
+                            <th title="Tracked topics past due and not yet scraped — how far the engine is behind its scrape cadence">backlog</th>
                             <th>last status</th>
                             <th>last scrape</th>
                         </tr>
                     </thead>
                     <tbody id="engines-body">
-                        <tr><td colspan="11" class="muted center">loading…</td></tr>
+                        <tr><td colspan="12" class="muted center">loading…</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -111,6 +112,7 @@
             <td class="c-zparse num r"></td>
             <td class="c-blocks num r"></td>
             <td class="c-fails num r"></td>
+            <td class="c-backlog num r"></td>
             <td class="c-status r"><span class="estatus"></span></td>
             <td class="c-last r"><span class="elast"></span></td>
         </tr>

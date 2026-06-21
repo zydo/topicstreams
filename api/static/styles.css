@@ -520,6 +520,7 @@ a { color: inherit; }
 .edot[data-health="degraded"] { background: var(--warn); }
 .edot[data-health="blocked"], .edot[data-health="parsing"] { background: var(--signal); }
 .edot[data-health="cooldown"] { background: var(--warn); }
+.edot[data-health="behind"] { background: var(--warn); }
 .edot[data-health="idle"] { background: var(--ink-faint); }
 
 .ehealth { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; }
@@ -527,6 +528,7 @@ a { color: inherit; }
 .ehealth[data-health="degraded"] { color: var(--warn); }
 .ehealth[data-health="blocked"], .ehealth[data-health="parsing"] { color: var(--signal); }
 .ehealth[data-health="cooldown"] { color: var(--warn); }
+.ehealth[data-health="behind"] { color: var(--warn); }
 .ehealth[data-health="idle"] { color: var(--ink-faint); }
 
 /* Probe countdown shown beside a "cooldown" label, e.g. "~286s". Not uppercased

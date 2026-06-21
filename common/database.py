@@ -217,9 +217,21 @@ def ensure_schema() -> None:
                     engine VARCHAR(32) PRIMARY KEY,
                     failures INTEGER NOT NULL DEFAULT 0,
                     next_probe_at TIMESTAMP,
+                    overdue_count INTEGER NOT NULL DEFAULT 0,
+                    max_lateness_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """
+            )
+            # Backlog columns added after engine_cooldowns shipped; existing
+            # volumes get them here (the table is a per-engine state snapshot now).
+            cursor.execute(
+                "ALTER TABLE engine_cooldowns "
+                "ADD COLUMN IF NOT EXISTS overdue_count INTEGER NOT NULL DEFAULT 0"
+            )
+            cursor.execute(
+                "ALTER TABLE engine_cooldowns ADD COLUMN IF NOT EXISTS "
+                "max_lateness_seconds DOUBLE PRECISION NOT NULL DEFAULT 0"
             )
             cursor.execute(
                 """
@@ -787,23 +799,59 @@ def upsert_engine_cooldowns(
         )
 
 
+# Idempotent (full overwrite of the backlog columns keyed by engine). Writes only
+# the backlog columns + updated_at, leaving the cooldown columns to
+# upsert_engine_cooldowns — the two publish independently into the same row.
+@retry_on_transient_error()
+def upsert_engine_backlog(
+    states: "list[tuple[str, int, float]]",
+) -> None:
+    """Persist the scraper's per-engine queue-backlog snapshot for the monitor.
+
+    ``states`` is ``(engine, overdue_count, max_lateness_seconds)`` per engine —
+    how many tracked topics are past due and how late the oldest is (see
+    ``scraper/tasks.py``). A new engine row is inserted with default (zero)
+    cooldown columns; an existing one keeps its cooldown state untouched.
+    """
+    if not states:
+        return
+    with _Connection() as conn:
+        cursor = conn.cursor()
+        cursor.executemany(
+            "INSERT INTO engine_cooldowns "
+            "  (engine, overdue_count, max_lateness_seconds, updated_at) "
+            "VALUES (%s, %s, %s, NOW()) "
+            "ON CONFLICT (engine) DO UPDATE SET "
+            "  overdue_count = EXCLUDED.overdue_count, "
+            "  max_lateness_seconds = EXCLUDED.max_lateness_seconds, "
+            "  updated_at = EXCLUDED.updated_at",
+            [(e, o, max(0.0, lateness)) for (e, o, lateness) in states],
+        )
+
+
 @retry_on_transient_error()
 def get_engine_cooldowns() -> dict[str, dict]:
-    """Per-engine cooldown state keyed by engine name (for the monitor).
+    """Per-engine scraper state keyed by engine name (for the monitor).
 
-    Returns ``{engine: {failures, next_probe_at, updated_at}}``. The endpoint
-    decides what is still "live" (freshness + remaining); this is a plain read.
+    Returns ``{engine: {failures, next_probe_at, updated_at, overdue_count,
+    max_lateness_seconds}}`` — the cooldown snapshot plus the queue backlog. The
+    endpoint decides what is still "live" (freshness + remaining); this is a
+    plain read.
     """
     with _Connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT engine, failures, next_probe_at, updated_at FROM engine_cooldowns"
+            "SELECT engine, failures, next_probe_at, updated_at, "
+            "       overdue_count, max_lateness_seconds "
+            "FROM engine_cooldowns"
         )
         return {
             row["engine"]: {
                 "failures": row["failures"],
                 "next_probe_at": row["next_probe_at"],
                 "updated_at": row["updated_at"],
+                "overdue_count": row["overdue_count"],
+                "max_lateness_seconds": row["max_lateness_seconds"],
             }
             for row in cursor.fetchall()
         }
