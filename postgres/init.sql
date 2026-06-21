@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS web_search_jobs (
     query TEXT NOT NULL,
     engine VARCHAR(32) NOT NULL,
     status VARCHAR(16) NOT NULL DEFAULT 'pending',
-    outcome VARCHAR(16),            -- ok | empty | blocked | error (set when done)
+    outcome VARCHAR(16),            -- ok | empty | blocked | error | cooling (set when done)
     results JSONB,                  -- parsed WebResult list, as JSON (when done)
     error TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
