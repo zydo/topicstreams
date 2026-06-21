@@ -112,24 +112,29 @@ def test_classify_blocked_when_any_log_failed():
 def test_db_queue_poll_claims_engine_job(monkeypatch):
     seen = {}
 
-    def fake_claim(engine):
+    def fake_claim(engine, max_age_seconds=None):
         seen["engine"] = engine
+        seen["max_age"] = max_age_seconds
         return {"id": 7, "query": "us iran"}
 
     monkeypatch.setattr("scraper.webqueue.db.claim_web_search_job", fake_claim)
-    job = DbWebSearchQueue("bing").poll()
+    job = DbWebSearchQueue("bing", max_age_seconds=25.0).poll()
     assert seen["engine"] == "bing"
+    assert seen["max_age"] == 25.0  # the producer's request timeout is passed through
     assert isinstance(job, DbWebSearchJob)
     assert job.id == 7 and job.query == "us iran"
 
 
 def test_db_queue_poll_returns_none_when_empty(monkeypatch):
-    monkeypatch.setattr("scraper.webqueue.db.claim_web_search_job", lambda engine: None)
+    monkeypatch.setattr(
+        "scraper.webqueue.db.claim_web_search_job",
+        lambda engine, max_age_seconds=None: None,
+    )
     assert DbWebSearchQueue("google").poll() is None
 
 
 def test_db_queue_poll_swallows_db_errors(monkeypatch):
-    def boom(engine):
+    def boom(engine, max_age_seconds=None):
         raise RuntimeError("db down")
 
     monkeypatch.setattr("scraper.webqueue.db.claim_web_search_job", boom)

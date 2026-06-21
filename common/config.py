@@ -220,6 +220,15 @@ class ScraperConfig(_BaseConfig):
         )
 
     @property
+    def web_search_max_in_flight(self) -> int:
+        """Backpressure cap: max in-flight (pending+claimed) web-search jobs per
+        engine. Each engine has ONE warm session serving searches strictly
+        sequentially, so a deep queue just times out; instead, reject the N+1th
+        request fast (HTTP 429) so the caller retries rather than hanging. Size it
+        to how many serves fit in ``request_timeout`` (~6s each → ~4)."""
+        return self._get("scraper", "web_search", "max_in_flight", default=4)
+
+    @property
     def web_search_poll_interval_seconds(self) -> float:
         """How often the API polls the job row for its result while waiting."""
         return self._get("scraper", "web_search", "poll_interval_seconds", default=0.25)

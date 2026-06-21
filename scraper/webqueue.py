@@ -154,8 +154,12 @@ class DbWebSearchQueue:
     (and ``common.database``), so this class only needs the worker half.
     """
 
-    def __init__(self, engine: str) -> None:
+    def __init__(self, engine: str, *, max_age_seconds: float | None = None) -> None:
         self._engine = engine
+        # Don't claim jobs older than the producer's request timeout — that
+        # requester has already given up, so serving it would waste this single
+        # worker's turn while a still-waiting request queues behind it.
+        self._max_age_seconds = max_age_seconds
 
     def poll(self) -> DbWebSearchJob | None:
         """Claim this engine's next pending job, or None if there is none.
@@ -164,7 +168,9 @@ class DbWebSearchQueue:
         down the worker loop — the unclaimed job stays pending for the next poll.
         """
         try:
-            claimed = db.claim_web_search_job(self._engine)
+            claimed = db.claim_web_search_job(
+                self._engine, max_age_seconds=self._max_age_seconds
+            )
         except Exception:
             logger.exception("[%s] failed to claim web search job", self._engine)
             return None

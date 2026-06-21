@@ -934,27 +934,60 @@ def delete_api_key(key_id: int) -> bool:
 
 
 @retry_on_transient_error()
-def enqueue_web_search(query: str, engine: str) -> int:
-    """Insert a pending web-search job targeted at one engine; return its id."""
+def enqueue_web_search(
+    query: str, engine: str, max_in_flight: int | None = None
+) -> int | None:
+    """Insert a pending web-search job targeted at one engine; return its id.
+
+    With ``max_in_flight`` set, the insert is **capacity-checked**: it only
+    creates the row if the engine has fewer than that many in-flight
+    (pending+claimed) jobs, else it inserts nothing and returns ``None`` — the
+    backpressure signal the caller turns into a fast 429 instead of a doomed wait.
+    The check + insert are one statement (atomic per row); under heavy concurrent
+    races it may admit a hair over the cap, which is fine for a soft limit.
+    """
     with _Connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO web_search_jobs (query, engine) VALUES (%s, %s) RETURNING id",
-            (query, engine),
-        )
+        if max_in_flight is None:
+            cursor.execute(
+                "INSERT INTO web_search_jobs (query, engine) VALUES (%s, %s) "
+                "RETURNING id",
+                (query, engine),
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO web_search_jobs (query, engine) "
+                "SELECT %s, %s WHERE ("
+                "  SELECT count(*) FROM web_search_jobs "
+                "  WHERE engine = %s AND status IN ('pending', 'claimed')"
+                ") < %s "
+                "RETURNING id",
+                (query, engine, engine, max_in_flight),
+            )
         row = cursor.fetchone()
-        assert row is not None  # INSERT ... RETURNING always yields a row
-        return row["id"]
+        return row["id"] if row else None
 
 
 @retry_on_transient_error()
-def claim_web_search_job(engine: str) -> dict | None:
+def claim_web_search_job(
+    engine: str, max_age_seconds: float | None = None
+) -> dict | None:
     """Atomically claim the oldest pending job for ``engine`` (FCFS).
 
     ``FOR UPDATE SKIP LOCKED`` so concurrent claimers (e.g. multiple scraper
     replicas) never grab the same row. Returns ``{id, query}`` or None when
     nothing is pending for this engine.
+
+    ``max_age_seconds`` skips jobs older than that (the producer's request
+    timeout): a job that old has already been abandoned, so serving it would
+    waste the single worker's turn while a still-waiting request queues behind it.
+    Such rows are left for ``purge_stale_web_search_jobs`` to reap.
     """
+    age_filter = ""
+    params: list = [engine]
+    if max_age_seconds is not None:
+        age_filter = "    AND created_at > NOW() - make_interval(secs => %s) "
+        params.append(max_age_seconds)
     with _Connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -962,9 +995,10 @@ def claim_web_search_job(engine: str) -> dict | None:
             "FROM ("
             "  SELECT id FROM web_search_jobs "
             "  WHERE engine = %s AND status = 'pending' "
+            f"{age_filter}"
             "  ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED"
             ") s WHERE j.id = s.id RETURNING j.id, j.query",
-            (engine,),
+            tuple(params),
         )
         row = cursor.fetchone()
         return dict(row) if row else None

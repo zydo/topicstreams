@@ -41,8 +41,10 @@ class WebSearchResult:
 
     ``status`` is ``ok`` (``results`` populated by ``engine``), ``empty`` (a
     healthy engine returned no results), ``blocked``/``error`` (every attempted
-    engine failed), ``timeout`` (no engine answered in time), or ``unavailable``
-    (no healthy engine to try). ``attempts`` lists the engines tried, in order.
+    engine failed), ``timeout`` (no engine answered in time), ``busy`` (every
+    healthy engine was at its in-flight capacity — backpressure), or
+    ``unavailable`` (no healthy engine to try). ``attempts`` lists the engines
+    actually enqueued to, in order.
     """
 
     query: str
@@ -108,11 +110,21 @@ async def dispatch_web_search(query: str) -> WebSearchResult:
     timeout = scraper_config.web_search_request_timeout_seconds
     poll = scraper_config.web_search_poll_interval_seconds
     max_attempts = scraper_config.web_search_max_engine_attempts
+    max_in_flight = scraper_config.web_search_max_in_flight
 
     last_status = "unavailable"
     for engine in healthy[:max_attempts]:
+        job_id = await run_in_threadpool(
+            db.enqueue_web_search, query, engine, max_in_flight
+        )
+        if job_id is None:
+            # Backpressure: this engine's one warm session already has the max
+            # in-flight searches. Reject fast (don't queue a doomed request) and
+            # try the next healthy engine; if none has capacity → "busy".
+            last_status = "busy"
+            logger.info("web search '%s' on %s rejected — at capacity", query, engine)
+            continue
         attempts.append(engine)
-        job_id = await run_in_threadpool(db.enqueue_web_search, query, engine)
         try:
             row = await _await_result(job_id, timeout, poll)
         finally:

@@ -64,6 +64,7 @@ def test_empty_is_200_with_no_results(monkeypatch):
 @pytest.mark.parametrize(
     "status,code",
     [
+        ("busy", 429),
         ("unavailable", 503),
         ("timeout", 504),
         ("blocked", 502),
@@ -79,6 +80,15 @@ def test_failure_statuses_map_to_http_codes(monkeypatch, status, code):
     assert exc.value.status_code == code
     assert exc.value.detail["status"] == status
     assert exc.value.detail["attempts"] == ["google", "bing"]
+
+
+def test_busy_sets_retry_after_header(monkeypatch):
+    _enable(monkeypatch)
+    _stub_dispatch(monkeypatch, _result("busy", attempts=[]))
+    with pytest.raises(HTTPException) as exc:
+        _call()
+    assert exc.value.status_code == 429
+    assert "Retry-After" in (exc.value.headers or {})
 
 
 def test_disabled_feature_returns_503(monkeypatch):

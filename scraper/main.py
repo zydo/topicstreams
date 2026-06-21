@@ -175,7 +175,14 @@ def main():
 
     workers: list[threading.Thread] = []
     for source in sources:
-        web_queue = DbWebSearchQueue(source.name) if web_search_on else None
+        web_queue = (
+            DbWebSearchQueue(
+                source.name,
+                max_age_seconds=scraper_config.web_search_request_timeout_seconds,
+            )
+            if web_search_on
+            else None
+        )
         thread = threading.Thread(
             target=run_engine_worker,
             args=(source, profile, proxy, shared_state, stop_event, web_queue),

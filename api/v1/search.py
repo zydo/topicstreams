@@ -22,12 +22,17 @@ router = APIRouter(prefix="/search", tags=["search"])
 # Non-success dispatch outcomes → HTTP status. ``ok``/``empty`` are 200 (the
 # search ran; empty just found nothing); the rest are upstream/engine failures.
 _ERROR_STATUS = {
+    "busy": 429,  # every healthy engine at in-flight capacity (backpressure)
     "unavailable": 503,  # no healthy engine to try (all cooling / down)
     "timeout": 504,  # no engine answered within the request timeout
     "blocked": 502,  # every attempted engine was blocked / CAPTCHA'd
     "error": 502,  # every attempted engine errored
     "cooling": 502,  # engine benched (normally filtered out before dispatch)
 }
+
+# Hint clients to retry a backpressure (429) rejection after a short wait —
+# roughly one serve, so a slot is likely free by then.
+_RETRY_AFTER_SECONDS = 5
 
 
 class WebSearchResponse(BaseModel):
@@ -65,7 +70,12 @@ async def web_search(
 
     code = _ERROR_STATUS.get(result.status)
     if code is not None:
-        # Every attempted engine failed (or none was available); surface why.
+        # Every attempted engine failed, was busy, or none was available.
+        headers = (
+            {"Retry-After": str(_RETRY_AFTER_SECONDS)}
+            if result.status == "busy"
+            else None
+        )
         raise HTTPException(
             status_code=code,
             detail={
@@ -73,6 +83,7 @@ async def web_search(
                 "status": result.status,
                 "attempts": result.attempts,
             },
+            headers=headers,
         )
     return WebSearchResponse(
         query=result.query,

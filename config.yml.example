@@ -90,6 +90,7 @@ scraper:
   web_search:
     enabled: false
     engines: [google]             # web-search engines, priority order; Google-only for now (add others later — each must be a running engine above)
+    max_in_flight: 4              # backpressure: max queued+serving searches per engine before the API rejects with 429 (one warm session serves them sequentially)
     request_timeout_seconds: 25   # how long the API waits for one engine before falling back
     poll_interval_seconds: 0.25   # how often the API polls the job row for its result
     max_engine_attempts: 3        # max distinct healthy engines a query may fan out across

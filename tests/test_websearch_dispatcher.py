@@ -63,10 +63,13 @@ class _FakeBridge:
         self.outcomes = outcomes
         self.enqueued: list[tuple[int, str, str]] = []
         self.deleted: list[int] = []
+        self.at_capacity: set[str] = set()  # engines that reject enqueue (backpressure)
         self._next_id = 1
         self._rows: dict[int, dict] = {}
 
-    def enqueue(self, query, engine):
+    def enqueue(self, query, engine, max_in_flight=None):
+        if max_in_flight is not None and engine in self.at_capacity:
+            return None  # capacity-checked insert rejected the job
         job_id = self._next_id
         self._next_id += 1
         self.enqueued.append((job_id, query, engine))
@@ -108,6 +111,7 @@ def _install(monkeypatch, bridge: _FakeBridge, engines: list[str], cooldowns=Non
     _set_prop(monkeypatch, "web_search_request_timeout_seconds", 0.05)
     _set_prop(monkeypatch, "web_search_poll_interval_seconds", 0.01)
     _set_prop(monkeypatch, "web_search_max_engine_attempts", 3)
+    _set_prop(monkeypatch, "web_search_max_in_flight", 4)
 
 
 def _ok_row(url="https://e.com/a"):
@@ -206,3 +210,48 @@ def test_max_attempts_bounds_fanout(monkeypatch):
     _set_prop(monkeypatch, "web_search_max_engine_attempts", 2)
     res = _run(dispatch_web_search("us iran"))
     assert res.attempts == ["google", "bing"]  # capped at 2 despite 4 healthy
+
+
+# --- backpressure (max in-flight) -----------------------------------------
+
+
+def test_busy_when_only_engine_at_capacity(monkeypatch):
+    # Google-only and at its in-flight cap → reject fast, don't enqueue.
+    bridge = _FakeBridge({"google": {"outcome": "ok", "results": [], "error": None}})
+    bridge.at_capacity.add("google")
+    _install(monkeypatch, bridge, ["google"])
+    res = _run(dispatch_web_search("us iran"))
+    assert res.status == "busy"
+    assert res.attempts == []  # nothing was enqueued
+    assert bridge.enqueued == []
+
+
+def test_busy_falls_back_to_an_engine_with_capacity(monkeypatch):
+    # Google full, Bing has room → the search still succeeds on Bing.
+    bridge = _FakeBridge(
+        {
+            "google": {"outcome": "ok", "results": [], "error": None},
+            "bing": {"outcome": "ok", "results": [], "error": None},
+        }
+    )
+    bridge.at_capacity.add("google")
+    _install(monkeypatch, bridge, ["google", "bing"])
+    res = _run(dispatch_web_search("us iran"))
+    assert res.status == "ok"
+    assert res.engine == "bing"
+    assert res.attempts == ["bing"]  # google never enqueued (at capacity)
+
+
+def test_max_in_flight_passed_to_enqueue(monkeypatch):
+    bridge = _FakeBridge({"google": {"outcome": "ok", "results": [], "error": None}})
+    _install(monkeypatch, bridge, ["google"])
+    seen = {}
+    real_enqueue = bridge.enqueue
+
+    def spy(query, engine, max_in_flight=None):
+        seen["max_in_flight"] = max_in_flight
+        return real_enqueue(query, engine, max_in_flight)
+
+    monkeypatch.setattr(websearch.db, "enqueue_web_search", spy)
+    _run(dispatch_web_search("us iran"))
+    assert seen["max_in_flight"] == 4  # the cap is threaded into the enqueue

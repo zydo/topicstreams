@@ -39,6 +39,14 @@ def test_example_config_web_search_is_google_only(tmp_path):
     assert cfg.web_search_engines == ["google"]
 
 
+def test_web_search_max_in_flight_default_and_override(tmp_path):
+    path = tmp_path / "config.yml"
+    path.write_text("scraper:\n  scrape_interval: 60\n")
+    assert ScraperConfig(config_path=path).web_search_max_in_flight == 4  # default
+    path.write_text("scraper:\n  web_search:\n    max_in_flight: 2\n")
+    assert ScraperConfig(config_path=path).web_search_max_in_flight == 2
+
+
 def test_pacing_per_engine_override_and_default(tmp_path):
     path = tmp_path / "config.yml"
     path.write_text(
