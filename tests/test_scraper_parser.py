@@ -163,29 +163,80 @@ def test_unsupported_vertical_raises():
 
 _GOOGLE_WEB = _GOOGLE.parser_for(SearchVertical.WEB)
 
-# Mirrors the real web-search DOM: organic results in div.MjjYud, title in an
-# <h3> wrapped by a clean destination <a href>, <cite> a display-only
-# breadcrumb. The other two MjjYud blocks are the mixed content (a no-h3
-# People-also-ask block, and an internal Google nav link) that must be skipped.
+# Mirrors the real /search?q= DOM (captured live, 2026-06-20/21). The web SERP
+# packs many result kinds under a generic div.MjjYud wrapper, each parsed into a
+# uniform WebResult tagged with its kind (most-direct answer first):
+#   - ANSWER: div.LGOjhe featured-snippet paragraph + its source link
+#   - KNOWLEDGE_PANEL: div.kno-rdesc entity description + source
+#   - WIDGET: weather (#wob_wc) -> compact "NN°, condition"
+#   - ORGANIC: div.tF2Cxc (h3 title, clean a[href], span.VuuXrf source, .VwiC3b)
+#   - TOP_STORY / DISCUSSION: a.WlydOe cards in div[data-news-cluster-id], split
+#     by host (reddit/x/medium... -> DISCUSSION, capped)
+#   - VIDEO: standalone youtube-watch carousel items (NOT "related links" chips)
+#   Excluded: People-also-ask (div[data-q]), empty MjjYud spacers, ads.
+# The CNN card appears in BOTH the news pack and the organic list -> deduped.
+from common.model import WebResultKind  # noqa: E402
+
 _GOOGLE_WEB_FIXTURE = """
 <html><body>
-  <div id="search">
-    <div class="MjjYud">
-      <div class="yuRUbf">
-        <a href="https://www.spacex.com/vehicles/starship/" jsname="x">
-          <h3 class="LC20lb">Starship | SpaceX</h3>
-          <cite>https://www.spacex.com › vehicles › starship</cite>
+  <div id="search"><div id="rso">
+    <div class="xpdopen">
+      <div class="LGOjhe">The Strait of Hormuz handles about a fifth of global oil.</div>
+      <div class="g"><a href="https://www.eia.gov/hormuz"><h3>Strait of Hormuz facts</h3></a>
+        <span class="VuuXrf">EIA (.gov)</span></div>
+    </div>
+    <div class="kno-rdesc"><span>The Strait of Hormuz is a strait between the Persian Gulf and the Gulf of Oman.</span>
+      <a href="https://en.wikipedia.org/wiki/Strait_of_Hormuz">Wikipedia</a></div>
+    <div id="wob_wc"><span id="wob_tm">71</span><span id="wob_dc">Sunny</span></div>
+    <div class="ULSxyf">
+      <div data-news-cluster-id="1">
+        <a class="WlydOe" href="https://www.nbcnews.com/world/iran/story">
+          <div role="heading" class="n0jPhd">Iran says Strait of Hormuz is closed</div>
+          <div class="MgUUmf">NBC News</div><div class="OSrXXb">3 hours ago</div>
+        </a>
+        <a class="WlydOe" href="https://www.cnn.com/2026/06/20/world/strait">
+          <div role="heading" class="n0jPhd">CNN duplicate of the organic result</div>
+          <div class="MgUUmf">CNN</div>
+        </a>
+        <a class="WlydOe" href="https://www.reddit.com/r/worldnews/post">
+          <div role="heading" class="n0jPhd">Reddit thread on the strait</div>
+          <div class="MgUUmf">Reddit</div>
         </a>
       </div>
-      <div class="VwiC3b">Starship is the fully reusable launch system.</div>
+    </div>
+    <div class="MjjYud"></div>
+    <div class="MjjYud"><div class="tF2Cxc">
+      <div class="yuRUbf"><a href="https://www.cnn.com/2026/06/20/world/strait">
+        <h3>Iran and US make opposing claims on Strait of Hormuz</h3>
+        <cite>https://www.cnn.com › strait</cite></a></div>
+      <span class="VuuXrf">CNN</span>
+      <div class="VwiC3b">2 hours ago — The US military denied Iran's claim.</div>
+      <a href="https://www.youtube.com/watch?v=chip1" aria-label="YouTube (+1) - View related links">x</a>
+    </div></div>
+    <div class="MjjYud"><div class="tF2Cxc">
+      <div class="yuRUbf"><a href="https://en.wikipedia.org/wiki/2026_Iran_war">
+        <h3>2026 Iran war</h3></a></div>
+      <span class="VuuXrf">Wikipedia</span>
+      <div class="VwiC3b">From 28 February to 17 June 2026...</div>
+    </div></div>
+    <div class="MjjYud">
+      <a href="https://www.youtube.com/watch?v=vid1">
+        <div role="heading">US and Iran prepare for crucial talks</div>
+      </a>
+      <div>YouTube · Al Jazeera English 3.4K+ views · 1 hour ago</div>
+      <div>Diplomats gather in Switzerland as both sides signal cautious optimism.</div>
     </div>
     <div class="MjjYud">
-      <div class="related-question-pair">When is the next Starship launch?</div>
+      <a href="https://www.youtube.com/watch?v=vid2">
+        <div role="heading">3w</div>
+        <div role="heading">Inside the Strait of Hormuz standoff</div>
+      </a>
+      <div>YouTube · BBC News Sep 28, 2024</div>
     </div>
-    <div class="MjjYud">
-      <a href="/search?q=starship+related"><h3>More results</h3></a>
+    <div class="ULSxyf">
+      <div data-q="What is the issue between Iran and the USA?"></div>
     </div>
-  </div>
+  </div></div>
 </body></html>
 """
 
@@ -194,52 +245,134 @@ def _google_web_items(html=_GOOGLE_WEB_FIXTURE):
     return _GOOGLE_WEB.find_items(_soup(html))
 
 
+def _google_web_entries(html=_GOOGLE_WEB_FIXTURE):
+    return [
+        e
+        for e in (
+            _GOOGLE_WEB.parse(it, _req("us iran")) for it in _google_web_items(html)
+        )
+        if e is not None
+    ]
+
+
+def _by_kind(kind):
+    return [e for e in _google_web_entries() if e.kind is kind]
+
+
 def test_google_source_supports_web_vertical():
     assert SearchVertical.WEB in _GOOGLE.verticals
 
 
-def test_google_web_find_items_returns_all_mjjyud_blocks():
-    # find_items returns every MjjYud block; parse() is what filters non-organic.
-    assert len(_google_web_items()) == 3
+def test_google_web_parses_every_component_kind():
+    # answer + knowledge_panel + widget + 2 organic + 1 top_story (CNN deduped)
+    # + 1 discussion (reddit) + 2 video. Spacer/related-chip/PAA excluded.
+    from collections import Counter
+
+    counts = Counter(e.kind for e in _google_web_entries())
+    assert dict(counts) == {
+        WebResultKind.ANSWER: 1,
+        WebResultKind.KNOWLEDGE_PANEL: 1,
+        WebResultKind.WIDGET: 1,
+        WebResultKind.ORGANIC: 2,
+        WebResultKind.TOP_STORY: 1,
+        WebResultKind.DISCUSSION: 1,
+        WebResultKind.VIDEO: 2,
+    }
 
 
-def test_google_web_parse_extracts_clean_url_and_domain():
-    entry = _GOOGLE_WEB.parse(_google_web_items()[0], _req("starship"))
-    assert entry is not None
-    assert entry.title == "Starship | SpaceX"
-    assert entry.url == "https://www.spacex.com/vehicles/starship/"  # clean, no /url?q=
-    assert entry.domain == "spacex.com"  # from URL, not the <cite> breadcrumb
-    assert entry.source is None  # no publisher concept for general web results
-    assert entry.topic == "starship"
+def test_google_web_answer_first_with_source():
+    entries = _google_web_entries()
+    assert entries[0].kind is WebResultKind.ANSWER  # most-direct answer ranks first
+    ans = entries[0]
+    assert ans.snippet.startswith("The Strait of Hormuz handles about a fifth")
+    assert ans.url == "https://www.eia.gov/hormuz"
+    assert ans.source == "EIA (.gov)"
 
 
-def test_google_web_skips_block_without_h3():
-    # People-also-ask block (no <h3>) is not an organic result.
-    assert _GOOGLE_WEB.parse(_google_web_items()[1], _req("starship")) is None
+def test_google_web_knowledge_panel_has_description_and_source():
+    kp = _by_kind(WebResultKind.KNOWLEDGE_PANEL)[0]
+    assert kp.snippet.startswith("The Strait of Hormuz is a strait")
+    assert kp.domain == "en.wikipedia.org"
+    assert kp.source == "Wikipedia"
 
 
-def test_google_web_skips_non_http_anchor():
-    # Internal Google nav link (relative href) is not an organic result.
-    assert _GOOGLE_WEB.parse(_google_web_items()[2], _req("starship")) is None
+def test_google_web_widget_gives_compact_answer():
+    w = _by_kind(WebResultKind.WIDGET)[0]
+    assert w.snippet == "71°, Sunny"
+    assert w.url is None
 
 
-def test_google_web_build_url_omits_news_tab():
-    url = _GOOGLE_WEB.build_url(
-        _req("us iran", sort=Ordering.RELEVANCE, recency=Recency.ANY, page=1)
+def test_google_web_organic_has_title_source_snippet():
+    cnn = _by_kind(WebResultKind.ORGANIC)[0]
+    assert cnn.title == "Iran and US make opposing claims on Strait of Hormuz"
+    assert cnn.url == "https://www.cnn.com/2026/06/20/world/strait"  # clean, no /url?q=
+    assert cnn.domain == "cnn.com"
+    assert cnn.source == "CNN"  # span.VuuXrf, not the <cite> breadcrumb
+    assert cnn.snippet == "2 hours ago — The US military denied Iran's claim."
+
+
+def test_google_web_top_story_extracts_heading_and_source():
+    nbc = _by_kind(WebResultKind.TOP_STORY)[0]
+    assert nbc.title == "Iran says Strait of Hormuz is closed"
+    assert nbc.domain == "nbcnews.com"
+    assert nbc.source == "NBC News"
+
+
+def test_google_web_discussion_split_by_host():
+    # A Reddit card in the news cluster is a DISCUSSION, not a TOP_STORY.
+    disc = _by_kind(WebResultKind.DISCUSSION)
+    assert [d.domain for d in disc] == ["reddit.com"]
+
+
+def test_google_web_video_has_channel_and_summary():
+    vid = _by_kind(WebResultKind.VIDEO)[0]
+    assert vid.title == "US and Iran prepare for crucial talks"
+    assert vid.domain == "youtube.com"
+    assert vid.source == "Al Jazeera English"  # channel, parsed off the meta tail
+    assert vid.snippet == (
+        "Diplomats gather in Switzerland as both sides signal cautious optimism."
     )
-    assert "tbm=nws" not in url and "nsd:1" not in url
-    assert "q=us+iran" in url
-    assert "start=0" in url
-    # Relevance + any-recency means no tbs flags at all.
+
+
+def test_google_web_video_skips_uploader_date_heading():
+    # "3w" is an uploader/relative-time line, not the title; channel date stripped.
+    vid = _by_kind(WebResultKind.VIDEO)[1]
+    assert vid.title == "Inside the Strait of Hormuz standoff"
+    assert vid.source == "BBC News"  # "Sep 28, 2024" stripped off the channel
+
+
+def test_google_web_excludes_related_link_video_chip():
+    # The youtube chip inside the CNN organic block (aria "View related links")
+    # is not a standalone result.
+    urls = [e.url for e in _google_web_entries() if e.url]
+    assert not any("chip1" in u for u in urls)
+
+
+def test_google_web_excludes_people_also_ask():
+    # PAA questions (div[data-q]) are deliberately dropped from results.
+    assert all(
+        e.title != "What is the issue between Iran and the USA?"
+        for e in _google_web_entries()
+    )
+
+
+def test_google_web_dedupes_url_across_news_and_organic():
+    # cnn.com appears in both the news pack and the organic list -> once only.
+    assert sum(e.domain == "cnn.com" for e in _google_web_entries()) == 1
+
+
+def test_google_web_build_url_is_raw_query_only():
+    # Raw search: q=<query> and nothing else on page 1 (no tbm/tbs/start).
+    url = _GOOGLE_WEB.build_url(
+        _req("us iran", sort=Ordering.DATE, recency=Recency.HOUR)
+    )
+    assert url == "https://www.google.com/search?q=us+iran"
+
+
+def test_google_web_build_url_pagination_adds_start_only():
+    url = _GOOGLE_WEB.build_url(_req("us iran", page=3))
+    assert url == "https://www.google.com/search?q=us+iran&start=20"
     assert "tbs=" not in url
-
-
-def test_google_web_build_url_carries_sort_and_recency():
-    url = _GOOGLE_WEB.build_url(
-        _req("x", sort=Ordering.DATE, recency=Recency.WEEK, page=3)
-    )
-    assert "tbs=sbd:1,qdr:w" in url
-    assert "start=20" in url  # page 3 -> offset 20
 
 
 # --- Bing -----------------------------------------------------------------
