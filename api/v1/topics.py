@@ -46,7 +46,7 @@ async def add_topic(topic: TopicCreate) -> None:
 
 @router.delete("/{topic_name}")
 async def delete_topic(
-    topic_name: str = Path(..., min_length=1, max_length=100)
+    topic_name: str = Path(..., min_length=1, max_length=100),
 ) -> None:
     """Delete (soft delete) a topic.
 

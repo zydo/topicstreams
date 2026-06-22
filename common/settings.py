@@ -38,7 +38,7 @@ class YamlSettingsSource(PydanticBaseSettingsSource):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
-        except (OSError, yaml.YAMLError):
+        except OSError, yaml.YAMLError:
             return {}
         if not isinstance(data, dict):
             return {}

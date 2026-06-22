@@ -35,13 +35,13 @@ dev = [
     # (the scraper group is needed for the parser tests).
     { include-group = "api" },
     { include-group = "scraper" },
-    "black>=24.0,<26",
+    "ruff>=0.6,<1",            # formatter + linter
     "pytest>=8.0,<9",
     "httpx>=0.27,<1",          # FastAPI TestClient
     "testcontainers>=4,<5",    # ephemeral Postgres for integration tests
 ]
 
-[tool.black]
+[tool.ruff]
 line-length = 88
 
 [tool.pytest.ini_options]

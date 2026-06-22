@@ -57,8 +57,7 @@ def detect_fingerprint(p) -> FingerprintProfile:
             f"(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
         ),
         sec_ch_ua=(
-            f'"Chromium";v="{major}", "Google Chrome";v="{major}", '
-            f'"Not;A=Brand";v="24"'
+            f'"Chromium";v="{major}", "Google Chrome";v="{major}", "Not;A=Brand";v="24"'
         ),
         sec_ch_ua_platform=platform_brand,
     )

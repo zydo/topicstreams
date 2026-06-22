@@ -684,9 +684,7 @@ _BING_WEB_FIXTURE = """
     </div>
   </div>
 </body></html>
-""" % {
-    "ck": _CK
-}
+""" % {"ck": _CK}
 
 
 def _bing_web_entries(html=_BING_WEB_FIXTURE):

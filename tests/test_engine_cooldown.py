@@ -206,7 +206,11 @@ def test_scrape_topic_skips_cooling_engine_and_falls_through(monkeypatch):
     )
     factory = _PageFactory()
     entries, _logs = scrape_topic(
-        factory, sources, "t", strategy="fallback", cooldown=tracker  # type: ignore[arg-type]
+        factory,
+        sources,
+        "t",
+        strategy="fallback",
+        cooldown=tracker,  # type: ignore[arg-type]
     )
     # google is benched, so fallback goes straight to bing (no page opened for
     # google).
